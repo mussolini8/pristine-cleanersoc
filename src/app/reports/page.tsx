@@ -103,21 +103,21 @@ export default function ReportsPage() {
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <style>{`
         .reports-page { display:flex; flex-direction:column; gap:18px; }
-        .reports-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:14px; border:1px solid hsl(var(--border)); border-radius:8px; padding:18px;
-          background:linear-gradient(135deg,hsl(var(--primary)/.1),hsl(199 89% 48%/.07),hsl(42 95% 55%/.1)); box-shadow:0 18px 55px -48px hsl(210 40% 20%); }
+        .reports-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:14px; border:1px solid hsl(var(--border)/.82); border-radius:8px; padding:18px;
+          background:linear-gradient(135deg,hsl(var(--card)/.96),hsl(var(--primary)/.08),hsl(42 95% 55%/.08)); box-shadow:0 22px 60px -52px hsl(210 40% 20%); }
         .reports-kicker { display:flex; align-items:center; gap:7px; font-size:.72rem; font-weight:950; color:hsl(var(--primary)); text-transform:uppercase; letter-spacing:.12em; }
-        .reports-title { margin-top:8px; font-size:1.65rem; font-weight:950; }
-        .reports-sub { margin-top:4px; color:hsl(var(--muted-foreground)); font-size:.88rem; font-weight:650; }
+        .reports-title { margin-top:8px; font-size:1.7rem; font-weight:800; line-height:1.05; }
+        .reports-sub { margin-top:6px; color:hsl(var(--muted-foreground)); font-size:.88rem; font-weight:500; }
         .report-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
         .frequency-select { height:38px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); padding:0 10px; font:inherit; font-size:.82rem; font-weight:900; outline:none; }
         .download-all { display:inline-flex; align-items:center; gap:7px; height:38px; border:none; border-radius:8px; padding:0 13px; background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); font-weight:950; cursor:pointer; }
         .kpi-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; }
-        .report-kpi { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--card)); padding:14px; box-shadow:0 16px 42px -42px hsl(210 40% 20%); transition:transform .18s ease, box-shadow .18s ease; }
+        .report-kpi { border:1px solid hsl(var(--border)/.82); border-radius:8px; background:hsl(var(--card)/.96); padding:14px; box-shadow:0 16px 42px -42px hsl(210 40% 20%); transition:transform .18s ease, box-shadow .18s ease; }
         .report-kpi:hover { transform:translateY(-2px); box-shadow:0 18px 42px -36px hsl(210 40% 20%); }
         .report-kpi svg { color:hsl(var(--primary)); }
         .kpi-label { margin-top:12px; font-size:.68rem; font-weight:950; text-transform:uppercase; letter-spacing:.1em; color:hsl(var(--muted-foreground)); }
         .kpi-value { margin-top:3px; font-size:1.8rem; font-weight:950; }
-        .library { border:1px solid hsl(var(--border)); border-radius:8px; overflow:hidden; background:hsl(var(--card)); }
+        .library { border:1px solid hsl(var(--border)/.82); border-radius:8px; overflow:hidden; background:hsl(var(--card)/.96); box-shadow:0 18px 55px -48px hsl(210 40% 20%); }
         .library-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px; border-bottom:1px solid hsl(var(--border)); }
         .library-title { font-size:.98rem; font-weight:950; }
         .window-pill { border:1px solid hsl(var(--border)); border-radius:999px; padding:5px 10px; color:hsl(var(--muted-foreground)); font-size:.72rem; font-weight:900; }

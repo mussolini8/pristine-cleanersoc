@@ -803,12 +803,12 @@ export default function PaymentsPage() {
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <style>{`
         .pay-page { display:flex; flex-direction:column; gap:18px; color:hsl(var(--foreground)); }
-        .pay-hero { position:relative; overflow:hidden; border:1px solid hsl(var(--border)); border-radius:8px; background:
-          linear-gradient(135deg, hsl(178 58% 96%), hsl(42 95% 96%) 48%, hsl(220 80% 97%)); padding:18px; box-shadow:0 18px 55px -42px hsl(210 40% 20%); }
-        .dark .pay-hero { background:linear-gradient(135deg, hsl(178 34% 12%), hsl(42 38% 11%) 48%, hsl(220 32% 12%)); }
+        .pay-hero { position:relative; overflow:hidden; border:1px solid hsl(var(--border)/.82); border-radius:8px; background:
+          linear-gradient(135deg, hsl(var(--card)/.96), hsl(var(--primary)/.08) 58%, hsl(42 95% 55%/.08)); padding:18px; box-shadow:0 22px 60px -52px hsl(210 40% 20%); }
+        .dark .pay-hero { background:linear-gradient(135deg, hsl(var(--card)/.92), hsl(var(--primary)/.12) 58%, hsl(42 55% 14%/.26)); }
         .pay-topbar { position:relative; z-index:1; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; }
-        .pay-title { font-size:clamp(1.35rem, 2vw, 2rem); font-weight:900; line-height:1.05; }
-        .pay-sub { margin-top:5px; font-size:.86rem; font-weight:600; color:hsl(var(--muted-foreground)); }
+        .pay-title { font-size:1.7rem; font-weight:800; line-height:1.05; }
+        .pay-sub { margin-top:6px; font-size:.88rem; font-weight:500; color:hsl(var(--muted-foreground)); }
         .pay-actions { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:10px; }
         .month-nav, .export-group { display:flex; align-items:center; gap:8px; padding:5px; border-radius:8px; border:1px solid hsl(var(--border)); background:hsl(var(--background)/.76); backdrop-filter:blur(14px); }
         .nav-btn, .action-btn { display:inline-flex; align-items:center; justify-content:center; border:1px solid hsl(var(--border)); cursor:pointer; color:hsl(var(--foreground)); background:hsl(var(--background)); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
@@ -823,10 +823,10 @@ export default function PaymentsPage() {
         .week-tab { height:34px; min-width:48px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)/.76); color:hsl(var(--muted-foreground)); cursor:pointer; font-size:.76rem; font-weight:950; }
         .week-tab.active { border-color:hsl(var(--primary)); background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
         .kpi-ribbon { position:relative; z-index:1; display:grid; grid-template-columns:.9fr 1fr 1.55fr 1fr; gap:10px; margin-top:14px; }
-        .kpi { min-width:0; min-height:112px; padding:12px; border-radius:8px; background:hsl(var(--background)/.76); border:1px solid hsl(var(--border)); backdrop-filter:blur(16px); display:flex; flex-direction:column; justify-content:center; }
+        .kpi { min-width:0; min-height:112px; padding:12px; border-radius:8px; background:hsl(var(--card)/.78); border:1px solid hsl(var(--border)/.82); backdrop-filter:blur(16px); display:flex; flex-direction:column; justify-content:center; box-shadow:0 14px 38px -36px hsl(210 40% 20%); }
         .kpi-label { display:flex; align-items:center; justify-content:center; gap:7px; text-align:center; font-size:.67rem; font-weight:900; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
         .kpi-value { margin-top:5px; text-align:center; font-size:1.35rem; font-weight:950; }
-        .kpi.primary { color:hsl(var(--primary-foreground)); border-color:hsl(var(--primary)); background:linear-gradient(135deg, hsl(var(--primary)), hsl(199 76% 42%)); }
+        .kpi.primary { color:hsl(var(--primary-foreground)); border-color:hsl(var(--primary)); background:linear-gradient(135deg, hsl(var(--primary)), hsl(160 42% 28%)); }
         .kpi.primary .kpi-label { color:hsl(var(--primary-foreground)/.74); }
         .extra-kpi { justify-content:space-between; gap:10px; padding:14px; }
         .extra-title { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; }
@@ -838,7 +838,7 @@ export default function PaymentsPage() {
         .extra-kpi input { width:100%; height:34px; border:1px solid hsl(var(--border)); border-radius:7px; background:hsl(var(--background)); color:hsl(var(--foreground)); font:inherit; font-size:.78rem; font-weight:850; padding:0 8px; outline:none; box-sizing:border-box; text-align:center; }
         .extra-kpi input:focus { border-color:hsl(var(--primary)); box-shadow:0 0 0 3px hsl(var(--primary)/.1); }
         .extra-kpi .amount-extra { background:hsl(60 100% 50%/.42); text-align:center; }
-        .overview-panel { border:1px solid hsl(var(--border)); border-radius:8px; padding:16px; background:hsl(var(--card)); animation:riseIn .34s ease both; }
+        .overview-panel { border:1px solid hsl(var(--border)/.82); border-radius:8px; padding:16px; background:hsl(var(--card)/.96); box-shadow:0 18px 55px -48px hsl(210 40% 20%); animation:riseIn .34s ease both; }
         .overview-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
         .section-kicker { display:inline-flex; align-items:center; gap:7px; color:hsl(var(--primary)); font-size:.7rem; font-weight:950; text-transform:uppercase; letter-spacing:.08em; }
         .overview-head h2 { margin-top:4px; font-size:1rem; font-weight:950; }
@@ -852,9 +852,10 @@ export default function PaymentsPage() {
         .month-table td span { display:block; margin-top:2px; color:hsl(var(--muted-foreground)); font-size:.66rem; font-weight:700; }
         .month-money { color:hsl(var(--primary)); font-weight:950; white-space:nowrap; }
         .cleaner-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(430px, 1fr)); gap:12px; grid-auto-flow:dense; }
-        .cleaner-frame { display:flex; flex-direction:column; min-height:246px; border:1px solid hsl(var(--border));
-          border-radius:8px; background:linear-gradient(180deg, hsl(var(--card)), hsl(var(--card)) calc(100% - 5px), hsl(var(--primary)/.2) calc(100% - 5px), hsl(var(--primary)/.2) var(--fill), hsl(var(--card)) var(--fill));
-          box-shadow:0 18px 48px -44px hsl(210 40% 20%); animation:riseIn .36s ease both; animation-delay:var(--delay); padding:10px; gap:9px; }
+        .cleaner-frame { display:flex; flex-direction:column; min-height:246px; border:1px solid hsl(var(--border)/.82);
+          border-radius:8px; background:linear-gradient(180deg, hsl(var(--card)/.98), hsl(var(--card)/.98) calc(100% - 5px), hsl(var(--primary)/.2) calc(100% - 5px), hsl(var(--primary)/.2) var(--fill), hsl(var(--card)) var(--fill));
+          box-shadow:0 18px 48px -44px hsl(210 40% 20%); animation:riseIn .36s ease both; animation-delay:var(--delay); padding:10px; gap:9px; transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+        .cleaner-frame:hover { transform:translateY(-2px); border-color:hsl(var(--primary)/.28); box-shadow:0 22px 52px -42px hsl(210 40% 20%); }
         .juan-frame { grid-column:auto; }
         .frame-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
         .frame-head h2 { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.95rem; font-weight:950; }
@@ -869,7 +870,7 @@ export default function PaymentsPage() {
         .payroll-table { width:100%; min-width:350px; border-collapse:collapse; table-layout:fixed; font-size:.75rem; }
         .payroll-table th:first-child, .payroll-table td:first-child { width:118px; }
         .juan-table { min-width:520px; }
-        .payroll-table th { height:30px; padding:5px 7px; border:1px solid hsl(var(--border)); background:hsl(var(--muted)/.45); font-size:.64rem; font-weight:950; text-align:center; text-transform:uppercase; }
+        .payroll-table th { height:30px; padding:5px 7px; border:1px solid hsl(var(--border)); background:hsl(var(--muted)/.52); font-size:.64rem; font-weight:950; text-align:center; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
         .payroll-table td { height:32px; border:1px solid hsl(var(--border)); padding:0; }
         .payroll-table input { width:100%; height:32px; border:0; background:transparent; color:hsl(var(--foreground)); font:inherit; font-size:.76rem; font-weight:800; outline:none; padding:0 7px; box-sizing:border-box; }
         .payroll-table input:focus { box-shadow:inset 0 0 0 2px hsl(var(--primary)/.32); }

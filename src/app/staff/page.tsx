@@ -152,12 +152,12 @@ export default function StaffPage() {
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <style>{`
         .staff-page { display:flex; flex-direction:column; gap:18px; }
-        .staff-hero { border:1px solid hsl(var(--border)); border-radius:8px; padding:18px; background:
-          linear-gradient(135deg,hsl(var(--primary)/.11),hsl(199 89% 48%/.07),hsl(42 95% 55%/.1)); box-shadow:0 18px 50px -42px hsl(210 40% 20%); }
+        .staff-hero { border:1px solid hsl(var(--border)/.82); border-radius:8px; padding:18px; background:
+          linear-gradient(135deg,hsl(var(--card)/.96),hsl(var(--primary)/.08),hsl(42 95% 55%/.08)); box-shadow:0 22px 60px -52px hsl(210 40% 20%); }
         .hero-row { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; }
         .hero-kicker { display:flex; align-items:center; gap:7px; font-size:.72rem; font-weight:950; text-transform:uppercase; letter-spacing:.12em; color:hsl(var(--primary)); }
-        .hero-title { margin-top:8px; font-size:1.65rem; font-weight:950; }
-        .hero-sub { margin-top:4px; max-width:680px; color:hsl(var(--muted-foreground)); font-size:.88rem; font-weight:650; }
+        .hero-title { margin-top:8px; font-size:1.7rem; font-weight:800; line-height:1.05; }
+        .hero-sub { margin-top:6px; max-width:680px; color:hsl(var(--muted-foreground)); font-size:.88rem; font-weight:500; }
         .staff-form { display:grid; grid-template-columns:1.1fr 1.2fr .9fr .7fr auto; gap:8px; align-items:end; }
         .staff-form label { display:flex; flex-direction:column; gap:5px; min-width:0; }
         .staff-form span { font-size:.65rem; font-weight:950; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
@@ -165,16 +165,17 @@ export default function StaffPage() {
         .staff-form input:focus, .staff-form select:focus { border-color:hsl(var(--primary)); box-shadow:0 0 0 3px hsl(var(--primary)/.1); }
         .add-person-btn { display:inline-flex; align-items:center; gap:7px; height:38px; border:none; border-radius:8px; padding:0 13px; background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); font-weight:950; cursor:pointer; white-space:nowrap; }
         .stat-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; }
-        .stat-card { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--card)); padding:14px; box-shadow:0 16px 42px -42px hsl(210 40% 20%); }
+        .stat-card { border:1px solid hsl(var(--border)/.82); border-radius:8px; background:hsl(var(--card)/.96); padding:14px; box-shadow:0 16px 42px -42px hsl(210 40% 20%); }
         .stat-card svg { color:hsl(var(--primary)); }
         .stat-label { margin-top:12px; font-size:.68rem; font-weight:950; text-transform:uppercase; letter-spacing:.1em; color:hsl(var(--muted-foreground)); }
         .stat-value { margin-top:3px; font-size:1.8rem; font-weight:950; }
-        .directory { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--card)); overflow:hidden; box-shadow:0 18px 55px -48px hsl(210 40% 20%); }
+        .directory { border:1px solid hsl(var(--border)/.82); border-radius:8px; background:hsl(var(--card)/.96); overflow:hidden; box-shadow:0 18px 55px -48px hsl(210 40% 20%); }
         .directory-head { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid hsl(var(--border)); }
         .directory-title { font-size:.98rem; font-weight:950; }
         .directory-count { font-size:.72rem; font-weight:900; color:hsl(var(--muted-foreground)); }
         .staff-list { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }
-        .person-card { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 14px; border-bottom:1px solid hsl(var(--border)); }
+        .person-card { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 14px; border-bottom:1px solid hsl(var(--border)); transition:background .18s ease; }
+        .person-card:hover { background:hsl(var(--accent)/.34); }
         .person-card:nth-child(odd) { border-right:1px solid hsl(var(--border)); }
         .person-main { display:flex; align-items:center; gap:12px; min-width:0; }
         .avatar { display:grid; place-items:center; width:42px; height:42px; flex-shrink:0; border-radius:8px; background:hsl(var(--primary)/.1); color:hsl(var(--primary)); font-size:.82rem; font-weight:950; }

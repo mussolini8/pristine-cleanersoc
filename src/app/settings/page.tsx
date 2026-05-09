@@ -57,15 +57,15 @@ export default function SettingsPage() {
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <style>{`
         .settings-page { display:flex; flex-direction:column; gap:18px; }
-        .settings-title { font-size:1.65rem; font-weight:950; }
-        .settings-sub { margin-top:4px; color:hsl(var(--muted-foreground)); font-size:.88rem; font-weight:650; }
+        .settings-title { font-size:1.7rem; font-weight:800; line-height:1.05; }
+        .settings-sub { margin-top:6px; color:hsl(var(--muted-foreground)); font-size:.88rem; font-weight:500; }
         .settings-kicker { font-size:.72rem; font-weight:950; text-transform:uppercase; letter-spacing:.13em; color:hsl(var(--primary)); }
         .settings-grid { display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(320px, .8fr); gap:14px; align-items:start; }
-        .settings-card { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--card)); padding:16px; box-shadow:0 18px 55px -48px hsl(210 40% 20%); }
+        .settings-card { border:1px solid hsl(var(--border)/.82); border-radius:8px; background:hsl(var(--card)/.96); padding:16px; box-shadow:0 18px 55px -48px hsl(210 40% 20%); }
         .card-title { display:flex; align-items:center; gap:8px; font-size:1rem; font-weight:950; }
         .preference-list { margin-top:14px; display:grid; gap:8px; }
         .preference-btn { display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); padding:12px; text-align:left; cursor:pointer; transition:background .18s ease, transform .18s ease; }
-        .preference-btn:hover { background:hsl(var(--accent)); transform:translateY(-1px); }
+        .preference-btn:hover { background:hsl(var(--accent)/.7); transform:translateY(-1px); border-color:hsl(var(--primary)/.28); }
         .preference-main { display:flex; align-items:center; gap:10px; min-width:0; }
         .pref-icon { display:grid; place-items:center; width:38px; height:38px; flex-shrink:0; border-radius:8px; background:hsl(var(--primary)/.1); color:hsl(var(--primary)); }
         .pref-label { display:block; font-size:.84rem; font-weight:950; }

@@ -744,20 +744,20 @@ export default function CommercialPage() {
   return (
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <style>{`
-        .commercial-page { display:flex; flex-direction:column; gap:20px; }
+        .commercial-page { display:flex; flex-direction:column; gap:18px; }
         .commercial-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:14px;
-          padding:18px; border:1px solid hsl(var(--border)); border-radius:8px; background:
-          linear-gradient(135deg, hsl(168 76% 34%/.1), hsl(199 89% 48%/.08) 52%, hsl(42 95% 55%/.1)); }
-        .dark .commercial-head { background:linear-gradient(135deg, hsl(168 50% 16%/.55), hsl(199 50% 14%/.45) 52%, hsl(42 55% 14%/.5)); }
-        .page-title { font-size:1.5rem; font-weight:700; color:hsl(var(--foreground)); }
-        .page-sub { font-size:0.83rem; color:hsl(var(--muted-foreground)); margin-top:3px; }
-        .add-account-btn { display:flex; align-items:center; gap:7px; border:none; border-radius:10px;
+          padding:18px; border:1px solid hsl(var(--border)/.82); border-radius:8px; background:
+          linear-gradient(135deg, hsl(var(--card)/.96), hsl(var(--primary)/.08) 58%, hsl(42 95% 55%/.08)); box-shadow:0 22px 60px -52px hsl(215 40% 20%); }
+        .dark .commercial-head { background:linear-gradient(135deg, hsl(var(--card)/.92), hsl(var(--primary)/.12) 58%, hsl(42 55% 14%/.28)); }
+        .page-title { font-size:1.7rem; font-weight:800; color:hsl(var(--foreground)); line-height:1.05; }
+        .page-sub { font-size:0.88rem; color:hsl(var(--muted-foreground)); margin-top:6px; font-weight:500; }
+        .add-account-btn { display:flex; align-items:center; gap:7px; border:none; border-radius:8px;
           background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); padding:9px 16px;
           font-size:.84rem; font-weight:800; cursor:pointer; box-shadow:0 12px 28px -18px hsl(var(--primary)); }
-        .add-account-btn:hover { opacity:.9; }
+        .add-account-btn:hover { transform:translateY(-1px); }
 
         .account-studio { border:1px solid hsl(var(--border)); background:hsl(var(--card));
-          border-radius:14px; overflow:hidden; box-shadow:0 20px 60px -42px hsl(222 47% 11%); }
+          border-radius:8px; overflow:hidden; box-shadow:0 20px 60px -42px hsl(222 47% 11%); }
         .studio-hero { display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
           padding:18px 20px; border-bottom:1px solid hsl(var(--border));
           background:linear-gradient(135deg, hsl(var(--primary)/.12), hsl(215 90% 58%/.08)); }
@@ -812,14 +812,14 @@ export default function CommercialPage() {
         .preview-meter span { display:block; height:100%; border-radius:999px; background:hsl(var(--primary)); }
         .studio-error { border:1px solid hsl(0 84% 60%/.25); background:hsl(0 84% 60%/.1); color:hsl(0 84% 45%);
           border-radius:8px; padding:10px; font-size:.78rem; font-weight:800; }
-        .studio-save { border:none; border-radius:10px; padding:10px 12px; background:hsl(var(--primary));
+        .studio-save { border:none; border-radius:8px; padding:10px 12px; background:hsl(var(--primary));
           color:hsl(var(--primary-foreground)); font-weight:900; cursor:pointer; }
         .studio-save:disabled { opacity:.65; cursor:not-allowed; }
 
         .stat-bar { display:grid; grid-template-columns:1.4fr 1fr 1fr 1.2fr 1fr 1fr; gap:10px; }
-        .stat-card { min-width:0; padding:14px; border-radius:8px; background:hsl(var(--card)); border:1px solid hsl(var(--border));
+        .stat-card { min-width:0; padding:14px; border-radius:8px; background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82);
           box-shadow:0 16px 44px -42px hsl(210 40% 20%); }
-        .stat-card.accent { background:linear-gradient(135deg, hsl(var(--primary)), hsl(199 76% 42%)); border-color:hsl(var(--primary)); }
+        .stat-card.accent { background:linear-gradient(135deg, hsl(var(--primary)), hsl(160 42% 28%)); border-color:hsl(var(--primary)); }
         .stat-label { font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:hsl(var(--muted-foreground)); }
         .stat-card.accent .stat-label { color:hsl(var(--primary-foreground)/.7); }
         .stat-value { font-size:1.28rem; font-weight:800; margin-top:4px; color:hsl(var(--foreground)); }
@@ -831,8 +831,8 @@ export default function CommercialPage() {
 
         .analytics-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
         @media (max-width:900px) { .analytics-grid { grid-template-columns:1fr; } }
-        .analytics-card { background:hsl(var(--card)); border:1px solid hsl(var(--border)); border-radius:14px; padding:20px; }
-        .analytics-title { font-size:0.9rem; font-weight:700; color:hsl(var(--foreground)); margin-bottom:16px; }
+        .analytics-card { background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82); border-radius:8px; padding:18px; box-shadow:0 16px 44px -42px hsl(210 40% 20%); }
+        .analytics-title { font-size:0.9rem; font-weight:800; color:hsl(var(--foreground)); margin-bottom:16px; }
 
         .cleaner-table { width:100%; border-collapse:collapse; font-size:0.78rem; }
         .cleaner-table th { text-align:left; padding:6px 10px; font-size:0.68rem; font-weight:700;
@@ -843,9 +843,9 @@ export default function CommercialPage() {
         .pct-bar-wrap { width:100%; background:hsl(var(--muted)); border-radius:99px; height:6px; }
         .pct-bar { height:6px; border-radius:99px; background:hsl(var(--primary)); }
 
-        .table-card { background:hsl(var(--card)); border:1px solid hsl(var(--border)); border-radius:8px; overflow:hidden; box-shadow:0 18px 55px -48px hsl(210 40% 20%); }
+        .table-card { background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82); border-radius:8px; overflow:hidden; box-shadow:0 20px 58px -48px hsl(210 40% 20%); }
         .table-header { display:grid; grid-template-columns:minmax(220px, 1fr) auto; align-items:center; gap:12px;
-          padding:14px 16px; border-bottom:1px solid hsl(var(--border)); background:hsl(var(--muted)/.22); }
+          padding:14px 16px; border-bottom:1px solid hsl(var(--border)); background:hsl(var(--muted)/.28); }
         .table-title { display:flex; align-items:center; gap:8px; font-size:0.95rem; font-weight:900; color:hsl(var(--foreground)); }
         .account-controls { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
         .account-search { position:relative; min-width:230px; }
@@ -874,11 +874,11 @@ export default function CommercialPage() {
         table.main-table th:nth-child(12), table.main-table td:nth-child(12) { width:74px; }
         table.main-table thead th { padding:10px 12px; text-align:left; font-size:0.68rem;
           font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-          color:hsl(var(--muted-foreground)); background:hsl(var(--muted)/.4);
+          color:hsl(var(--muted-foreground)); background:hsl(var(--muted)/.48);
           border-bottom:1px solid hsl(var(--border)); white-space:nowrap; }
         .acc-row { transition:background .12s, box-shadow .12s; }
         .acc-row:hover { background:hsl(var(--accent)/.36); box-shadow:inset 3px 0 0 hsl(var(--primary)); }
-        .acc-cell { padding:10px 12px; border-bottom:1px solid hsl(var(--border)/.5); vertical-align:middle;
+        .acc-cell { padding:10px 12px; border-bottom:1px solid hsl(var(--border)/.55); vertical-align:middle;
           background:hsl(var(--card)); line-height:1.25; overflow:hidden; }
         .acc-row:hover .acc-cell { background:hsl(var(--accent)/.36); }
         table.main-table thead th:first-child,

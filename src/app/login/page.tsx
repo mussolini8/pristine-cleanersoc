@@ -14,8 +14,8 @@ export default function LoginPage() {
   const [state, action, pending] = useActionState(signIn, {});
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-[#f1f5f9] px-4 py-10 text-[#0f172a]">
-      <section className="w-full max-w-[420px] rounded-[28px] border border-white/70 bg-white/90 p-8 shadow-[0_24px_80px_-36px_rgba(15,23,42,0.45)] backdrop-blur">
+    <main className="grid min-h-dvh place-items-center bg-[radial-gradient(circle_at_top_left,rgba(67,125,101,0.13),transparent_34rem),linear-gradient(180deg,#f8fafc,#eef3f1)] px-4 py-10 text-[#0f172a]">
+      <section className="w-full max-w-[420px] rounded-lg border border-white/80 bg-white/92 p-8 shadow-[0_26px_80px_-46px_rgba(15,23,42,0.58)] backdrop-blur">
         <div className="mb-8 flex flex-col items-center text-center">
           <Image
             alt="Pristine Cleaners"
@@ -40,7 +40,7 @@ export default function LoginPage() {
             </Label>
             <Input
               autoComplete="email"
-              className="h-12 rounded-xl border-[#dbe3ea] bg-[#f8fafc] px-4 text-[15px] font-semibold text-[#0f172a]"
+              className="h-12 rounded-md border-[#dbe3ea] bg-[#f8fafc] px-4 text-[15px] font-semibold text-[#0f172a]"
               defaultValue={accessEmail}
               id="email"
               name="email"
@@ -59,7 +59,7 @@ export default function LoginPage() {
             </Label>
             <Input
               autoComplete="current-password"
-              className="h-12 rounded-xl border-[#dbe3ea] bg-[#f8fafc] px-4 text-[15px] font-semibold text-[#0f172a]"
+              className="h-12 rounded-md border-[#dbe3ea] bg-[#f8fafc] px-4 text-[15px] font-semibold text-[#0f172a]"
               id="password"
               name="password"
               placeholder="000000"
@@ -73,13 +73,13 @@ export default function LoginPage() {
           </div>
 
           {state.message ? (
-            <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
               {state.message}
             </p>
           ) : null}
 
           <Button
-            className="h-12 rounded-xl bg-[#437d65] text-[15px] font-bold text-white shadow-[0_12px_28px_-14px_rgba(67,125,101,0.9)] hover:bg-[#356351]"
+            className="h-12 rounded-md bg-[#437d65] text-[15px] font-bold text-white shadow-[0_12px_28px_-14px_rgba(67,125,101,0.9)] hover:bg-[#356351]"
             disabled={pending}
             type="submit"
           >

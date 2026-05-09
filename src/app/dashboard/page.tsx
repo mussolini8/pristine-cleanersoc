@@ -480,42 +480,44 @@ export default function DashboardPage() {
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <style>{`
         /* ── Page ── */
-        .dash-page { display:flex; flex-direction:column; gap:22px; }
-        .dash-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
-        .dash-title { font-size:1.5rem; font-weight:700; color:hsl(var(--foreground)); }
-        .dash-sub { font-size:0.83rem; color:hsl(var(--muted-foreground)); margin-top:3px; }
+        .dash-page { display:flex; flex-direction:column; gap:18px; }
+        .dash-header { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:14px; border:1px solid hsl(var(--border)/.82); border-radius:8px; padding:18px; background:linear-gradient(135deg,hsl(var(--card)/.96),hsl(var(--primary)/.08)); box-shadow:0 22px 60px -52px hsl(215 40% 20%); }
+        .dash-title { font-size:1.7rem; font-weight:800; color:hsl(var(--foreground)); line-height:1.05; }
+        .dash-sub { font-size:0.88rem; color:hsl(var(--muted-foreground)); margin-top:6px; font-weight:500; }
 
         /* ── KPI bar ── */
-        .kpi-bar { display:flex; flex-wrap:wrap; gap:12px; }
-        .kpi { flex:1; min-width:120px; padding:14px 18px; border-radius:12px;
-          background:hsl(var(--card)); border:1px solid hsl(var(--border)); }
-        .kpi.urgent { border-left:3px solid #ef4444; }
-        .kpi.today  { border-left:3px solid #f97316; }
-        .kpi.done   { border-left:3px solid #437d65; }
+        .kpi-bar { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; }
+        .kpi { min-width:0; padding:15px 16px; border-radius:8px;
+          background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82); box-shadow:0 16px 44px -42px hsl(215 40% 20%); }
+        .kpi.urgent { box-shadow:inset 3px 0 0 #ef4444, 0 16px 44px -42px hsl(215 40% 20%); }
+        .kpi.today  { box-shadow:inset 3px 0 0 #f97316, 0 16px 44px -42px hsl(215 40% 20%); }
+        .kpi.done   { box-shadow:inset 3px 0 0 hsl(var(--primary)), 0 16px 44px -42px hsl(215 40% 20%); }
         .kpi-label { font-size:0.68rem; font-weight:700; text-transform:uppercase;
           letter-spacing:.06em; color:hsl(var(--muted-foreground)); }
-        .kpi-val { font-size:1.5rem; font-weight:800; margin-top:4px; color:hsl(var(--foreground)); }
+        .kpi-val { font-size:1.65rem; font-weight:800; margin-top:4px; color:hsl(var(--foreground)); }
 
         /* ── Filter bar ── */
-        .filter-bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-        .filter-btn { padding:5px 14px; border-radius:99px; border:1px solid hsl(var(--border));
-          background:transparent; font-size:0.78rem; font-weight:600; cursor:pointer;
-          color:hsl(var(--muted-foreground)); transition:all .15s; }
+        .filter-bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; border:1px solid hsl(var(--border)/.82); border-radius:8px; background:hsl(var(--card)/.72); padding:7px; }
+        .filter-btn { padding:6px 12px; border-radius:7px; border:1px solid transparent;
+          background:transparent; font-size:0.78rem; font-weight:700; cursor:pointer;
+          color:hsl(var(--muted-foreground)); transition:all .18s ease; }
         .filter-btn:hover { background:hsl(var(--accent)); color:hsl(var(--accent-foreground)); }
-        .filter-btn.active { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); border-color:hsl(var(--primary)); }
+        .filter-btn.active { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); border-color:hsl(var(--primary)); box-shadow:0 10px 22px -18px hsl(var(--primary)); }
 
         /* ── Add task button ── */
-        .add-btn { display:flex; align-items:center; gap:6px; padding:8px 18px;
-          border-radius:10px; background:hsl(var(--primary)); color:hsl(var(--primary-foreground));
+        .add-btn { display:flex; align-items:center; gap:6px; padding:9px 16px;
+          border-radius:8px; background:hsl(var(--primary)); color:hsl(var(--primary-foreground));
           font-size:0.83rem; font-weight:700; border:none; cursor:pointer;
-          box-shadow:0 4px 14px -4px hsl(var(--primary)/.5); transition:opacity .15s; }
-        .add-btn:hover { opacity:.85; }
+          box-shadow:0 14px 28px -22px hsl(var(--primary)); transition:all .18s ease; }
+        .add-btn:hover { transform:translateY(-1px); filter:saturate(1.05); }
 
         /* ── Trello board ── */
-        .board { display:grid; grid-template-columns:repeat(3, minmax(310px, 1fr)); gap:16px; align-items:start; overflow-x:auto; padding-bottom:4px; }
+        .board { display:grid; grid-template-columns:repeat(3, minmax(310px, 1fr)); gap:14px; align-items:start; overflow-x:auto; padding-bottom:4px; }
         @media (max-width:800px) { .board { grid-template-columns:1fr; } }
+        @media (max-width:1080px) { .kpi-bar { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+        @media (max-width:640px) { .kpi-bar { grid-template-columns:1fr; } }
 
-        .column { background:hsl(var(--muted)/.36); border:1px solid transparent; border-radius:14px; padding:14px; min-height:360px; transition:border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+        .column { background:hsl(var(--card)/.68); border:1px solid hsl(var(--border)/.72); border-radius:8px; padding:12px; min-height:360px; transition:border-color .16s ease, background .16s ease, box-shadow .16s ease; box-shadow:0 18px 55px -50px hsl(215 40% 20%); }
         .column.drop-active { border-color:hsl(var(--primary)/.45); background:hsl(var(--primary)/.06); box-shadow:inset 0 0 0 1px hsl(var(--primary)/.16); }
         .col-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
         .col-title { display:flex; align-items:center; gap:7px; font-size:0.85rem; font-weight:700;
@@ -530,11 +532,11 @@ export default function DashboardPage() {
         .tasks-list { display:flex; flex-direction:column; gap:10px; min-height:280px; }
 
         /* ── Task card ── */
-        .task-card { background:hsl(var(--card)); border:1px solid hsl(var(--border));
-          border-radius:11px; overflow:hidden; display:flex;
+        .task-card { background:hsl(var(--card)); border:1px solid hsl(var(--border)/.86);
+          border-radius:8px; overflow:hidden; display:flex;
           transition:box-shadow .2s, transform .2s, opacity .2s, border-color .2s; cursor:grab; }
         .task-card:active { cursor:grabbing; }
-        .task-card:hover { box-shadow:0 4px 16px -4px hsl(0 0% 0%/.15); transform:translateY(-1px); }
+        .task-card:hover { border-color:hsl(var(--primary)/.28); box-shadow:0 16px 34px -30px hsl(215 40% 20%); transform:translateY(-1px); }
         .task-card.dragging { opacity:.48; border-color:hsl(var(--primary)); }
         .task-done { opacity:.55; }
         .task-stripe { width:4px; flex-shrink:0; }
@@ -570,7 +572,7 @@ export default function DashboardPage() {
         /* ── Modal ── */
         .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:100;
           display:flex; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(4px); }
-        .modal-box { background:hsl(var(--card)); border:1px solid hsl(var(--border)); border-radius:18px;
+        .modal-box { background:hsl(var(--card)); border:1px solid hsl(var(--border)); border-radius:8px;
           width:100%; max-width:480px; box-shadow:0 24px 80px -20px rgba(0,0,0,.4);
           animation:slideUp .2s ease; }
         @keyframes slideUp { from { transform:translateY(20px); opacity:0; } to { transform:none; opacity:1; } }
@@ -585,10 +587,10 @@ export default function DashboardPage() {
           padding:14px 22px; border-top:1px solid hsl(var(--border)); }
         .field-label { font-size:0.72rem; font-weight:700; color:hsl(var(--muted-foreground));
           text-transform:uppercase; letter-spacing:.05em; display:block; margin-bottom:4px; }
-        .field-input { width:100%; background:hsl(var(--input)); border:1px solid hsl(var(--border));
+        .field-input { width:100%; background:hsl(var(--background)); border:1px solid hsl(var(--border));
           border-radius:8px; padding:8px 10px; font-size:0.84rem; color:hsl(var(--foreground));
-          font-family:inherit; outline:none; transition:border-color .15s; box-sizing:border-box; }
-        .field-input:focus { border-color:hsl(var(--primary)); }
+          font-family:inherit; outline:none; transition:border-color .15s, box-shadow .15s; box-sizing:border-box; }
+        .field-input:focus { border-color:hsl(var(--primary)); box-shadow:0 0 0 3px hsl(var(--primary)/.1); }
         .field-textarea { min-height:70px; resize:vertical; }
         .field-row { display:flex; gap:12px; }
         .checkbox-row { display:flex; align-items:center; gap:8px; font-size:0.82rem;
