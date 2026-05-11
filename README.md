@@ -65,3 +65,14 @@ Set the variables in `.env.example` in your hosting provider. `NEXT_PUBLIC_APP_U
 http://localhost:3000/auth/callback
 https://your-domain.com/auth/callback
 ```
+
+## Deploying on Render (common issue)
+
+If you deploy to Render and the build fails during prerendering with a ZodError about `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`, it means those environment variables are not set for the build step. To fix:
+
+- In your Render service, open **Environment** → **Environment Variables**.
+- Add `NEXT_PUBLIC_SUPABASE_URL` with your Supabase project URL.
+- Add `NEXT_PUBLIC_SUPABASE_ANON_KEY` with your Supabase anon/public key.
+- Redeploy the service.
+
+These values are required at build time because the app validates them with Zod when generating static pages. If you prefer to keep build-time rendering but avoid failing the build, set these variables to valid values (even temporary) in your host.
