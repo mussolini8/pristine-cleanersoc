@@ -30,12 +30,12 @@ export default function SettingsPage() {
     setPasswordMessage(null);
 
     if (password.length < 6) {
-      setPasswordMessage({ type: "error", text: "Password must be at least 6 characters." });
+      setPasswordMessage({ type: "error", text: "Password must be at least 6 characters. Make it strong." });
       return;
     }
 
     if (password !== confirmPassword) {
-      setPasswordMessage({ type: "error", text: "Passwords do not match." });
+      setPasswordMessage({ type: "error", text: "Passwords don't match. Check both fields and try again." });
       return;
     }
 
@@ -89,7 +89,7 @@ export default function SettingsPage() {
         <div>
           <p className="settings-kicker">SOP Pristine Cleaners</p>
           <h1 className="settings-title">Settings</h1>
-          <p className="settings-sub">Control the operating dashboard defaults, reminders, and account security.</p>
+          <p className="settings-sub">Configure operations preferences, security settings, and system defaults for your cleaning company.</p>
         </div>
 
         <div className="settings-grid">

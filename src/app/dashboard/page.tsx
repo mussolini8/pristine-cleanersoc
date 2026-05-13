@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { createClient } from "@/lib/supabase/client";
+import { getResidentialServices, getCommercialServices } from "@/data/service-types";
 import {
   Plus, X, Edit2, Check, AlertTriangle, Clock, CheckCircle2,
   Circle, ArrowRight, Bell, Repeat2, GripVertical,
@@ -41,7 +42,7 @@ type TaskRow = {
   custom_interval_days: number | null;
 };
 
-const CATEGORIES = ["Operations", "Finance", "Clients", "Teams", "Admin", "Other"];
+const CATEGORIES = ["Residential", "Commercial", "Janitorial", "Quality", "Team", "Admin"];
 const PRIORITIES: Priority[] = ["urgent", "high", "normal", "low"];
 const RECURRENCE_LABELS: Record<Recurrence, string> = {
   none: "One-time",
@@ -55,22 +56,22 @@ const RECURRENCE_LABELS: Record<Recurrence, string> = {
 };
 
 const PRIORITY_META: Record<Priority, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
-  urgent: { label: "Urgent",  color: "#ef4444", bg: "hsl(0 84% 60%/.12)",  icon: <AlertTriangle size={11} /> },
-  high:   { label: "High",    color: "#f97316", bg: "hsl(25 95% 55%/.12)", icon: <ArrowRight size={11} /> },
-  normal: { label: "Normal",  color: "#437d65", bg: "hsl(168 76% 34%/.12)",icon: <Circle size={11} /> },
-  low:    { label: "Low",     color: "#64748b", bg: "hsl(215 16% 47%/.12)",icon: <Circle size={11} /> },
+  urgent: { label: "Same-day attention", color: "#ef4444", bg: "hsl(0 84% 60%/.12)", icon: <AlertTriangle size={11} /> },
+  high:   { label: "Priority",          color: "#f97316", bg: "hsl(25 95% 55%/.12)", icon: <ArrowRight size={11} /> },
+  normal: { label: "Standard",          color: "#437d65", bg: "hsl(168 76% 34%/.12)", icon: <Circle size={11} /> },
+  low:    { label: "Monitor",           color: "#64748b", bg: "hsl(215 16% 47%/.12)", icon: <Circle size={11} /> },
 };
 
 const COLUMNS: { id: Status; label: string; icon: React.ReactNode }[] = [
-  { id: "todo",        label: "To Do",       icon: <Circle size={14} /> },
-  { id: "in_progress", label: "In Progress", icon: <Clock size={14} /> },
-  { id: "done",        label: "Done",        icon: <CheckCircle2 size={14} /> },
+  { id: "todo",        label: "Scheduled",   icon: <Circle size={14} /> },
+  { id: "in_progress", label: "In Service",  icon: <Clock size={14} /> },
+  { id: "done",        label: "Completed",   icon: <CheckCircle2 size={14} /> },
 ];
 
 function emptyTask(): Task {
   return {
     id: crypto.randomUUID(), title: "", description: "", priority: "normal",
-    status: "todo", category: "Operations", due_date: "", assignee: "Admin", reminder: false,
+    status: "todo", category: "Residential", due_date: "", assignee: "Unassigned", reminder: false,
     recurrence: "none", custom_interval_days: "",
   };
 }
@@ -207,8 +208,12 @@ function TaskCard({
           </div>
         </div>
 
-        <p className="task-title">{task.title || "Untitled task"}</p>
+        <p className="task-title">{task.title || "Untitled operation"}</p>
         {task.description && <p className="task-desc">{task.description}</p>}
+        <div className="task-details">
+          <span className="task-detail-label">Cleaner / team</span>
+          <span>{task.assignee || "Unassigned"}</span>
+        </div>
 
         <div className="task-meta">
           <span className="priority-badge" style={{ background: pm.bg, color: pm.color }}>
@@ -245,17 +250,17 @@ function TaskModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">{initial.id && initial.title ? "Edit Task" : "New Task"}</span>
+          <span className="modal-title">{initial.id && initial.title ? "Edit Operation" : "New Operation"}</span>
           <button className="modal-close" onClick={onClose}><X size={16} /></button>
         </div>
 
         <div className="modal-body">
-          <label className="field-label">Title *</label>
-          <input className="field-input" placeholder="Task title…" value={t.title}
+          <label className="field-label">Operation title *</label>
+          <input className="field-input" placeholder="e.g. Check team supplies, Follow up with client…" value={t.title}
             onChange={(e) => setT({ ...t, title: e.target.value })} />
 
-          <label className="field-label">Description</label>
-          <textarea className="field-input field-textarea" placeholder="Details, context…" value={t.description}
+          <label className="field-label">Details</label>
+          <textarea className="field-input field-textarea" placeholder="Context, instructions, priority notes…" value={t.description}
             onChange={(e) => setT({ ...t, description: e.target.value })} />
 
           <div className="field-row">
@@ -290,8 +295,8 @@ function TaskModal({
             </div>
           </div>
 
-          <label className="field-label">Assignee</label>
-          <input className="field-input" placeholder="Admin" value={t.assignee}
+            <label className="field-label">Assigned to</label>
+            <input className="field-input" placeholder="Admin / Team member" value={t.assignee}
             onChange={(e) => setT({ ...t, assignee: e.target.value })} />
 
           <div className="field-row">
@@ -316,14 +321,14 @@ function TaskModal({
           <label className="checkbox-row">
             <input type="checkbox" checked={t.reminder}
               onChange={(e) => setT({ ...t, reminder: e.target.checked })} />
-            <span>Set reminder / notification</span>
+            <span>Activate reminder</span>
           </label>
         </div>
 
         <div className="modal-footer">
-          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="btn-cancel" onClick={onClose}>Discard</button>
           <button className="btn-save" onClick={() => { if (t.title.trim()) { onSave(t); onClose(); } }}>
-            <Check size={14} /> Save Task
+            <Check size={14} /> Save Operation
           </button>
         </div>
       </div>
@@ -334,10 +339,10 @@ function TaskModal({
 // ─── Dashboard page ───────────────────────────────────────────────────
 function getDefaultTasks(): Task[] {
   return [
-    { id: crypto.randomUUID(), title: "Check supplies with all teams", description: "Call each cleaner to confirm supply levels before the week starts.", priority: "urgent", status: "todo", category: "Teams", due_date: new Date().toISOString().slice(0, 10), assignee: "Admin", reminder: true, recurrence: "weekly", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Follow up with recurring clients", description: "Reach out to ILG, Field AI, and Steripax for satisfaction check.", priority: "high", status: "todo", category: "Clients", due_date: "", assignee: "Admin", reminder: false, recurrence: "monthly", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Review weekly payments", description: "Process residential cleaner payroll for the week.", priority: "normal", status: "in_progress", category: "Finance", due_date: "", assignee: "Admin", reminder: false, recurrence: "weekly", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Generate weekly report for supervisor", description: "", priority: "normal", status: "todo", category: "Admin", due_date: "", assignee: "Admin", reminder: true, recurrence: "weekly", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Confirm supply run for field crews", description: "Verify stock levels for disinfectants, microfiber cloths, and PPE before the morning dispatch.", priority: "urgent", status: "todo", category: "Team", due_date: new Date().toISOString().slice(0, 10), assignee: "Operations Lead", reminder: true, recurrence: "daily", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Inspect move-in service for Orchard Hills", description: "Review the checklists and schedule final photos after the kitchen and bathrooms are complete.", priority: "high", status: "todo", category: "Residential", due_date: "", assignee: "Laura", reminder: false, recurrence: "none", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Restroom pivot cleanup at City Plaza", description: "Dispatch janitorial team for midday restroom refresh and supply restock.", priority: "normal", status: "in_progress", category: "Janitorial", due_date: "", assignee: "Miguel", reminder: false, recurrence: "daily", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Run quality check for weekly office service", description: "Complete the QC walkthrough and upload notes for the commercial account.", priority: "normal", status: "todo", category: "Quality", due_date: "", assignee: "Sofia", reminder: true, recurrence: "weekly", custom_interval_days: "" },
   ];
 }
 
@@ -489,6 +494,14 @@ export default function DashboardPage() {
         .kpi-bar { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; }
         .kpi { min-width:0; padding:15px 16px; border-radius:8px;
           background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82); box-shadow:0 16px 44px -42px hsl(215 40% 20%); }
+        .service-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:12px; }
+        @media (max-width:960px) { .service-grid { grid-template-columns:1fr; } }
+        .service-card { padding:14px 16px; border-radius:12px; background:hsl(var(--card)/.95); border:1px solid hsl(var(--border)/.82); box-shadow:0 18px 50px -46px hsl(215 40% 20%); }
+        .service-card-header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+        .service-type { font-size:.7rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
+        .service-card p { margin:0 0 10px; font-size:.88rem; line-height:1.5; color:hsl(var(--foreground)); }
+        .service-badges { display:flex; flex-wrap:wrap; gap:8px; }
+        .service-badges span { padding:5px 9px; border-radius:999px; font-size:.68rem; font-weight:700; background:hsl(var(--muted)/.12); color:hsl(var(--muted-foreground)); }
         .kpi.urgent { box-shadow:inset 3px 0 0 #ef4444, 0 16px 44px -42px hsl(215 40% 20%); }
         .kpi.today  { box-shadow:inset 3px 0 0 #f97316, 0 16px 44px -42px hsl(215 40% 20%); }
         .kpi.done   { box-shadow:inset 3px 0 0 hsl(var(--primary)), 0 16px 44px -42px hsl(215 40% 20%); }
@@ -555,6 +568,8 @@ export default function DashboardPage() {
         .task-desc { font-size:0.74rem; color:hsl(var(--muted-foreground)); line-height:1.4;
           margin-bottom:6px; overflow:hidden; display:-webkit-box;
           -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+        .task-details { display:flex; justify-content:space-between; gap:10px; font-size:0.75rem; color:hsl(var(--muted-foreground)); margin-bottom:8px; }
+        .task-detail-label { font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
         .task-meta { display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
         .priority-badge { display:flex; align-items:center; gap:3px; font-size:0.65rem;
           font-weight:700; padding:2px 7px; border-radius:99px; }
@@ -611,11 +626,11 @@ export default function DashboardPage() {
         {/* Header */}
         <div className="dash-header">
           <div>
-            <h1 className="dash-title">Operations Board</h1>
-            <p className="dash-sub">Pristine Cleaners — Standard Operating Procedure</p>
+            <h1 className="dash-title">Cleaning Operations Center</h1>
+            <p className="dash-sub">Pristine Cleaners / Pristine Janitorial — Command Center</p>
           </div>
           <button className="add-btn" onClick={() => setModal(emptyTask())}>
-            <Plus size={15} /> New Task
+            <Plus size={15} /> Add Operation
           </button>
         </div>
 
@@ -634,7 +649,7 @@ export default function DashboardPage() {
             <div className="kpi-val">{todayCount}</div>
           </div>
           <div className="kpi">
-            <div className="kpi-label">Total Tasks</div>
+            <div className="kpi-label">Active Operations</div>
             <div className="kpi-val">{tasks.length}</div>
           </div>
           <div className="kpi done">
@@ -648,6 +663,23 @@ export default function DashboardPage() {
           <button className={`filter-btn ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>All</button>
           {CATEGORIES.map((c) => (
             <button key={c} className={`filter-btn ${filter === c ? "active" : ""}`} onClick={() => setFilter(c)}>{c}</button>
+          ))}
+        </div>
+
+        {/* Service type quick reference */}
+        <div className="service-grid">
+          {[...getResidentialServices().slice(0, 2), ...getCommercialServices().slice(0, 2)].map((service) => (
+            <div key={service.id} className="service-card">
+              <div className="service-card-header">
+                <span className="service-type">{service.category === "residential" ? "Residential" : service.category === "commercial" ? "Commercial" : "Janitorial"}</span>
+                <strong>{service.label}</strong>
+              </div>
+              <p>{service.description}</p>
+              <div className="service-badges">
+                <span>{service.estimatedDuration}</span>
+                <span>{service.checklistRequired ? "Checklist" : "Standard"}</span>
+              </div>
+            </div>
           ))}
         </div>
 
@@ -683,7 +715,7 @@ export default function DashboardPage() {
                   {colTasks.length === 0 && (
                     <div style={{ fontSize: "0.78rem", color: "hsl(var(--muted-foreground))",
                       textAlign: "center", padding: "20px 0", opacity: .6 }}>
-                      No tasks here
+                      {col.id === "todo" ? "No operations scheduled." : col.id === "in_progress" ? "Nothing in service right now." : "No completed operations yet."}
                     </div>
                   )}
                   {colTasks.map((t) => (
