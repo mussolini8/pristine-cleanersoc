@@ -4,6 +4,15 @@ import Link from "next/link";
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { createClient } from "@/lib/supabase/client";
+import { UnifiedPaymentsDashboard, type UnifiedFilter } from "./unified-payments-dashboard";
+import {
+  markUnifiedPaymentPaid,
+  normalizePaymentEntry,
+  normalizePaymentExtra,
+  type LegacyPaymentEntryRow,
+  type PaymentExtraUnifiedRow,
+  type UnifiedPayment,
+} from "@/lib/payments/unified";
 import {
   ArrowDownRight,
   BarChart3,
@@ -589,6 +598,8 @@ export default function PaymentsPage() {
   const [extras, setExtras] = useState<ExtraData[]>(emptyExtras);
   const [cleanerData, setCleanerData] = useState<Record<string, CleanerData>>(buildEmptyCleanerData);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [unifiedPayments, setUnifiedPayments] = useState<UnifiedPayment[]>([]);
+  const [unifiedFilter, setUnifiedFilter] = useState<UnifiedFilter>("all");
   const monthKey = getMonthKey(monthOffset);
 
   useEffect(() => {
@@ -603,15 +614,22 @@ export default function PaymentsPage() {
       setUserId(user.id);
       setDataError(null);
 
-      const [{ data: entryRows, error: entryError }, { data: extraRows, error: extraError }] = await Promise.all([
+      const [
+        { data: entryRows, error: entryError },
+        { data: extraRows, error: extraError },
+        { data: unifiedEntryRows, error: unifiedEntryError },
+        { data: unifiedExtraRows, error: unifiedExtraError },
+      ] = await Promise.all([
         supabase.from("payment_entries").select("*").eq("month_key", monthKey),
         supabase.from("payment_extras").select("*").eq("month_key", monthKey),
+        supabase.from("payment_entries").select("*").order("created_at", { ascending: false }).limit(500),
+        supabase.from("payment_extras").select("*").order("created_at", { ascending: false }).limit(200),
       ]);
 
       if (!mounted) return;
 
-      if (entryError || extraError) {
-        setDataError(entryError?.message ?? extraError?.message ?? "Could not load payments.");
+      if (entryError || extraError || unifiedEntryError || unifiedExtraError) {
+        setDataError(entryError?.message ?? extraError?.message ?? unifiedEntryError?.message ?? unifiedExtraError?.message ?? "Could not load payments.");
         setCleanerData(buildEmptyCleanerData());
         setExtras(emptyExtras());
         return;
@@ -650,6 +668,10 @@ export default function PaymentsPage() {
 
       setCleanerData(nextData);
       setExtras(nextExtras);
+      setUnifiedPayments([
+        ...((unifiedEntryRows ?? []) as LegacyPaymentEntryRow[]).map(normalizePaymentEntry),
+        ...((unifiedExtraRows ?? []) as PaymentExtraUnifiedRow[]).map(normalizePaymentExtra),
+      ].sort((a, b) => String(b.updatedAt ?? b.createdAt ?? "").localeCompare(String(a.updatedAt ?? a.createdAt ?? ""))));
     }
 
     loadPayments();
@@ -724,6 +746,23 @@ export default function PaymentsPage() {
   const maxWeeklyAmount = Math.max(0, ...weeklySummaries.map((row) => row.amount));
   const monthLabel = getMonthLabel(monthOffset);
   const exportLabel = getExportLabel(exportFrequency, monthOffset, selectedWeek);
+
+  async function handleMarkUnifiedPaymentPaid(payment: UnifiedPayment) {
+    if (payment.requiresReview && payment.status === "needs_review" && !window.confirm("Review hours before marking this payment as paid. Continue?")) return;
+    if (payment.status === "paid" || payment.status === "locked") return;
+    try {
+      const now = new Date().toISOString();
+      if (payment.sourceType === "manual_extra") {
+        const { error } = await supabase.from("payment_extras").update({ status: "paid", paid_at: now }).eq("id", payment.id);
+        if (error) throw error;
+      } else {
+        await markUnifiedPaymentPaid(payment.id);
+      }
+      setUnifiedPayments((prev) => prev.map((item) => item.id === payment.id && item.sourceType === payment.sourceType ? { ...item, status: "paid", paidAt: now } : item));
+    } catch (error) {
+      setDataError(error instanceof Error ? error.message : "Could not mark payment as paid.");
+    }
+  }
 
   async function exportPDF() {
     const { default: jsPDF } = await import("jspdf");
@@ -803,6 +842,37 @@ export default function PaymentsPage() {
   return (
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <style>{`
+        .unified-panel { border:1px solid hsl(var(--border)/.82); border-radius:8px; background:hsl(var(--card)/.96); padding:16px; box-shadow:0 18px 55px -48px hsl(210 40% 20%); }
+        .unified-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
+        .unified-head h2 { margin-top:4px; font-size:1.15rem; font-weight:950; }
+        .unified-head p:not(.section-kicker) { margin-top:4px; color:hsl(var(--muted-foreground)); font-size:.84rem; font-weight:700; }
+        .unified-metrics { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:9px; margin-bottom:12px; }
+        .unified-metrics div { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)/.65); padding:10px; min-width:0; }
+        .unified-metrics span { display:block; font-size:.62rem; font-weight:950; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
+        .unified-metrics strong { display:block; margin-top:4px; font-size:1rem; font-weight:950; white-space:nowrap; }
+        .unified-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+        .unified-filter-list { display:flex; flex-wrap:wrap; gap:6px; }
+        .unified-filter-list button { border:1px solid hsl(var(--border)); border-radius:7px; background:hsl(var(--background)); color:hsl(var(--muted-foreground)); padding:7px 9px; font-size:.72rem; font-weight:950; cursor:pointer; }
+        .unified-filter-list button.active { border-color:hsl(var(--primary)); background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
+        .unified-search-note { display:flex; align-items:center; gap:6px; color:hsl(var(--muted-foreground)); font-size:.74rem; font-weight:900; }
+        .unified-table-wrap { overflow:auto; border:1px solid hsl(var(--border)); border-radius:8px; }
+        .unified-table { width:100%; min-width:1260px; border-collapse:collapse; font-size:.76rem; }
+        .unified-table th { text-align:left; padding:9px; background:hsl(var(--muted)/.52); color:hsl(var(--muted-foreground)); font-size:.62rem; font-weight:950; text-transform:uppercase; }
+        .unified-table td { padding:9px; border-top:1px solid hsl(var(--border)); vertical-align:top; }
+        .unified-table td span:not(.unified-badge) { display:block; margin-top:2px; color:hsl(var(--muted-foreground)); font-size:.66rem; font-weight:750; }
+        .unified-badge { display:inline-flex; align-items:center; width:max-content; margin:0 4px 4px 0; border-radius:6px; padding:3px 7px; background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); font-size:.62rem; font-weight:950; }
+        .unified-badge.good { background:hsl(142 76% 36%/.13); color:hsl(142 76% 28%); }
+        .unified-badge.warn { background:hsl(38 92% 50%/.16); color:hsl(32 92% 34%); }
+        .unified-badge.blue { background:hsl(199 89% 48%/.12); color:hsl(199 89% 34%); }
+        .money-cell { font-weight:950; color:hsl(var(--primary)); white-space:nowrap; }
+        .unified-actions { display:flex; gap:6px; flex-wrap:wrap; }
+        .unified-actions a, .unified-actions button { border:1px solid hsl(var(--border)); border-radius:7px; background:hsl(var(--background)); color:hsl(var(--foreground)); padding:6px 8px; font-size:.68rem; font-weight:950; text-decoration:none; cursor:pointer; }
+        .unified-actions button:disabled { opacity:.55; cursor:not-allowed; }
+        .unified-actions + small { display:block; margin-top:5px; color:hsl(var(--muted-foreground)); font-size:.66rem; font-weight:800; }
+        .unified-empty { text-align:center; padding:28px !important; color:hsl(var(--muted-foreground)); font-weight:900; }
+        @media (max-width:1180px) { .unified-metrics { grid-template-columns:repeat(3, minmax(0,1fr)); } }
+        @media (max-width:680px) { .unified-metrics { grid-template-columns:1fr 1fr; } }
+
         .pay-page { display:flex; flex-direction:column; gap:18px; color:hsl(var(--foreground)); }
         .pay-hero { position:relative; overflow:hidden; border:1px solid hsl(var(--border)/.82); border-radius:8px; background:
           linear-gradient(135deg, hsl(var(--card)/.96), hsl(var(--primary)/.08) 58%, hsl(42 95% 55%/.08)); padding:18px; box-shadow:0 22px 60px -52px hsl(210 40% 20%); }
@@ -916,11 +986,12 @@ export default function PaymentsPage() {
       </datalist>
 
       <div className="pay-page">
+        <UnifiedPaymentsDashboard payments={unifiedPayments} filter={unifiedFilter} onFilterChange={setUnifiedFilter} onMarkPaid={handleMarkUnifiedPaymentPaid} />
         <section className="pay-hero">
           <div className="pay-topbar">
             <div>
-              <h1 className="pay-title">Residential Payments</h1>
-              <p className="pay-sub">Weekly payroll tables by cleaner. Juan separates residential and commercial payments.</p>
+              <h1 className="pay-title">Legacy Weekly Payments</h1>
+              <p className="pay-sub">Existing weekly workflow kept intact for residential, manual, and historical payments.</p>
             </div>
             <div className="pay-actions">
               <div className="month-nav">

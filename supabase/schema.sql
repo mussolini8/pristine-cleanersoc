@@ -411,3 +411,54 @@ where not exists (
   select 1 from public.cleaner_payment_settings
   where lower(cleaner_name) = 'lucia portillo'
 );
+
+
+-- Unified payments progressive migration 2026-05-14
+alter table public.payment_entries
+  add column if not exists source_type text,
+  add column if not exists source_id text,
+  add column if not exists pay_period_id uuid references public.commercial_pay_periods(id) on delete set null,
+  add column if not exists account_id uuid,
+  add column if not exists account_name text,
+  add column if not exists category text,
+  add column if not exists payment_type text,
+  add column if not exists base_hours numeric(10,2),
+  add column if not exists adjusted_hours numeric(10,2),
+  add column if not exists pay_rate numeric(10,2),
+  add column if not exists adjustment_amount numeric(12,2),
+  add column if not exists final_amount numeric(12,2),
+  add column if not exists status text,
+  add column if not exists requires_review boolean default false,
+  add column if not exists review_status text,
+  add column if not exists payment_method text,
+  add column if not exists period_start date,
+  add column if not exists period_end date,
+  add column if not exists paid_at timestamptz,
+  add column if not exists approved_at timestamptz,
+  add column if not exists notes text;
+
+alter table public.payment_extras
+  add column if not exists source_type text,
+  add column if not exists source_id text,
+  add column if not exists category text,
+  add column if not exists payment_type text,
+  add column if not exists status text,
+  add column if not exists paid_at timestamptz,
+  add column if not exists approved_at timestamptz,
+  add column if not exists notes text,
+  add column if not exists payment_method text;
+
+create index if not exists payment_entries_source_idx
+  on public.payment_entries(source_type, source_id);
+
+create index if not exists payment_entries_pay_period_idx
+  on public.payment_entries(pay_period_id);
+
+create index if not exists payment_entries_status_idx
+  on public.payment_entries(status);
+
+create index if not exists payment_entries_category_idx
+  on public.payment_entries(category);
+
+create index if not exists payment_extras_source_idx
+  on public.payment_extras(source_type, source_id);

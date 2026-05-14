@@ -9,6 +9,7 @@ import {
   isUuid,
   summarizeEntries,
 } from "./calculator";
+import { syncCommercialPayrollEntryToPayment, syncCommercialPayrollPeriodToPayments } from "@/lib/payments/unified";
 import type {
   CleanerPaymentSetting,
   CommercialAccount,
@@ -214,6 +215,12 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
     if (error || !data) throw new Error(error?.message ?? "Could not create payroll period.");
     periodRow = data as PayrollPeriodRow;
   } else {
+    await supabase
+      .from("payment_entries")
+      .delete()
+      .eq("source_type", "commercial_payroll")
+      .eq("pay_period_id", periodRow.id)
+      .not("status", "in", "(paid,locked)");
     await supabase.from("commercial_payroll_entries").delete().eq("pay_period_id", periodRow.id);
   }
 
@@ -238,10 +245,13 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
   if (periodError) throw new Error(periodError.message);
 
   if (entries.length > 0) {
-    const { error } = await supabase.from("commercial_payroll_entries").insert(
+    const { data: insertedEntries, error } = await supabase.from("commercial_payroll_entries").insert(
       entries.map((entry) => ({ ...entry, pay_period_id: periodRow.id })),
-    );
+    ).select("*");
     if (error) throw new Error(error.message);
+    for (const entry of (insertedEntries ?? []) as PayrollEntryRow[]) {
+      await syncCommercialPayrollEntryToPayment(entry, periodRow);
+    }
   }
 
   await supabase.from("payroll_audit_log").insert({
@@ -333,6 +343,20 @@ export async function updatePayrollEntry(entry: PayrollEntryRow, changes: Partia
   });
 
   await updatePeriodTotals(entry.pay_period_id);
+
+  const { data: updatedEntry } = await supabase
+    .from("commercial_payroll_entries")
+    .select("*")
+    .eq("id", entry.id)
+    .maybeSingle();
+  const { data: period } = await supabase
+    .from("commercial_pay_periods")
+    .select("*")
+    .eq("id", entry.pay_period_id)
+    .maybeSingle();
+  if (updatedEntry && period) {
+    await syncCommercialPayrollEntryToPayment(updatedEntry as PayrollEntryRow, period as PayrollPeriodRow);
+  }
 }
 
 export async function addPayrollAdjustment(entry: PayrollEntryRow, adjustment: { adjustment_type: string; hours_delta: number; amount_delta: number; reason: string; internal_note?: string | null }) {
@@ -385,6 +409,22 @@ export async function updatePeriodStatus(period: PayrollPeriodRow, status: Payro
   };
   const { error } = await supabase.from("commercial_pay_periods").update(payload).eq("id", period.id);
   if (error) throw new Error(error.message);
+
+  if (status === "approved" || status === "paid") {
+    await syncCommercialPayrollPeriodToPayments(period.id);
+    if (status === "paid") {
+      await supabase
+        .from("payment_entries")
+        .update({ status: "paid", paid_at: now, updated_at: now })
+        .eq("source_type", "commercial_payroll")
+        .eq("pay_period_id", period.id)
+        .not("status", "eq", "locked");
+      await supabase
+        .from("commercial_payroll_entries")
+        .update({ status: "paid", paid_at: now, updated_at: now })
+        .eq("pay_period_id", period.id);
+    }
+  }
 
   await supabase.from("payroll_audit_log").insert({
     pay_period_id: period.id,
