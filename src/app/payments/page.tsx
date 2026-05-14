@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { createClient } from "@/lib/supabase/client";
@@ -934,6 +935,9 @@ export default function PaymentsPage() {
               <button className={`action-btn ${showOverview ? "active" : ""}`} onClick={() => setShowOverview((value) => !value)} type="button">
                 <BarChart3 size={15} /> Overview
               </button>
+              <Link className="action-btn" href="/payments/commercial-payroll">
+                <WalletCards size={15} /> Commercial Payroll
+              </Link>
               <div className="export-group">
                 <select
                   aria-label="PDF export frequency"

@@ -52,7 +52,7 @@ export function DashboardShell({
             <Link
               className={cn(
                 "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold text-muted-foreground transition-all duration-200 hover:bg-accent/70 hover:text-accent-foreground",
-                pathname === item.href && "bg-primary text-primary-foreground shadow-[0_14px_28px_-22px_hsl(var(--primary))] hover:bg-primary hover:text-primary-foreground",
+                (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`))) && "bg-primary text-primary-foreground shadow-[0_14px_28px_-22px_hsl(var(--primary))] hover:bg-primary hover:text-primary-foreground",
               )}
               href={item.href}
               key={item.href}

@@ -1,0 +1,290 @@
+import type {
+  CleanerPaymentSetting,
+  CommercialAccount,
+  CommercialScheduleRule,
+  PayrollExceptionCode,
+  PayrollGeneratedEntry,
+  PayrollPeriod,
+} from "./types";
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isUuid(value: string | null | undefined) {
+  return Boolean(value && UUID_RE.test(value));
+}
+
+export function formatISODate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function parseISODate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, (month ?? 1) - 1, day ?? 1);
+}
+
+export function eachDateInPeriod(startDate: string, endDate: string) {
+  const dates: Date[] = [];
+  const cursor = parseISODate(startDate);
+  const end = parseISODate(endDate);
+  while (cursor.getTime() <= end.getTime()) {
+    dates.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+function dateWithin(value: Date, start?: string | null, end?: string | null) {
+  const time = value.getTime();
+  if (start && parseISODate(start).getTime() > time) return false;
+  if (end && parseISODate(end).getTime() < time) return false;
+  return true;
+}
+
+function normalizeFrequency(value?: string | null) {
+  return (value ?? "").toLowerCase().trim();
+}
+
+export function parseHours(value: CommercialAccount["hours"]) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return 0;
+  const exact = Number(value);
+  if (Number.isFinite(exact)) return exact;
+  const numbers = value.match(/\d+(?:\.\d+)?/g)?.map(Number).filter(Number.isFinite) ?? [];
+  return numbers.length === 1 ? numbers[0] : 0;
+}
+
+function visitsPerWeek(frequency?: string | null) {
+  const freq = normalizeFrequency(frequency);
+  const explicit = freq.match(/(\d+(?:\.\d+)?)\s*x/);
+  if (explicit) return Number(explicit[1]);
+  if (freq.includes("daily")) return 5;
+  if (freq.includes("twice")) return 2;
+  if (freq.includes("three")) return 3;
+  if (freq.includes("four")) return 4;
+  if (freq.includes("weekly") || freq.includes("every week") || freq === "week") return 1;
+  if (freq.includes("biweekly") || freq.includes("every 2 weeks") || freq.includes("every two weeks")) return 0.5;
+  if (freq.includes("monthly") || freq.includes("once a month") || freq.includes("twice a month")) return freq.includes("twice") ? 0.5 : 0.25;
+  if (freq.includes("as needed") || freq.includes("custom")) return 0;
+  const fallback = Number(freq.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+}
+
+function fallbackVisitDates(account: CommercialAccount, period: PayrollPeriod) {
+  const dates = eachDateInPeriod(period.startDate, period.endDate).filter((date) =>
+    dateWithin(date, account.contract_start, account.contract_end),
+  );
+  const freq = normalizeFrequency(account.frequency);
+  const perWeek = visitsPerWeek(account.frequency);
+
+  if (perWeek <= 0) return [];
+
+  if (freq.includes("biweekly") || freq.includes("every 2 weeks") || freq.includes("every two weeks")) {
+    const anchor = account.contract_start ? parseISODate(account.contract_start) : parseISODate(period.startDate);
+    const anchorDow = anchor.getDay();
+    return dates.filter((date) => {
+      if (date.getDay() !== anchorDow) return false;
+      const days = Math.floor((date.getTime() - anchor.getTime()) / 86400000);
+      return days >= 0 && days % 14 === 0;
+    });
+  }
+
+  if (freq.includes("monthly") || freq.includes("once a month")) {
+    const anchorDay = account.contract_start ? parseISODate(account.contract_start).getDate() : 1;
+    const exact = dates.find((date) => date.getDate() === anchorDay);
+    return exact ? [exact] : dates.slice(0, 1);
+  }
+
+  if (freq.includes("twice a month")) {
+    return dates.filter((date) => date.getDate() === 1 || date.getDate() === 15).slice(0, 2);
+  }
+
+  const targetDays = Math.max(1, Math.min(7, Math.round(perWeek)));
+  const preferred = targetDays >= 5 ? [1, 2, 3, 4, 5] : targetDays === 4 ? [1, 2, 3, 4] : targetDays === 3 ? [1, 3, 5] : targetDays === 2 ? [2, 5] : [account.contract_start ? parseISODate(account.contract_start).getDay() : 1];
+
+  return dates.filter((date) => preferred.includes(date.getDay()));
+}
+
+function getSetting(settings: CleanerPaymentSetting[], cleanerName?: string | null) {
+  if (!cleanerName) return null;
+  return settings.find((setting) => setting.cleaner_name?.toLowerCase() === cleanerName.toLowerCase()) ?? null;
+}
+
+function cleanMoney(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function buildExceptions(input: {
+  cleanerName: string | null;
+  payRate: number;
+  hours: number;
+  hasSchedule: boolean;
+  setting: CleanerPaymentSetting | null;
+  account: CommercialAccount;
+}) {
+  const exceptions: PayrollExceptionCode[] = [];
+  if (!input.cleanerName) exceptions.push("missing_cleaner");
+  if (!input.payRate) exceptions.push("missing_pay_rate");
+  if (input.setting?.active === false) exceptions.push("inactive_cleaner");
+  if (input.hours <= 0) exceptions.push("zero_hours");
+  if (!input.hasSchedule) exceptions.push("missing_schedule");
+  if (input.setting?.requires_manual_review) exceptions.push("manual_review");
+  if (input.account.contract_start || input.account.contract_end) exceptions.push("contract_boundary");
+  return exceptions;
+}
+
+function entryStatus(exceptions: PayrollExceptionCode[]) {
+  return exceptions.some((code) => ["missing_cleaner", "missing_pay_rate", "inactive_cleaner", "zero_hours", "manual_review"].includes(code))
+    ? "needs_review"
+    : "draft";
+}
+
+function entryFor(input: {
+  account: CommercialAccount;
+  cleanerName: string | null;
+  serviceDate: Date | null;
+  scheduledDay: string | null;
+  hours: number;
+  payRate: number;
+  paymentMethod: string | null;
+  setting: CleanerPaymentSetting | null;
+  hasSchedule: boolean;
+  source: PayrollGeneratedEntry["source"];
+}) {
+  const exceptions = buildExceptions({
+    cleanerName: input.cleanerName,
+    payRate: input.payRate,
+    hours: input.hours,
+    hasSchedule: input.hasSchedule,
+    setting: input.setting,
+    account: input.account,
+  });
+  const estimated = cleanMoney(input.hours * input.payRate);
+  const requiresManualReview = Boolean(input.setting?.requires_manual_review || exceptions.includes("manual_review"));
+
+  return {
+    cleaner_name: input.cleanerName,
+    account_id: isUuid(input.account.id) ? input.account.id : null,
+    account_name: input.account.name,
+    city: input.account.city ?? null,
+    service_date: input.serviceDate ? formatISODate(input.serviceDate) : null,
+    scheduled_day: input.scheduledDay,
+    base_hours: input.hours,
+    adjusted_hours: input.hours,
+    pay_rate: input.payRate,
+    estimated_amount: estimated,
+    adjustment_amount: 0,
+    final_amount: estimated,
+    status: entryStatus(exceptions),
+    requires_manual_review: requiresManualReview,
+    review_status: requiresManualReview ? "pending" : "not_required",
+    review_notes: input.setting?.manual_review_reason ?? null,
+    payment_method: input.paymentMethod,
+    source: input.source,
+    exceptions,
+  } satisfies PayrollGeneratedEntry;
+}
+
+export function generateEntriesForAccount(
+  account: CommercialAccount,
+  period: PayrollPeriod,
+  settings: CleanerPaymentSetting[],
+  scheduleRules: CommercialScheduleRule[],
+) {
+  const activeRules = scheduleRules.filter((rule) =>
+    rule.active !== false &&
+    Number(rule.paid_hours) > 0 &&
+    eachDateInPeriod(period.startDate, period.endDate).some((date) => dateWithin(date, rule.effective_start_date, rule.effective_end_date)),
+  );
+  const entries: PayrollGeneratedEntry[] = [];
+
+  if (activeRules.length > 0) {
+    for (const rule of activeRules) {
+      const dates = eachDateInPeriod(period.startDate, period.endDate).filter((date) =>
+        date.getDay() === Number(rule.day_of_week) &&
+        dateWithin(date, account.contract_start, account.contract_end) &&
+        dateWithin(date, rule.effective_start_date, rule.effective_end_date),
+      );
+      for (const serviceDate of dates) {
+        const cleanerName = rule.assigned_cleaner_name || account.cleaner_name || null;
+        const setting = getSetting(settings, cleanerName);
+        const payRate = Number(account.cleaner_hourly_rate ?? setting?.default_pay_rate ?? 0);
+        entries.push(entryFor({
+          account,
+          cleanerName,
+          serviceDate,
+          scheduledDay: DAY_NAMES[serviceDate.getDay()],
+          hours: Number(rule.paid_hours),
+          payRate,
+          paymentMethod: account.payment_method ?? setting?.payment_method ?? null,
+          setting,
+          hasSchedule: true,
+          source: "schedule_rule",
+        }));
+      }
+    }
+    return entries;
+  }
+
+  const hours = parseHours(account.hours);
+  const dates = fallbackVisitDates(account, period);
+  for (const serviceDate of dates) {
+    const cleanerName = account.cleaner_name ?? null;
+    const setting = getSetting(settings, cleanerName);
+    const payRate = Number(account.cleaner_hourly_rate ?? setting?.default_pay_rate ?? 0);
+    entries.push(entryFor({
+      account,
+      cleanerName,
+      serviceDate,
+      scheduledDay: DAY_NAMES[serviceDate.getDay()],
+      hours,
+      payRate,
+      paymentMethod: account.payment_method ?? setting?.payment_method ?? null,
+      setting,
+      hasSchedule: false,
+      source: "account_fallback",
+    }));
+  }
+
+  if (entries.length === 0) {
+    const cleanerName = account.cleaner_name ?? null;
+    const setting = getSetting(settings, cleanerName);
+    const payRate = Number(account.cleaner_hourly_rate ?? setting?.default_pay_rate ?? 0);
+    entries.push(entryFor({
+      account,
+      cleanerName,
+      serviceDate: null,
+      scheduledDay: null,
+      hours,
+      payRate,
+      paymentMethod: account.payment_method ?? setting?.payment_method ?? null,
+      setting,
+      hasSchedule: false,
+      source: "account_fallback",
+    }));
+  }
+
+  return entries;
+}
+
+export function summarizeEntries(entries: Pick<PayrollGeneratedEntry, "base_hours" | "adjusted_hours" | "estimated_amount" | "final_amount" | "status">[]) {
+  return entries.reduce(
+    (total, entry) => ({
+      total_estimated_hours: cleanMoney(total.total_estimated_hours + Number(entry.base_hours ?? 0)),
+      total_adjusted_hours: cleanMoney(total.total_adjusted_hours + Number(entry.adjusted_hours ?? entry.base_hours ?? 0)),
+      total_estimated_amount: cleanMoney(total.total_estimated_amount + Number(entry.estimated_amount ?? 0)),
+      total_final_amount: cleanMoney(total.total_final_amount + Number(entry.final_amount ?? entry.estimated_amount ?? 0)),
+      needs_review_count: total.needs_review_count + (entry.status === "needs_review" ? 1 : 0),
+    }),
+    { total_estimated_hours: 0, total_adjusted_hours: 0, total_estimated_amount: 0, total_final_amount: 0, needs_review_count: 0 },
+  );
+}
+
+export function getBiweeklyPeriod(date = new Date()) {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const start = date.getDate() <= 15 ? new Date(year, month, 1) : new Date(year, month, 16);
+  const end = date.getDate() <= 15 ? new Date(year, month, 15) : new Date(year, month + 1, 0);
+  const label = `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })}-${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  return { startDate: formatISODate(start), endDate: formatISODate(end), label };
+}

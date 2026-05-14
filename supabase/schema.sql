@@ -169,3 +169,245 @@ create policy "Commercial accounts are editable by signed in users"
   on public.commercial_accounts for all
   using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
   with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+-- Payroll tables for commercial cleaning (additive, non-destructive)
+create table if not exists public.commercial_pay_periods (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  start_date date not null,
+  end_date date not null,
+  label text,
+  status text not null default 'draft',
+  total_estimated_hours numeric(10,2) default 0,
+  total_adjusted_hours numeric(10,2) default 0,
+  total_estimated_amount numeric(12,2) default 0,
+  total_final_amount numeric(12,2) default 0,
+  generated_at timestamptz,
+  approved_at timestamptz,
+  paid_at timestamptz,
+  locked_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.commercial_pay_periods enable row level security;
+
+create policy "Pay periods are readable by signed in users"
+  on public.commercial_pay_periods for select
+  using (auth.uid() is not null);
+
+create policy "Pay periods are editable by owners"
+  on public.commercial_pay_periods for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+create table if not exists public.commercial_payroll_entries (
+  id uuid primary key default gen_random_uuid(),
+  pay_period_id uuid not null references public.commercial_pay_periods(id) on delete cascade,
+  cleaner_name text,
+  cleaner_id uuid,
+  account_id uuid,
+  account_name text,
+  city text,
+  service_date date,
+  scheduled_day text,
+  base_hours numeric(8,2) default 0,
+  adjusted_hours numeric(8,2) default 0,
+  pay_rate numeric(10,2) default 0,
+  estimated_amount numeric(12,2) default 0,
+  adjustment_amount numeric(12,2) default 0,
+  final_amount numeric(12,2) default 0,
+  status text default 'draft',
+  requires_manual_review boolean default false,
+  review_notes text,
+  approved_by uuid,
+  approved_at timestamptz,
+  paid_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.commercial_payroll_entries enable row level security;
+
+create policy "Payroll entries are readable by signed in users"
+  on public.commercial_payroll_entries for select
+  using (auth.uid() is not null);
+
+create policy "Payroll entries are editable by owners"
+  on public.commercial_payroll_entries for all
+  using (auth.uid() is not null)
+  with check (auth.uid() is not null);
+
+create table if not exists public.commercial_payroll_adjustments (
+  id uuid primary key default gen_random_uuid(),
+  pay_period_id uuid not null references public.commercial_pay_periods(id) on delete cascade,
+  payroll_entry_id uuid references public.commercial_payroll_entries(id) on delete set null,
+  cleaner_name text,
+  account_id uuid,
+  adjustment_type text,
+  hours_delta numeric(8,2) default 0,
+  amount_delta numeric(12,2) default 0,
+  reason text,
+  internal_note text,
+  created_by uuid,
+  created_at timestamptz not null default now()
+);
+
+alter table public.commercial_payroll_adjustments enable row level security;
+
+create table if not exists public.cleaner_payment_settings (
+  id uuid primary key default gen_random_uuid(),
+  cleaner_name text,
+  cleaner_id uuid,
+  default_pay_type text,
+  default_pay_rate numeric(10,2),
+  payment_method text,
+  requires_manual_review boolean default false,
+  manual_review_reason text,
+  active boolean default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.cleaner_payment_settings enable row level security;
+
+create table if not exists public.commercial_account_schedule_rules (
+  id uuid primary key default gen_random_uuid(),
+  commercial_account_id uuid references public.commercial_accounts(id) on delete cascade,
+  day_of_week integer,
+  start_time time,
+  end_time time,
+  paid_hours numeric(6,2) default 0,
+  assigned_cleaner_name text,
+  active boolean default true,
+  effective_start_date date,
+  effective_end_date date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.commercial_account_schedule_rules enable row level security;
+
+create table if not exists public.payroll_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  pay_period_id uuid references public.commercial_pay_periods(id) on delete cascade,
+  entity_type text,
+  entity_id uuid,
+  action text,
+  old_value text,
+  new_value text,
+  changed_by uuid,
+  created_at timestamptz not null default now()
+);
+
+alter table public.payroll_audit_log enable row level security;
+
+
+-- Commercial payroll hardening 2026-05-14
+alter table public.commercial_pay_periods
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists total_adjusted_hours numeric(10,2) default 0;
+
+alter table public.commercial_payroll_entries
+  add column if not exists review_status text default 'pending',
+  add column if not exists reviewed_by uuid references auth.users(id) on delete set null,
+  add column if not exists reviewed_at timestamptz,
+  add column if not exists notes text,
+  add column if not exists payment_method text,
+  add column if not exists source text,
+  add column if not exists exceptions text[] not null default '{}';
+
+alter table public.commercial_payroll_adjustments
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table public.cleaner_payment_settings
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists review_notes text;
+
+alter table public.commercial_account_schedule_rules
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists notes text;
+
+create index if not exists commercial_pay_periods_window_idx
+  on public.commercial_pay_periods(start_date, end_date, user_id);
+
+create index if not exists commercial_payroll_entries_period_cleaner_idx
+  on public.commercial_payroll_entries(pay_period_id, cleaner_name);
+
+create index if not exists commercial_payroll_entries_period_account_idx
+  on public.commercial_payroll_entries(pay_period_id, account_name);
+
+create index if not exists commercial_payroll_adjustments_period_idx
+  on public.commercial_payroll_adjustments(pay_period_id);
+
+create index if not exists cleaner_payment_settings_name_idx
+  on public.cleaner_payment_settings(cleaner_name);
+
+create index if not exists commercial_account_schedule_rules_account_idx
+  on public.commercial_account_schedule_rules(commercial_account_id, active, day_of_week);
+
+drop policy if exists "Payroll adjustments are readable by signed in users" on public.commercial_payroll_adjustments;
+create policy "Payroll adjustments are readable by signed in users"
+  on public.commercial_payroll_adjustments for select
+  using (auth.uid() is not null);
+
+drop policy if exists "Payroll adjustments are editable by signed in users" on public.commercial_payroll_adjustments;
+create policy "Payroll adjustments are editable by signed in users"
+  on public.commercial_payroll_adjustments for all
+  using (auth.uid() is not null)
+  with check (auth.uid() is not null);
+
+drop policy if exists "Cleaner payment settings are readable by signed in users" on public.cleaner_payment_settings;
+create policy "Cleaner payment settings are readable by signed in users"
+  on public.cleaner_payment_settings for select
+  using (auth.uid() is not null);
+
+drop policy if exists "Cleaner payment settings are editable by signed in users" on public.cleaner_payment_settings;
+create policy "Cleaner payment settings are editable by signed in users"
+  on public.cleaner_payment_settings for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+drop policy if exists "Commercial schedule rules are readable by signed in users" on public.commercial_account_schedule_rules;
+create policy "Commercial schedule rules are readable by signed in users"
+  on public.commercial_account_schedule_rules for select
+  using (auth.uid() is not null);
+
+drop policy if exists "Commercial schedule rules are editable by signed in users" on public.commercial_account_schedule_rules;
+create policy "Commercial schedule rules are editable by signed in users"
+  on public.commercial_account_schedule_rules for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+drop policy if exists "Payroll audit is readable by signed in users" on public.payroll_audit_log;
+create policy "Payroll audit is readable by signed in users"
+  on public.payroll_audit_log for select
+  using (auth.uid() is not null);
+
+drop policy if exists "Payroll audit is writable by signed in users" on public.payroll_audit_log;
+create policy "Payroll audit is writable by signed in users"
+  on public.payroll_audit_log for insert
+  with check (auth.uid() is not null);
+
+insert into public.cleaner_payment_settings (
+  cleaner_name,
+  default_pay_type,
+  default_pay_rate,
+  payment_method,
+  requires_manual_review,
+  manual_review_reason,
+  active
+)
+select
+  'Lucia Portillo',
+  'hourly',
+  null,
+  'ACH',
+  true,
+  'Confirm final commercial hours before approval.',
+  true
+where not exists (
+  select 1 from public.cleaner_payment_settings
+  where lower(cleaner_name) = 'lucia portillo'
+);
