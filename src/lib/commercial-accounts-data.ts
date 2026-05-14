@@ -19,6 +19,14 @@ export type ImportedCommercialAccount = {
   estimated_fill_date: string | null;
   supplies_notes: string | null;
   source_sheet: string;
+  schedule_rules?: ImportedCommercialScheduleRule[];
+};
+
+export type ImportedCommercialScheduleRule = {
+  day_of_week: number;
+  paid_hours: number;
+  assigned_cleaner_name?: string | null;
+  active?: boolean;
 };
 
 export const importedCommercialAccounts: ImportedCommercialAccount[] = [
@@ -28,7 +36,13 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
   { id: "import-dr-bagheri-office-irvine-23", name: "Dr. Bagheri Office", city: "Irvine", pricing_model: "per Service", cleaner_name: "Mirna Contreras", hours: 3, frequency: "1x per week", revenue: 563.33, cost: 299.33, payment_method: "Credit Card", contract_start: "2025-11-07", contract_end: "2026-11-01", last_contact_date: null, last_qcc_date: null, has_supplies: false, has_keys: false, supply_delivery_date: null, estimated_fill_date: null, supplies_notes: "Account sheet flag: Y", source_sheet: "Accounts" },
   { id: "import-elements-dentistry-fountain-valley-17", name: "Elements Dentistry", city: "Fountain Valley", pricing_model: "per Service", cleaner_name: null, hours: 2.5, frequency: "Weekly", revenue: 563, cost: 325, payment_method: null, contract_start: null, contract_end: null, last_contact_date: null, last_qcc_date: null, has_supplies: false, has_keys: false, supply_delivery_date: null, estimated_fill_date: null, supplies_notes: "Imported from hidden Accounts row", source_sheet: "Accounts hidden row" },
   { id: "import-elevate-aerial-hb-huntington-beach-22", name: "Elevate Aerial HB", city: "Huntington Beach", pricing_model: "Flat rate", cleaner_name: "Luz Uribe", hours: 5, frequency: "1x per week", revenue: 800, cost: 498, payment_method: "Check", contract_start: "2025-12-07", contract_end: "2026-12-01", last_contact_date: "2026-02-18", last_qcc_date: "2026-04-14", has_supplies: true, has_keys: false, supply_delivery_date: "2025-11-17", estimated_fill_date: null, supplies_notes: "Account sheet flag: Y", source_sheet: "Accounts" },
-  { id: "import-field-ai-irvine-30", name: "Field AI", city: "Irvine", pricing_model: "flate rate", cleaner_name: "Sandra Hernandez", hours: "2 for trash 6 for full cleaning", frequency: "5x per week", revenue: 2350, cost: 1494, payment_method: "ACH", contract_start: "2026-01-16", contract_end: "2027-01-12", last_contact_date: "2026-02-18", last_qcc_date: "2026-04-14", has_supplies: true, has_keys: false, supply_delivery_date: null, estimated_fill_date: null, supplies_notes: "Extension cord, for vacuum", source_sheet: "Accounts" },
+  { id: "import-field-ai-irvine-30", name: "Field AI", city: "Irvine", pricing_model: "flate rate", cleaner_name: "Sandra Hernandez", hours: "2 for trash 6 for full cleaning", frequency: "5x per week", revenue: 2350, cost: 1494, payment_method: "ACH", contract_start: "2026-01-16", contract_end: "2027-01-12", last_contact_date: "2026-02-18", last_qcc_date: "2026-04-14", has_supplies: true, has_keys: false, supply_delivery_date: null, estimated_fill_date: null, supplies_notes: "Extension cord, for vacuum", source_sheet: "Accounts", schedule_rules: [
+    { day_of_week: 1, paid_hours: 6, assigned_cleaner_name: "Sandra Hernandez" },
+    { day_of_week: 2, paid_hours: 2, assigned_cleaner_name: "Sandra Hernandez" },
+    { day_of_week: 3, paid_hours: 2, assigned_cleaner_name: "Sandra Hernandez" },
+    { day_of_week: 4, paid_hours: 2, assigned_cleaner_name: "Sandra Hernandez" },
+    { day_of_week: 5, paid_hours: 2, assigned_cleaner_name: "Sandra Hernandez" },
+  ] },
   { id: "import-flex-fitness-oc-laguna-hills-28", name: "Flex Fitness OC", city: "Laguna Hills", pricing_model: "flat rate", cleaner_name: null, hours: 5, frequency: "3x per week", revenue: 1680, cost: 997, payment_method: null, contract_start: null, contract_end: null, last_contact_date: null, last_qcc_date: null, has_supplies: false, has_keys: false, supply_delivery_date: null, estimated_fill_date: null, supplies_notes: "Imported from hidden Accounts row", source_sheet: "Accounts hidden row" },
   { id: "import-globar-medspa-costa-mesa-35", name: "GLOBAR Medspa", city: "Costa Mesa", pricing_model: "flat rate", cleaner_name: "Juan Romero", hours: 3, frequency: "2x per week", revenue: 1450, cost: 468, payment_method: "Zelle", contract_start: null, contract_end: null, last_contact_date: null, last_qcc_date: "2026-04-14", has_supplies: false, has_keys: false, supply_delivery_date: null, estimated_fill_date: null, supplies_notes: "Step ladder, duster extension", source_sheet: "Accounts" },
   { id: "import-green-leaf-botanicals-whittier-8", name: "Green Leaf Botanicals", city: "Whittier", pricing_model: "per Service", cleaner_name: "Lorena Benitez", hours: null, frequency: "Monthly", revenue: 238, cost: 119, payment_method: "Credit Card", contract_start: "2024-06-04", contract_end: "2026-06-04", last_contact_date: "2026-02-18", last_qcc_date: null, has_supplies: false, has_keys: false, supply_delivery_date: null, estimated_fill_date: null, supplies_notes: "Account sheet flag: N", source_sheet: "Accounts" },
