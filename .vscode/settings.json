@@ -1,5 +1,13 @@
 {
   "css.lint.unknownAtRules": "ignore",
   "scss.lint.unknownAtRules": "ignore",
-  "less.lint.unknownAtRules": "ignore"
+  "less.lint.unknownAtRules": "ignore",
+  "mssql.intelliSense.enableErrorChecking": false,
+  "mssql.intelliSense.enableIntelliSense": false,
+  "mssql.intelliSense.enableSuggestions": false,
+  "mssql.intelliSense.enableQuickInfo": false,
+  "files.associations": {
+    "supabase/schema.sql": "plaintext",
+    "supabase/**/*.sql": "plaintext"
+  }
 }
