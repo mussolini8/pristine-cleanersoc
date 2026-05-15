@@ -8,8 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const accessEmail = "pristinecleanersoc@gmail.com";
-
 export default function LoginPage() {
   const [state, action, pending] = useActionState(signIn, {});
 
@@ -36,15 +34,15 @@ export default function LoginPage() {
         <form action={action} className="grid gap-5">
           <div className="grid gap-2">
             <Label className="text-[13px] font-bold text-[#334155]" htmlFor="email">
-              Correo
+              Usuario o correo
             </Label>
             <Input
-              autoComplete="email"
+              autoComplete="username"
               className="h-12 rounded-md border-[#dbe3ea] bg-[#f8fafc] px-4 text-[15px] font-semibold text-[#0f172a]"
-              defaultValue={accessEmail}
+              defaultValue="pristinecleaners"
               id="email"
               name="email"
-              type="email"
+              type="text"
             />
             {state.errors?.email?.map((error) => (
               <p className="text-sm font-semibold text-destructive" key={error}>

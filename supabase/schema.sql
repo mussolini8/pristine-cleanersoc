@@ -484,3 +484,94 @@ create index if not exists commercial_payroll_entries_service_date_idx
 create index if not exists commercial_payroll_entries_natural_open_idx
   on public.commercial_payroll_entries(pay_period_id, account_name, cleaner_name, service_date, source)
   where status not in ('approved', 'paid', 'locked');
+
+
+-- Operations role access and task notifications 2026-05-15
+alter table public.profiles
+  add column if not exists username text,
+  add column if not exists app_role text not null default 'residential',
+  add column if not exists access_scope text not null default 'residential';
+
+create unique index if not exists profiles_username_uidx
+  on public.profiles(lower(username))
+  where username is not null;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, full_name, avatar_url, username, app_role, access_scope)
+  values (
+    new.id,
+    new.raw_user_meta_data ->> 'full_name',
+    new.raw_user_meta_data ->> 'avatar_url',
+    case
+      when lower(new.email) = 'pristinecleaners@pristine.local' then 'pristinecleaners'
+      when lower(new.email) = 'pristinejanitorial@pristine.local' then 'pristinejanitorial'
+      else null
+    end,
+    case
+      when lower(new.email) = 'pristinejanitorial@pristine.local' then 'commercial'
+      else 'residential'
+    end,
+    case
+      when lower(new.email) = 'pristinejanitorial@pristine.local' then 'commercial'
+      else 'residential'
+    end
+  )
+  on conflict (id) do update set
+    username = coalesce(excluded.username, public.profiles.username),
+    app_role = excluded.app_role,
+    access_scope = excluded.access_scope,
+    updated_at = now();
+  return new;
+end;
+$$;
+
+update public.profiles p
+set username = 'pristinecleaners',
+    app_role = 'residential',
+    access_scope = 'residential',
+    updated_at = now()
+from auth.users u
+where p.id = u.id
+  and lower(u.email) = 'pristinecleaners@pristine.local';
+
+update public.profiles p
+set username = 'pristinejanitorial',
+    app_role = 'commercial',
+    access_scope = 'commercial',
+    updated_at = now()
+from auth.users u
+where p.id = u.id
+  and lower(u.email) = 'pristinejanitorial@pristine.local';
+
+alter table public.operation_tasks
+  add column if not exists assigned_by text,
+  add column if not exists account_name text,
+  add column if not exists property_address text,
+  add column if not exists panel text not null default 'Residential',
+  add column if not exists completion_notes text,
+  add column if not exists completed_at timestamptz;
+
+create table if not exists public.operation_task_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid references public.operation_tasks(id) on delete cascade,
+  action text not null,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+alter table public.operation_task_audit_log enable row level security;
+
+drop policy if exists "Operation task audit is readable by signed in users" on public.operation_task_audit_log;
+create policy "Operation task audit is readable by signed in users"
+  on public.operation_task_audit_log for select
+  using (auth.uid() is not null);
+
+drop policy if exists "Operation task audit is writable by signed in users" on public.operation_task_audit_log;
+create policy "Operation task audit is writable by signed in users"
+  on public.operation_task_audit_log for insert
+  with check (auth.uid() is not null);

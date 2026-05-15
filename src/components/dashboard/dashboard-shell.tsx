@@ -1,17 +1,20 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Building2, Home, LogOut, Search, Settings, Users, Wallet } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { label: "Residential", href: "/dashboard", icon: Home },
-  { label: "Residential Payments", href: "/payments", icon: Wallet },
-  { label: "Commercial", href: "/commercial", icon: Building2 },
+  { label: "Residential", href: "/dashboard", icon: Home, area: "residential" as AccessArea },
+  { label: "Residential Payments", href: "/payments", icon: Wallet, area: "residential" as AccessArea },
+  { label: "Commercial", href: "/commercial", icon: Building2, area: "commercial" as AccessArea },
   { label: "Staff", href: "/staff", icon: Users },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
@@ -25,6 +28,26 @@ export function DashboardShell({
   userEmail?: string | null;
 }) {
   const pathname = usePathname();
+  const supabase = useMemo(() => createClient(), []);
+  const [role, setRole] = useState<AppRole>("residential");
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadRole() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!mounted || !user) return;
+      const { data } = await supabase.from("profiles").select("app_role").eq("id", user.id).maybeSingle();
+      if (mounted) setRole(normalizeAppRole(data?.app_role));
+    }
+    loadRole();
+    return () => {
+      mounted = false;
+    };
+  }, [supabase]);
+
+  const visibleNavItems = navItems.filter((item) => !item.area || canAccessArea(role, item.area));
 
   return (
     <div className="min-h-dvh bg-transparent">
@@ -48,7 +71,7 @@ export function DashboardShell({
           </div>
         </div>
         <nav className="space-y-1 px-3">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <Link
               className={cn(
                 "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold text-muted-foreground transition-all duration-200 hover:bg-accent/70 hover:text-accent-foreground",

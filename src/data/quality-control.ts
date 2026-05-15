@@ -238,15 +238,6 @@ export const COMMON_QC_ISSUES = {
     "Time management (leaving work incomplete)",
     "Client-reported missed areas",
   ],
-  janitorial: [
-    "Missed restroom checks at scheduled time",
-    "Supply stockouts",
-    "Slow response to reported spills",
-    "Incomplete high-touch sanitization",
-    "Trash overflow before scheduled pickup",
-    "Client communication logs not updated",
-    "Inconsistency between visits",
-  ],
 };
 
 // ─── QC Scoring ──────────────────────────────────────────────────────────
