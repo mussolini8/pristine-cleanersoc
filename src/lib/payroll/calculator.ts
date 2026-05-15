@@ -41,6 +41,36 @@ function dateWithin(value: Date, start?: string | null, end?: string | null) {
   return true;
 }
 
+function startOfLocalDay(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function appliesToBiweeklyRule(rule: CommercialScheduleRule, serviceDate: Date) {
+  if (!rule.anchor_date) return false;
+  const anchor = parseISODate(rule.anchor_date);
+  const service = startOfLocalDay(serviceDate);
+  const diffMs = service.getTime() - startOfLocalDay(anchor).getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays < 0) return false;
+  const diffWeeks = Math.floor(diffDays / 7);
+  const interval = Number(rule.frequency_interval ?? 2) || 2;
+  return diffDays % 7 === 0 && diffWeeks % interval === 0;
+}
+
+function ruleAppliesToDate(rule: CommercialScheduleRule, serviceDate: Date) {
+  const frequencyType = rule.frequency_type ?? "weekly";
+  if (frequencyType === "biweekly") return appliesToBiweeklyRule(rule, serviceDate);
+  if (frequencyType === "monthly") {
+    if (!rule.anchor_date) return true;
+    return serviceDate.getDate() === parseISODate(rule.anchor_date).getDate();
+  }
+  if (frequencyType === "custom") {
+    if (!rule.anchor_date) return true;
+    return formatISODate(serviceDate) === rule.anchor_date;
+  }
+  return true;
+}
+
 function normalizeFrequency(value?: string | null) {
   return (value ?? "").toLowerCase().trim();
 }
@@ -122,7 +152,7 @@ function buildExceptions(input: {
   setting: CleanerPaymentSetting | null;
   account: CommercialAccount;
 }) {
-  const exceptions: PayrollExceptionCode[] = [];
+const exceptions: PayrollExceptionCode[] = [];
   if (!input.cleanerName) exceptions.push("missing_cleaner");
   if (!input.payRate) exceptions.push("missing_pay_rate");
   if (input.setting?.active === false) exceptions.push("inactive_cleaner");
@@ -134,7 +164,7 @@ function buildExceptions(input: {
 }
 
 function entryStatus(exceptions: PayrollExceptionCode[]) {
-  return exceptions.some((code) => ["missing_cleaner", "missing_pay_rate", "inactive_cleaner", "zero_hours", "manual_review"].includes(code))
+  return exceptions.some((code) => ["missing_cleaner", "missing_pay_rate", "inactive_cleaner", "zero_hours", "missing_anchor_date", "manual_review"].includes(code))
     ? "needs_review"
     : "draft";
 }
@@ -150,6 +180,7 @@ function entryFor(input: {
   setting: CleanerPaymentSetting | null;
   hasSchedule: boolean;
   source: PayrollGeneratedEntry["source"];
+  extraExceptions?: PayrollExceptionCode[];
 }) {
   const exceptions = buildExceptions({
     cleanerName: input.cleanerName,
@@ -159,6 +190,7 @@ function entryFor(input: {
     setting: input.setting,
     account: input.account,
   });
+  exceptions.push(...(input.extraExceptions ?? []));
   const estimated = cleanMoney(input.hours * input.payRate);
   const requiresManualReview = Boolean(input.setting?.requires_manual_review || exceptions.includes("manual_review"));
 
@@ -200,10 +232,16 @@ export function generateEntriesForAccount(
 
   if (activeRules.length > 0) {
     for (const rule of activeRules) {
+      const extraExceptions: PayrollExceptionCode[] = [];
+      if (rule.frequency_type === "biweekly" && !rule.anchor_date) {
+        extraExceptions.push("missing_anchor_date");
+      }
       const dates = eachDateInPeriod(period.startDate, period.endDate).filter((date) =>
         date.getDay() === Number(rule.day_of_week) &&
         dateWithin(date, account.contract_start, account.contract_end) &&
-        dateWithin(date, rule.effective_start_date, rule.effective_end_date),
+        dateWithin(date, rule.effective_start_date, rule.effective_end_date) &&
+        extraExceptions.length === 0 &&
+        ruleAppliesToDate(rule, date),
       );
       for (const serviceDate of dates) {
         const cleanerName = rule.assigned_cleaner_name || account.cleaner_name || null;
@@ -220,6 +258,25 @@ export function generateEntriesForAccount(
           setting,
           hasSchedule: true,
           source: "schedule_rule",
+          extraExceptions,
+        }));
+      }
+      if (extraExceptions.includes("missing_anchor_date")) {
+        const cleanerName = rule.assigned_cleaner_name || account.cleaner_name || null;
+        const setting = getSetting(settings, cleanerName);
+        const payRate = Number(account.cleaner_hourly_rate ?? setting?.default_pay_rate ?? 0);
+        entries.push(entryFor({
+          account,
+          cleanerName,
+          serviceDate: null,
+          scheduledDay: DAY_NAMES[Number(rule.day_of_week)] ?? null,
+          hours: Number(rule.paid_hours),
+          payRate,
+          paymentMethod: account.payment_method ?? setting?.payment_method ?? null,
+          setting,
+          hasSchedule: true,
+          source: "schedule_rule",
+          extraExceptions,
         }));
       }
     }

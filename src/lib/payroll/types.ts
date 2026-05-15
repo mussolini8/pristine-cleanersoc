@@ -41,6 +41,9 @@ export type CommercialScheduleRule = {
   end_time?: string | null;
   paid_hours: number;
   assigned_cleaner_name?: string | null;
+  frequency_type?: "weekly" | "biweekly" | "monthly" | "custom" | null;
+  frequency_interval?: number | null;
+  anchor_date?: string | null;
   active?: boolean | null;
   effective_start_date?: string | null;
   effective_end_date?: string | null;
@@ -72,6 +75,7 @@ export type PayrollExceptionCode =
   | "inactive_cleaner"
   | "zero_hours"
   | "missing_schedule"
+  | "missing_anchor_date"
   | "manual_review"
   | "contract_boundary";
 

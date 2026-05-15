@@ -157,7 +157,9 @@ create table if not exists public.commercial_accounts (
 alter table public.commercial_accounts
   add column if not exists cleaner_pay_type text,
   add column if not exists cleaner_hourly_rate numeric(10,2),
-  add column if not exists cleaner_flat_rate numeric(10,2);
+  add column if not exists cleaner_flat_rate numeric(10,2),
+  add column if not exists supply_delivery_date date,
+  add column if not exists estimated_fill_date text;
 
 alter table public.commercial_accounts enable row level security;
 
@@ -327,7 +329,14 @@ alter table public.cleaner_payment_settings
 
 alter table public.commercial_account_schedule_rules
   add column if not exists user_id uuid references auth.users(id) on delete cascade,
-  add column if not exists notes text;
+  add column if not exists notes text,
+  add column if not exists frequency_type text,
+  add column if not exists frequency_interval integer,
+  add column if not exists anchor_date date;
+
+-- frequency_type: weekly, biweekly, monthly, custom
+-- frequency_interval: 1 for weekly, 2 for biweekly
+-- anchor_date: required for biweekly calculations
 
 create index if not exists commercial_pay_periods_window_idx
   on public.commercial_pay_periods(start_date, end_date, user_id);

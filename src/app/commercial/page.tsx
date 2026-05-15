@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
@@ -12,7 +13,6 @@ import type { PieLabelRenderProps } from "recharts";
 import {
   Building2,
   CalendarCheck,
-  Check,
   ChevronDown,
   ChevronUp,
   Edit2,
@@ -60,6 +60,27 @@ type CleanerChartDatum = {
 
 type AccountDraft = Omit<Account, "id">;
 
+type AccountFormMode = "create" | "edit";
+
+type ScheduleFrequencyType = "weekly" | "biweekly" | "monthly" | "custom";
+
+type ScheduleRule = {
+  id?: string;
+  commercial_account_id?: string | null;
+  day_of_week: number;
+  start_time?: string | null;
+  end_time?: string | null;
+  paid_hours: number | string | null;
+  assigned_cleaner_name?: string | null;
+  frequency_type?: ScheduleFrequencyType | null;
+  frequency_interval?: number | string | null;
+  anchor_date?: string | null;
+  effective_start_date?: string | null;
+  effective_end_date?: string | null;
+  active?: boolean | null;
+  notes?: string | null;
+};
+
 const CLEANERS = [
   "", "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
   "Mirna Contreras", "Esperanza Youseff", "Ana Morales", "Maria Lopez",
@@ -70,6 +91,16 @@ const PIE_COLORS = [
   "#437d65", "#2563eb", "#f59e0b", "#ef4444", "#8b5cf6",
   "#06b6d4", "#10b981", "#f97316", "#e11d48", "#64748b", "#a21caf",
 ];
+
+const DAY_OPTIONS = [
+  ["0", "Sunday"],
+  ["1", "Monday"],
+  ["2", "Tuesday"],
+  ["3", "Wednesday"],
+  ["4", "Thursday"],
+  ["5", "Friday"],
+  ["6", "Saturday"],
+] as const;
 
 function emptyAccountDraft(): AccountDraft {
   return {
@@ -97,6 +128,33 @@ function emptyAccountDraft(): AccountDraft {
   };
 }
 
+function accountToDraft(account: Account): AccountDraft {
+  return {
+    name: account.name ?? "",
+    city: account.city ?? "",
+    pricing_model: account.pricing_model ?? "Monthly",
+    cleaner_name: account.cleaner_name ?? null,
+    hours: account.hours ?? null,
+    frequency: account.frequency ?? "Weekly",
+    revenue: account.revenue ?? null,
+    cost: account.cost ?? null,
+    cleaner_pay_type: account.cleaner_pay_type ?? "flat",
+    cleaner_hourly_rate: account.cleaner_hourly_rate ?? null,
+    cleaner_flat_rate: account.cleaner_flat_rate ?? null,
+    payment_method: account.payment_method ?? "ACH",
+    contract_start: account.contract_start ?? "",
+    contract_end: account.contract_end ?? "",
+    last_qcc_date: account.last_qcc_date ?? "",
+    last_contact_date: account.last_contact_date ?? "",
+    supply_delivery_date: account.supply_delivery_date ?? "",
+    estimated_fill_date: account.estimated_fill_date ?? "",
+    has_supplies: Boolean(account.has_supplies),
+    has_keys: Boolean(account.has_keys),
+    supplies_notes: account.supplies_notes ?? "",
+    source_sheet: account.source_sheet,
+  };
+}
+
 function dateOrNull(value: string | null) {
   return value?.trim() ? value : null;
 }
@@ -109,6 +167,10 @@ function numberOrNull(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isPersistedAccount(account: Pick<Account, "id"> | null | undefined) {
+  return Boolean(account?.id && !account.id.startsWith("import-"));
 }
 
 function displayDate(value: string | null) {
@@ -192,13 +254,8 @@ function Pill({ yes }: { yes: boolean }) {
 }
 
 // ─────────────────────────────────────────────
-function AccountRow({ acc, onSave }: { acc: Account; onSave: (a: Account) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<Account>(acc);
+function AccountRow({ acc, onEdit }: { acc: Account; onEdit: (account: Account) => void }) {
   const [expanded, setExpanded] = useState(false);
-
-  function save() { onSave(draft); setEditing(false); }
-  function cancel() { setDraft(acc); setEditing(false); }
 
   const realCost = getRealCost(acc);
   const profit = (acc.revenue ?? 0) - realCost;
@@ -213,10 +270,7 @@ function AccountRow({ acc, onSave }: { acc: Account; onSave: (a: Account) => voi
               {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             </button>
             <div className="account-primary">
-              {editing
-                ? <input className="edit-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-                : <span className="acc-name">{acc.name}</span>
-              }
+              <span className="acc-name">{acc.name}</span>
               <span className="acc-city-badge">{acc.city ?? "No city"}</span>
             </div>
           </div>
@@ -224,83 +278,45 @@ function AccountRow({ acc, onSave }: { acc: Account; onSave: (a: Account) => voi
 
         {/* Cleaner */}
         <td className="acc-cell">
-          {editing
-            ? <select className="edit-select" value={draft.cleaner_name ?? ""}
-                onChange={(e) => setDraft({ ...draft, cleaner_name: e.target.value || null })}>
-                {CLEANERS.map((c) => <option key={c} value={c}>{c || "— Unassigned —"}</option>)}
-              </select>
-            : <span className="cleaner-name-cell"><strong>{acc.cleaner_name ?? "Unassigned"}</strong><span>{acc.frequency ?? "No frequency"}</span></span>
-          }
+          <span className="cleaner-name-cell"><strong>{acc.cleaner_name ?? "Unassigned"}</strong><span>{acc.frequency ?? "No frequency"}</span></span>
         </td>
 
         {/* Supplies */}
         <td className="acc-cell" style={{ textAlign: "center" }}>
-          {editing
-            ? <select className="edit-select" style={{ minWidth: 60 }} value={draft.has_supplies ? "yes" : "no"}
-                onChange={(e) => setDraft({ ...draft, has_supplies: e.target.value === "yes" })}>
-                <option value="yes">Yes</option><option value="no">No</option>
-              </select>
-            : <Pill yes={acc.has_supplies} />
-          }
+          <Pill yes={acc.has_supplies} />
         </td>
 
         {/* Delivery date */}
         <td className="acc-cell">
-          {editing
-            ? <input className="edit-input" type="date" value={draft.supply_delivery_date ?? ""}
-                onChange={(e) => setDraft({ ...draft, supply_delivery_date: e.target.value || null })} />
-            : <span className="date-text">{displayDate(acc.supply_delivery_date ?? null)}</span>
-          }
+          <span className="date-text">{displayDate(acc.supply_delivery_date ?? null)}</span>
         </td>
 
         {/* Estimated fill */}
         <td className="acc-cell">
-          {editing
-            ? <input className="edit-input" type="text" value={draft.estimated_fill_date ?? ""}
-                onChange={(e) => setDraft({ ...draft, estimated_fill_date: e.target.value || null })} />
-            : <span className="date-text">{acc.estimated_fill_date ?? "—"}</span>
-          }
+          <span className="date-text">{acc.estimated_fill_date ?? "—"}</span>
         </td>
 
         {/* Keys */}
         <td className="acc-cell" style={{ textAlign: "center" }}>
-          {editing
-            ? <select className="edit-select" style={{ minWidth: 60 }} value={draft.has_keys ? "yes" : "no"}
-                onChange={(e) => setDraft({ ...draft, has_keys: e.target.value === "yes" })}>
-                <option value="yes">Yes</option><option value="no">No</option>
-              </select>
-            : <span style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
                 {acc.has_keys && <Key size={12} style={{ color: "hsl(142 76% 36%)" }} />}
                 <Pill yes={acc.has_keys} />
               </span>
-          }
         </td>
 
         {/* Last QC Check */}
         <td className="acc-cell">
-          {editing
-            ? <input className="edit-input" type="date" value={draft.last_qcc_date ?? ""}
-                onChange={(e) => setDraft({ ...draft, last_qcc_date: e.target.value || null })} />
-            : <span className="date-text">{displayDate(acc.last_qcc_date)}</span>
-          }
+          <span className="date-text">{displayDate(acc.last_qcc_date)}</span>
         </td>
 
         {/* Notes */}
         <td className="acc-cell" style={{ maxWidth: 160 }}>
-          {editing
-            ? <input className="edit-input" value={draft.supplies_notes ?? ""}
-                onChange={(e) => setDraft({ ...draft, supplies_notes: e.target.value })} />
-            : <div style={{ fontSize: "0.74rem", color: "hsl(var(--muted-foreground))", fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={acc.supplies_notes ?? ""}>{acc.supplies_notes ?? ""}</div>
-          }
+          <div style={{ fontSize: "0.74rem", color: "hsl(var(--muted-foreground))", fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={acc.supplies_notes ?? ""}>{acc.supplies_notes ?? ""}</div>
         </td>
 
         {/* Revenue / Cost / Profit */}
         <td className="acc-cell" style={{ textAlign: "right" }}>
-          {editing
-            ? <input className="edit-input" type="number" value={draft.revenue ?? ""}
-                onChange={(e) => setDraft({ ...draft, revenue: parseFloat(e.target.value) || 0 })} />
-            : <span style={{ fontWeight: 700 }}>${(acc.revenue ?? 0).toFixed(2)}</span>
-          }
+          <span style={{ fontWeight: 700 }}>${(acc.revenue ?? 0).toFixed(2)}</span>
         </td>
         <td className="acc-cell" style={{ textAlign: "right", color: "hsl(var(--muted-foreground))" }}>
           ${realCost.toFixed(2)}
@@ -312,16 +328,9 @@ function AccountRow({ acc, onSave }: { acc: Account; onSave: (a: Account) => voi
 
         {/* Actions */}
         <td className="acc-cell" style={{ width: 70 }}>
-          {editing ? (
-            <div className="row-actions">
-              <button className="action-btn save-btn" onClick={save} aria-label="Save account"><Check size={13} /></button>
-              <button className="action-btn cancel-btn" onClick={cancel} aria-label="Cancel editing"><X size={13} /></button>
-            </div>
-          ) : (
-            <button className="action-btn edit-btn" onClick={() => { setDraft(acc); setEditing(true); }} aria-label="Edit account">
-              <Edit2 size={13} />
-            </button>
-          )}
+          <button className="action-btn edit-btn" onClick={() => onEdit(acc)} aria-label="Edit account">
+            <Edit2 size={13} />
+          </button>
         </td>
       </tr>
 
@@ -354,7 +363,157 @@ function AccountRow({ acc, onSave }: { acc: Account; onSave: (a: Account) => voi
   );
 }
 
+function emptyScheduleRule(accountId: string): ScheduleRule {
+  return {
+    commercial_account_id: accountId,
+    day_of_week: 1,
+    paid_hours: 0,
+    start_time: null,
+    end_time: null,
+    assigned_cleaner_name: null,
+    frequency_type: "weekly",
+    frequency_interval: 1,
+    anchor_date: null,
+    effective_start_date: null,
+    effective_end_date: null,
+    active: true,
+  };
+}
+
+function ScheduleRulesEditor({ account }: { account: Account }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [rules, setRules] = useState<ScheduleRule[]>([]);
+  const [loadingRules, setLoadingRules] = useState(true);
+  const [savingRules, setSavingRules] = useState(false);
+  const [rulesMessage, setRulesMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadRules() {
+      setLoadingRules(true);
+      const { data, error } = await supabase
+        .from("commercial_account_schedule_rules")
+        .select("*")
+        .eq("commercial_account_id", account.id)
+        .order("day_of_week");
+
+      if (!mounted) return;
+      if (error) {
+        setRulesMessage(error.message);
+        setRules([]);
+      } else {
+        setRules(((data ?? []) as ScheduleRule[]).map((rule) => ({
+          ...rule,
+          frequency_type: rule.frequency_type ?? "weekly",
+          frequency_interval: rule.frequency_interval ?? (rule.frequency_type === "biweekly" ? 2 : 1),
+        })));
+      }
+      setLoadingRules(false);
+    }
+
+    loadRules();
+    return () => { mounted = false; };
+  }, [account.id, supabase]);
+
+  function updateRule(index: number, patch: Partial<ScheduleRule>) {
+    setRules((current) => current.map((rule, ruleIndex) => {
+      if (ruleIndex !== index) return rule;
+      const next = { ...rule, ...patch };
+      if (patch.frequency_type === "biweekly" && !next.frequency_interval) next.frequency_interval = 2;
+      if (patch.frequency_type === "weekly" && !next.frequency_interval) next.frequency_interval = 1;
+      return next;
+    }));
+  }
+
+  async function saveRules() {
+    setSavingRules(true);
+    setRulesMessage(null);
+    const payload = rules.map((rule) => ({
+      ...(rule.id ? { id: rule.id } : {}),
+      commercial_account_id: account.id,
+      day_of_week: Number(rule.day_of_week),
+      paid_hours: numberOrNull(rule.paid_hours) ?? 0,
+      start_time: dateOrNull(rule.start_time ?? null),
+      end_time: dateOrNull(rule.end_time ?? null),
+      assigned_cleaner_name: textOrNull(rule.assigned_cleaner_name ?? null),
+      frequency_type: rule.frequency_type ?? "weekly",
+      frequency_interval: numberOrNull(rule.frequency_interval) ?? (rule.frequency_type === "biweekly" ? 2 : 1),
+      anchor_date: dateOrNull(rule.anchor_date ?? null),
+      effective_start_date: dateOrNull(rule.effective_start_date ?? null),
+      effective_end_date: dateOrNull(rule.effective_end_date ?? null),
+      active: rule.active !== false,
+      notes: textOrNull(rule.notes ?? null),
+      updated_at: new Date().toISOString(),
+    }));
+
+    const missingAnchor = payload.some((rule) => rule.active && rule.frequency_type === "biweekly" && !rule.anchor_date);
+    if (missingAnchor) {
+      setSavingRules(false);
+      setRulesMessage("Biweekly schedules need an anchor date so payroll knows which weeks apply.");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("commercial_account_schedule_rules")
+      .upsert(payload, { onConflict: "id" })
+      .select("*")
+      .order("day_of_week");
+
+    setSavingRules(false);
+    if (error) {
+      setRulesMessage(error.message);
+      return;
+    }
+
+    setRules((data ?? []) as ScheduleRule[]);
+    setRulesMessage("Schedule pay rules saved. These changes affect future payroll calculations.");
+  }
+
+  return (
+    <div className="schedule-editor">
+      <div className="studio-section-title"><CalendarCheck size={15} /> Schedule pay rules</div>
+      <div className="payroll-impact">These changes affect future payroll calculations. Save changes only, then review Commercial Payroll before recalculating any open period.</div>
+      {loadingRules ? <p className="schedule-note">Loading schedule rules...</p> : null}
+      <div className="schedule-rule-list">
+        {rules.map((rule, index) => {
+          const isBiweekly = rule.frequency_type === "biweekly";
+          return (
+            <div className="schedule-rule-card" key={rule.id ?? index}>
+              <div className="form-grid four">
+                <label className="studio-field"><span>Day</span><select value={String(rule.day_of_week)} onChange={(event) => updateRule(index, { day_of_week: Number(event.target.value) })}>{DAY_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label className="studio-field"><span>Paid hours</span><input min="0" step="0.25" type="number" value={rule.paid_hours ?? ""} onChange={(event) => updateRule(index, { paid_hours: event.target.value })} /></label>
+                <label className="studio-field"><span>Frequency</span><select value={rule.frequency_type ?? "weekly"} onChange={(event) => updateRule(index, { frequency_type: event.target.value as ScheduleFrequencyType })}><option value="weekly">Weekly</option><option value="biweekly">Every 2 weeks</option><option value="monthly">Monthly</option><option value="custom">Custom</option></select></label>
+                <label className="studio-field"><span>Interval</span><input min="1" step="1" type="number" value={rule.frequency_interval ?? (isBiweekly ? 2 : 1)} onChange={(event) => updateRule(index, { frequency_interval: event.target.value })} /></label>
+              </div>
+              <div className="form-grid four">
+                <label className="studio-field"><span>Start time</span><input type="time" value={rule.start_time ?? ""} onChange={(event) => updateRule(index, { start_time: event.target.value || null })} /></label>
+                <label className="studio-field"><span>End time</span><input type="time" value={rule.end_time ?? ""} onChange={(event) => updateRule(index, { end_time: event.target.value || null })} /></label>
+                <label className="studio-field"><span>Anchor date</span><input type="date" value={rule.anchor_date ?? ""} onChange={(event) => updateRule(index, { anchor_date: event.target.value || null })} /></label>
+                <label className="studio-field"><span>Cleaner override</span><select value={rule.assigned_cleaner_name ?? ""} onChange={(event) => updateRule(index, { assigned_cleaner_name: event.target.value || null })}>{CLEANERS.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner || "Use account cleaner"}</option>)}</select></label>
+              </div>
+              <div className="form-grid three">
+                <label className="studio-field"><span>Effective start</span><input type="date" value={rule.effective_start_date ?? ""} onChange={(event) => updateRule(index, { effective_start_date: event.target.value || null })} /></label>
+                <label className="studio-field"><span>Effective end</span><input type="date" value={rule.effective_end_date ?? ""} onChange={(event) => updateRule(index, { effective_end_date: event.target.value || null })} /></label>
+                <label className="studio-field"><span>Status</span><select value={rule.active === false ? "inactive" : "active"} onChange={(event) => updateRule(index, { active: event.target.value === "active" })}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+              </div>
+              {isBiweekly && !rule.anchor_date ? <p className="schedule-warning">Biweekly schedules need an anchor date so payroll knows which weeks apply.</p> : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="schedule-actions">
+        <button className="add-rule-btn" type="button" onClick={() => setRules((current) => [...current, emptyScheduleRule(account.id)])}>Add schedule rule</button>
+        <button className="studio-save compact" disabled={savingRules || loadingRules || rules.length === 0} type="button" onClick={saveRules}>{savingRules ? "Saving rules..." : "Save schedule rules"}</button>
+      </div>
+      {rules.length === 0 && !loadingRules ? <p className="schedule-note">Schedule rules are required for exact payroll. Add one rule per paid cleaning day.</p> : null}
+      {rulesMessage ? <p className="studio-error">{rulesMessage}</p> : null}
+    </div>
+  );
+}
+
 function AccountStudio({
+  mode,
+  editingAccount,
   draft,
   error,
   saving,
@@ -362,6 +521,8 @@ function AccountStudio({
   onClose,
   onSubmit,
 }: {
+  mode: AccountFormMode;
+  editingAccount?: Account | null;
   draft: AccountDraft;
   error: string | null;
   saving: boolean;
@@ -373,6 +534,7 @@ function AccountStudio({
   const cost = getRealCost(draft);
   const profit = revenue - cost;
   const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
+  const isEdit = mode === "edit";
   const readyChecks = [
     draft.name.trim(),
     draft.city?.trim(),
@@ -390,8 +552,8 @@ function AccountStudio({
       <div className="studio-hero">
         <div>
           <span className="studio-kicker"><Sparkles size={14} /> Account Studio</span>
-          <h2 className="studio-title">Add a Commercial Account</h2>
-          <p className="studio-copy">Create the account, assign the cleaner, capture Last QC Check, and preview profit before saving.</p>
+          <h2 className="studio-title">{isEdit ? "Edit Commercial Account" : "Add a Commercial Account"}</h2>
+          <p className="studio-copy">{isEdit ? "Update account defaults, schedule rules, contract terms, and payroll inputs from one place." : "Create the account, assign the cleaner, capture Last QC Check, and preview profit before saving."}</p>
         </div>
         <button className="studio-close" onClick={onClose} type="button"><X size={16} /></button>
       </div>
@@ -548,6 +710,19 @@ function AccountStudio({
             <span>Notes</span>
             <textarea value={draft.supplies_notes ?? ""} onChange={(e) => onChange({ ...draft, supplies_notes: e.target.value })} placeholder="Entry details, access notes, supply preferences..." />
           </label>
+
+          {isEdit ? (
+            <div className="payroll-impact-block">
+              <strong>These changes affect future payroll calculations.</strong>
+              <div className="impact-actions"><span>Save changes only</span><span>Save and apply going forward</span><Link href="/payments/commercial-payroll">Open Commercial Payroll</Link></div>
+            </div>
+          ) : null}
+
+          {isEdit && editingAccount ? (
+            isPersistedAccount(editingAccount)
+              ? <ScheduleRulesEditor account={editingAccount} />
+              : <p className="schedule-note">Save this imported account into the database before adding schedule rules.</p>
+          ) : null}
         </div>
 
         <aside className="studio-preview">
@@ -570,7 +745,7 @@ function AccountStudio({
           <div className="preview-meter"><span style={{ width: `${readiness}%` }} /></div>
           {error ? <p className="studio-error">{error}</p> : null}
           <button className="studio-save" disabled={saving} type="submit">
-            {saving ? "Saving..." : "Add Commercial Account"}
+            {saving ? "Saving..." : isEdit ? "Save Changes" : "Add Commercial Account"}
           </button>
         </aside>
       </div>
@@ -582,7 +757,9 @@ function AccountStudio({
 export default function CommercialPage() {
   const [accounts, setAccounts] = useState<Account[]>(() => mergeImportedAccounts([]));
   const [loading, setLoading] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showAccountStudio, setShowAccountStudio] = useState(false);
+  const [accountFormMode, setAccountFormMode] = useState<AccountFormMode>("create");
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newAccount, setNewAccount] = useState<AccountDraft>(() => emptyAccountDraft());
   const [savingNew, setSavingNew] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -607,29 +784,91 @@ export default function CommercialPage() {
     loadAccounts();
   }, [supabase]);
 
-  async function handleSave(updated: Account) {
-    if (updated.id.startsWith("import-")) {
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-      return;
-    }
-
-    const { error } = await supabase.from("commercial_accounts").update({
-      name: updated.name, cleaner_name: updated.cleaner_name,
-      has_supplies: updated.has_supplies, has_keys: updated.has_keys,
-      supplies_notes: updated.supplies_notes, last_qcc_date: updated.last_qcc_date,
-      last_contact_date: updated.last_contact_date, revenue: updated.revenue,
-      cost: getRealCost(updated),
-      cleaner_pay_type: updated.cleaner_pay_type,
-      cleaner_hourly_rate: updated.cleaner_hourly_rate,
-      cleaner_flat_rate: updated.cleaner_flat_rate,
-    }).eq("id", updated.id);
-
-    if (!error) {
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-    }
+  async function refreshAccounts() {
+    const { data, error } = await supabase.from("commercial_accounts").select("*").order("name");
+    if (!error) setAccounts(mergeImportedAccounts((data ?? []) as Account[]));
   }
 
-  async function handleCreateAccount(event: FormEvent<HTMLFormElement>) {
+  function openCreateStudio() {
+    setAccountFormMode("create");
+    setEditingAccount(null);
+    setNewAccount(emptyAccountDraft());
+    setFormError(null);
+    setShowAccountStudio(true);
+  }
+
+  function openEditStudio(account: Account) {
+    setAccountFormMode("edit");
+    setEditingAccount(account);
+    setNewAccount(accountToDraft(account));
+    setFormError(null);
+    setShowAccountStudio(true);
+  }
+
+  function closeAccountStudio() {
+    setShowAccountStudio(false);
+    setFormError(null);
+    setEditingAccount(null);
+    setAccountFormMode("create");
+    setNewAccount(emptyAccountDraft());
+  }
+
+  function buildAccountPayload(draft: AccountDraft, id = crypto.randomUUID()): Account {
+    return {
+      id,
+      name: draft.name.trim(),
+      city: draft.city?.trim() ?? null,
+      pricing_model: textOrNull(draft.pricing_model),
+      cleaner_name: textOrNull(draft.cleaner_name),
+      hours: numberOrNull(draft.hours),
+      frequency: textOrNull(draft.frequency),
+      revenue: numberOrNull(draft.revenue),
+      cost: getRealCost(draft),
+      cleaner_pay_type: draft.cleaner_pay_type ?? "flat",
+      cleaner_hourly_rate: numberOrNull(draft.cleaner_hourly_rate),
+      cleaner_flat_rate: numberOrNull(draft.cleaner_flat_rate),
+      payment_method: textOrNull(draft.payment_method),
+      contract_start: dateOrNull(draft.contract_start),
+      contract_end: dateOrNull(draft.contract_end),
+      last_qcc_date: dateOrNull(draft.last_qcc_date),
+      last_contact_date: dateOrNull(draft.last_contact_date),
+      has_supplies: draft.has_supplies,
+      has_keys: draft.has_keys,
+      supply_delivery_date: dateOrNull(draft.supply_delivery_date ?? null),
+      estimated_fill_date: textOrNull(draft.estimated_fill_date ?? null),
+      supplies_notes: textOrNull(draft.supplies_notes),
+      source_sheet: accountFormMode === "create" ? "Manual entry" : editingAccount?.source_sheet ?? "Manual entry",
+    };
+  }
+
+  function toDbPayload(account: Account) {
+    return {
+      name: account.name,
+      city: account.city,
+      pricing_model: account.pricing_model,
+      cleaner_name: account.cleaner_name,
+      hours: typeof account.hours === "number" ? account.hours : numberOrNull(account.hours),
+      frequency: account.frequency,
+      revenue: account.revenue,
+      cost: account.cost,
+      cleaner_pay_type: account.cleaner_pay_type,
+      cleaner_hourly_rate: account.cleaner_hourly_rate,
+      cleaner_flat_rate: account.cleaner_flat_rate,
+      payment_method: account.payment_method,
+      contract_start: account.contract_start,
+      contract_end: account.contract_end,
+      last_qcc_date: account.last_qcc_date,
+      last_contact_date: account.last_contact_date,
+      has_supplies: account.has_supplies,
+      has_keys: account.has_keys,
+      supply_delivery_date: account.supply_delivery_date ?? null,
+      estimated_fill_date: account.estimated_fill_date ?? null,
+      supplies_notes: account.supplies_notes,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  async function handleAccountSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
 
@@ -639,53 +878,29 @@ export default function CommercialPage() {
     }
 
     setSavingNew(true);
-    const localPayload: Account = {
-      id: crypto.randomUUID(),
-      name: newAccount.name.trim(),
-      city: newAccount.city.trim(),
-      pricing_model: textOrNull(newAccount.pricing_model),
-      cleaner_name: textOrNull(newAccount.cleaner_name),
-      hours: newAccount.hours,
-      frequency: textOrNull(newAccount.frequency),
-      revenue: newAccount.revenue,
-      cost: getRealCost(newAccount),
-      cleaner_pay_type: newAccount.cleaner_pay_type ?? "flat",
-      cleaner_hourly_rate: newAccount.cleaner_hourly_rate,
-      cleaner_flat_rate: newAccount.cleaner_flat_rate,
-      payment_method: textOrNull(newAccount.payment_method),
-      contract_start: dateOrNull(newAccount.contract_start),
-      contract_end: dateOrNull(newAccount.contract_end),
-      last_qcc_date: dateOrNull(newAccount.last_qcc_date),
-      last_contact_date: dateOrNull(newAccount.last_contact_date),
-      has_supplies: newAccount.has_supplies,
-      has_keys: newAccount.has_keys,
-      supply_delivery_date: dateOrNull(newAccount.supply_delivery_date ?? null),
-      estimated_fill_date: textOrNull(newAccount.estimated_fill_date ?? null),
-      supplies_notes: textOrNull(newAccount.supplies_notes),
-      source_sheet: "Manual entry",
-    };
-    const dbPayload = {
-      id: localPayload.id,
-      name: localPayload.name,
-      city: localPayload.city,
-      pricing_model: localPayload.pricing_model,
-      cleaner_name: localPayload.cleaner_name,
-      hours: typeof localPayload.hours === "number" ? localPayload.hours : null,
-      frequency: localPayload.frequency,
-      revenue: localPayload.revenue,
-      cost: localPayload.cost,
-      cleaner_pay_type: localPayload.cleaner_pay_type,
-      cleaner_hourly_rate: localPayload.cleaner_hourly_rate,
-      cleaner_flat_rate: localPayload.cleaner_flat_rate,
-      payment_method: localPayload.payment_method,
-      contract_start: localPayload.contract_start,
-      contract_end: localPayload.contract_end,
-      last_qcc_date: localPayload.last_qcc_date,
-      last_contact_date: localPayload.last_contact_date,
-      has_supplies: localPayload.has_supplies,
-      has_keys: localPayload.has_keys,
-      supplies_notes: localPayload.supplies_notes,
-    };
+    const localPayload = buildAccountPayload(
+      newAccount,
+      accountFormMode === "edit" && isPersistedAccount(editingAccount) && editingAccount ? editingAccount.id : crypto.randomUUID(),
+    );
+
+    if (accountFormMode === "edit" && editingAccount && isPersistedAccount(editingAccount)) {
+      const { error } = await supabase
+        .from("commercial_accounts")
+        .update(toDbPayload(localPayload))
+        .eq("id", editingAccount.id);
+
+      setSavingNew(false);
+      if (error) {
+        setFormError(error.message);
+        return;
+      }
+      await refreshAccounts();
+      closeAccountStudio();
+      return;
+    }
+
+    const dbPayload: Record<string, unknown> = { id: localPayload.id, ...toDbPayload(localPayload) };
+    delete dbPayload.updated_at;
 
     const { data, error } = await supabase
       .from("commercial_accounts")
@@ -700,10 +915,8 @@ export default function CommercialPage() {
       return;
     }
 
-    const created = { ...localPayload, ...((data ?? {}) as Partial<Account>) };
-    setAccounts((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
-    setNewAccount(emptyAccountDraft());
-    setShowAddForm(false);
+    if (data) await refreshAccounts();
+    closeAccountStudio();
   }
 
   // Chart data
@@ -814,7 +1027,23 @@ export default function CommercialPage() {
           border-radius:8px; padding:10px; font-size:.78rem; font-weight:800; }
         .studio-save { border:none; border-radius:8px; padding:10px 12px; background:hsl(var(--primary));
           color:hsl(var(--primary-foreground)); font-weight:900; cursor:pointer; }
+        .studio-save.compact { width:auto; padding:8px 12px; font-size:.78rem; }
         .studio-save:disabled { opacity:.65; cursor:not-allowed; }
+        .payroll-impact, .payroll-impact-block { border:1px solid hsl(42 92% 50%/.32); background:hsl(42 92% 50%/.1); color:hsl(32 90% 28%);
+          border-radius:8px; padding:10px 12px; font-size:.8rem; font-weight:850; }
+        .dark .payroll-impact, .dark .payroll-impact-block { color:hsl(42 92% 82%); }
+        .payroll-impact-block { display:flex; flex-direction:column; gap:8px; }
+        .impact-actions { display:flex; flex-wrap:wrap; gap:8px; }
+        .impact-actions span, .impact-actions a { border:1px solid hsl(var(--border)); border-radius:999px; background:hsl(var(--background)); color:hsl(var(--foreground));
+          padding:5px 9px; font-size:.72rem; font-weight:900; text-decoration:none; }
+        .schedule-editor { display:flex; flex-direction:column; gap:12px; border-top:1px solid hsl(var(--border)); padding-top:14px; }
+        .schedule-rule-list { display:flex; flex-direction:column; gap:12px; }
+        .schedule-rule-card { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); padding:12px; display:flex; flex-direction:column; gap:10px; }
+        .schedule-actions { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
+        .add-rule-btn { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground));
+          padding:8px 12px; font-size:.78rem; font-weight:900; cursor:pointer; }
+        .schedule-note { margin:0; color:hsl(var(--muted-foreground)); font-size:.8rem; font-weight:800; }
+        .schedule-warning { margin:0; color:hsl(32 90% 36%); font-size:.78rem; font-weight:900; }
 
         .stat-bar { display:grid; grid-template-columns:1.4fr 1fr 1fr 1.2fr 1fr 1fr; gap:10px; }
         .stat-card { min-width:0; padding:14px; border-radius:8px; background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82);
@@ -935,20 +1164,22 @@ export default function CommercialPage() {
             <h1 className="page-title">Commercial Accounts</h1>
             <p className="page-sub">Accounts sheet + Team supplies, including hidden rows, Last QC Check, and financial overview</p>
           </div>
-          <button className="add-account-btn" onClick={() => { setShowAddForm((open) => !open); setFormError(null); }} type="button">
-            {showAddForm ? <X size={15} /> : <Plus size={15} />}
-            {showAddForm ? "Close Form" : "Add Account"}
+          <button className="add-account-btn" onClick={() => showAccountStudio ? closeAccountStudio() : openCreateStudio()} type="button">
+            {showAccountStudio ? <X size={15} /> : <Plus size={15} />}
+            {showAccountStudio ? "Close Form" : "Add Account"}
           </button>
         </div>
 
-        {showAddForm ? (
+        {showAccountStudio ? (
           <AccountStudio
+            mode={accountFormMode}
+            editingAccount={editingAccount}
             draft={newAccount}
             error={formError}
             saving={savingNew}
             onChange={setNewAccount}
-            onClose={() => { setShowAddForm(false); setFormError(null); }}
-            onSubmit={handleCreateAccount}
+            onClose={closeAccountStudio}
+            onSubmit={handleAccountSubmit}
           />
         ) : null}
 
@@ -1059,7 +1290,7 @@ export default function CommercialPage() {
                 </thead>
                 <tbody>
                   {filteredAccounts.map((acc) => (
-                    <AccountRow key={acc.id} acc={acc} onSave={handleSave} />
+                    <AccountRow key={acc.id} acc={acc} onEdit={openEditStudio} />
                   ))}
                 </tbody>
               </table>
