@@ -140,6 +140,8 @@ type PaymentEntryRow = {
   residential_amount: number;
   commercial_amount: number;
   payment_amount: number;
+  source_type?: string | null;
+  category?: string | null;
 };
 
 type PaymentExtraRow = {
@@ -637,6 +639,7 @@ export default function PaymentsPage() {
 
       const nextData = buildEmptyCleanerData();
       for (const row of (entryRows ?? []) as PaymentEntryRow[]) {
+        if (row.source_type === "commercial_payroll" || row.category === "commercial") continue;
         const cleaner = RESIDENTIAL_CLEANERS.find((item) => item.name === row.cleaner_name);
         if (!cleaner || row.week_index < 0 || row.week_index >= WEEK_COUNT) continue;
         const isJuan = cleaner.name === JUAN_ROMERO;
@@ -671,7 +674,7 @@ export default function PaymentsPage() {
       setUnifiedPayments([
         ...((unifiedEntryRows ?? []) as LegacyPaymentEntryRow[]).map(normalizePaymentEntry),
         ...((unifiedExtraRows ?? []) as PaymentExtraUnifiedRow[]).map(normalizePaymentExtra),
-      ].sort((a, b) => String(b.updatedAt ?? b.createdAt ?? "").localeCompare(String(a.updatedAt ?? a.createdAt ?? ""))));
+      ].filter((payment) => payment.category !== "commercial" && payment.sourceType !== "commercial_payroll").sort((a, b) => String(b.updatedAt ?? b.createdAt ?? "").localeCompare(String(a.updatedAt ?? a.createdAt ?? ""))));
     }
 
     loadPayments();
@@ -1006,8 +1009,8 @@ export default function PaymentsPage() {
               <button className={`action-btn ${showOverview ? "active" : ""}`} onClick={() => setShowOverview((value) => !value)} type="button">
                 <BarChart3 size={15} /> Overview
               </button>
-              <Link className="action-btn" href="/payments/commercial-payroll">
-                <WalletCards size={15} /> Commercial Payroll
+              <Link className="action-btn" href="/commercial/payroll">
+                <WalletCards size={15} /> Commercial Panel
               </Link>
               <div className="export-group">
                 <select

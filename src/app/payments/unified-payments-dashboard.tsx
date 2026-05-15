@@ -60,7 +60,6 @@ export function UnifiedPaymentsDashboard({ payments, filter, onFilterChange, onM
   }, { all: 0, paid: 0, approved: 0, review: 0, commercial: 0, legacy: 0 });
   const filters: [UnifiedFilter, string][] = [
     ["all", "All"],
-    ["commercial_payroll", "Commercial Payroll"],
     ["legacy_payment", "Legacy"],
     ["manual_extra", "Manual Extras"],
     ["residential", "Residential"],
@@ -75,10 +74,10 @@ export function UnifiedPaymentsDashboard({ payments, filter, onFilterChange, onM
       <div className="unified-head">
         <div>
           <p className="section-kicker"><WalletCards size={14} /> Unified Payments Dashboard</p>
-          <h2>All payment work in one place</h2>
-          <p>Commercial payroll syncs here automatically while legacy weekly payments stay intact below.</p>
+          <h2>Residential payment work</h2>
+          <p>Residential, manual, and historical weekly payments stay here. Commercial payroll lives in the commercial panel.</p>
         </div>
-        <Link className="action-btn primary" href="/payments/commercial-payroll"><BadgeCheck size={15} /> Commercial Payroll</Link>
+        <Link className="action-btn primary" href="/commercial"><BadgeCheck size={15} /> Commercial Panel</Link>
       </div>
 
       <div className="unified-metrics">
@@ -117,7 +116,7 @@ export function UnifiedPaymentsDashboard({ payments, filter, onFilterChange, onM
                   <td><UnifiedBadge tone={payment.status === "paid" ? "good" : payment.status === "needs_review" ? "warn" : "neutral"}>{statusLabel(payment.status)}</UnifiedBadge></td>
                   <td>{payment.requiresReview ? <UnifiedBadge tone="warn">Needs Review</UnifiedBadge> : <UnifiedBadge>Clear</UnifiedBadge>}</td>
                   <td>{payment.paymentMethod ?? "-"}</td>
-                  <td><div className="unified-actions">{payment.payPeriodId ? <Link href={`/payments/commercial-payroll/${payment.payPeriodId}`}>Open period</Link> : null}<button disabled={isPaid} onClick={() => onMarkPaid(payment)} type="button">{isPaid ? "Paid" : "Mark paid"}</button></div>{isPaid && payment.sourceType === "commercial_payroll" ? <small>This payment is already paid. Create an adjustment instead.</small> : null}</td>
+                  <td><div className="unified-actions">{payment.payPeriodId ? <Link href={`/commercial/payroll/${payment.payPeriodId}`}>Open period</Link> : null}<button disabled={isPaid} onClick={() => onMarkPaid(payment)} type="button">{isPaid ? "Paid" : "Mark paid"}</button></div>{isPaid && payment.sourceType === "commercial_payroll" ? <small>This payment is already paid. Create an adjustment instead.</small> : null}</td>
                 </tr>
               );
             })}

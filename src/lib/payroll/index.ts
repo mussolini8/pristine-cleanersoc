@@ -192,8 +192,8 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
   const scheduleRules = await fetchScheduleRules(accounts);
   const existing = await findExistingPeriod(supabase, period);
 
-  if (existing && ["paid", "locked"].includes(existing.status) && !options.forceRecalculate) {
-    throw new Error("This pay period is paid or locked. Confirm before recalculating from current schedules.");
+  if (existing && ["approved", "paid", "locked"].includes(existing.status)) {
+    throw new Error("This pay period is approved, paid, or locked. Create an adjustment instead of recalculating it.");
   }
 
   let periodRow = existing;
@@ -220,8 +220,12 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
       .delete()
       .eq("source_type", "commercial_payroll")
       .eq("pay_period_id", periodRow.id)
-      .not("status", "in", "(paid,locked)");
-    await supabase.from("commercial_payroll_entries").delete().eq("pay_period_id", periodRow.id);
+      .not("status", "in", "(approved,paid,locked)");
+    await supabase
+      .from("commercial_payroll_entries")
+      .delete()
+      .eq("pay_period_id", periodRow.id)
+      .not("status", "in", "(approved,paid,locked)");
   }
 
   const entries = accounts.flatMap((account) => generateEntriesForAccount(account, period, settings, rulesForAccount(account, scheduleRules)));
@@ -264,6 +268,40 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
   });
 
   return { period: { ...periodRow, status }, createdEntries: entries.length, summary };
+}
+
+
+export async function applyCommercialAccountChangesGoingForward(accountId: string, options: { userId?: string | null } = {}) {
+  const supabase = createClient();
+  const userId = options.userId ?? await getUserId(supabase);
+  const currentPeriod = getBiweeklyPeriod(new Date());
+  const { data: futureOpenPeriods } = await supabase
+    .from("commercial_pay_periods")
+    .select("*")
+    .gte("end_date", currentPeriod.startDate)
+    .not("status", "in", "(approved,paid,locked)")
+    .order("start_date", { ascending: true });
+
+  const periodsToRefresh = (futureOpenPeriods ?? []) as PayrollPeriodRow[];
+  const hasCurrent = periodsToRefresh.some((period) => period.start_date === currentPeriod.startDate && period.end_date === currentPeriod.endDate);
+  const requestedPeriods = hasCurrent
+    ? periodsToRefresh.map((period) => ({ startDate: period.start_date, endDate: period.end_date, label: period.label ?? currentPeriod.label }))
+    : [currentPeriod, ...periodsToRefresh.map((period) => ({ startDate: period.start_date, endDate: period.end_date, label: period.label ?? currentPeriod.label }))];
+
+  const results = [];
+  for (const period of requestedPeriods) {
+    results.push(await generatePayrollForPeriod(period, { userId, forceRecalculate: true }));
+  }
+
+  await supabase.from("payroll_audit_log").insert({
+    entity_type: "commercial_account",
+    entity_id: accountId,
+    action: "account_changes_applied_going_forward",
+    new_value: JSON.stringify({ periods: requestedPeriods.map((period) => period.startDate + ":" + period.endDate) }),
+    changed_by: userId,
+  });
+
+  return { refreshedPeriods: results.length, refreshedEntries: results.reduce((sum, result) => sum + result.createdEntries, 0) };
 }
 
 export async function fetchPayrollOverview() {
