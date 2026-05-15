@@ -31,6 +31,11 @@ cp .env.example .env.local
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+APP_BASE_URL=http://localhost:3000
+GMAIL_USER=
+GMAIL_APP_PASSWORD=
+OPERATIONS_MANAGER_EMAIL=
+OWNER_EMAIL=
 ```
 
 4. Run the app:
@@ -56,6 +61,7 @@ npm run dev
 - `src/lib/supabase` contains browser, server, and proxy session clients.
 - `src/lib/validations` contains reusable Zod schemas.
 - `proxy.ts` refreshes Supabase sessions and protects `/dashboard`.
+- `docs/operations-notifications.md` documents residential/commercial access and task notification setup.
 
 ## Deployment
 

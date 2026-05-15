@@ -3,7 +3,7 @@
  * Defines all cleaning service types and their operational requirements
  */
 
-export type ServiceCategory = "residential" | "commercial" | "janitorial";
+export type ServiceCategory = "residential" | "commercial";
 export type ServiceType =
   | "standard-residential"
   | "deep-residential"
@@ -202,7 +202,7 @@ export const SERVICE_TYPES: Record<ServiceType, ServiceTypeDefinition> = {
   "day-porter": {
     id: "day-porter",
     label: "Day Porter Service",
-    category: "janitorial",
+    category: "commercial",
     description: "During-business-hours facility maintenance and cleaning",
     includes: [
       "Restroom checks and cleaning",
@@ -363,7 +363,7 @@ export const SERVICE_TYPES: Record<ServiceType, ServiceTypeDefinition> = {
   "restroom-maintenance": {
     id: "restroom-maintenance",
     label: "Restroom Maintenance",
-    category: "janitorial",
+    category: "commercial",
     description: "Specialized restroom cleaning and sanitization",
     includes: [
       "Toilet cleaning and sanitization",
@@ -441,8 +441,4 @@ export function getResidentialServices(): ServiceTypeDefinition[] {
 
 export function getCommercialServices(): ServiceTypeDefinition[] {
   return getServiceTypesByCategory("commercial");
-}
-
-export function getJanitorialServices(): ServiceTypeDefinition[] {
-  return getServiceTypesByCategory("janitorial");
 }

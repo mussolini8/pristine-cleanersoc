@@ -22,6 +22,8 @@ const defaultStaff: StaffPerson[] = [
   { id: "miriam-lopez", name: "Miriam Lopez", email: "miriam.84.mvl@gmail.com", role: "Residential Cleaner", status: "Active" },
   { id: "esperanza-yoseff", name: "Esperanza Yoseff", email: "esperanzayoseff9@gmail.com", role: "Mixed Route Cleaner", status: "Active" },
   { id: "blanca-garcia", name: "Blanca Garcia", email: "bceliag1971@gmail.com", role: "Residential Cleaner", status: "Active" },
+  { id: "carlos-lopez", name: "Carlos Lopez", email: "operations-manager@pristine.local", role: "Operations Manager", status: "Active" },
+  { id: "jake-ivan-pal", name: "Jake Ivan-Pal", email: "owner@pristine.local", role: "Owner", status: "Active" },
 ].map((person) => ({ ...person, id: crypto.randomUUID() }) as StaffPerson);
 
 type StaffRow = {
@@ -88,7 +90,20 @@ export default function StaffPage() {
       }
 
       if (data && data.length > 0) {
-        setStaff((data as StaffRow[]).map(fromStaffRow));
+        const rows = (data as StaffRow[]).map(fromStaffRow);
+        const missingInternal = defaultStaff.filter((person) =>
+          ["Carlos Lopez", "Jake Ivan-Pal"].includes(person.name)
+          && !rows.some((row) => row.name.toLowerCase() === person.name.toLowerCase())
+        );
+        if (missingInternal.length > 0) {
+          const { data: created } = await supabase
+            .from("staff_members")
+            .insert(missingInternal.map((person) => toStaffPayload(person, user.id)))
+            .select("*");
+          setStaff([...rows, ...((created ?? []) as StaffRow[]).map(fromStaffRow)].sort((a, b) => a.name.localeCompare(b.name)));
+          return;
+        }
+        setStaff(rows);
         return;
       }
 
@@ -217,6 +232,8 @@ export default function StaffPage() {
               <option>Residential Cleaner</option>
               <option>Mixed Route Cleaner</option>
               <option>Commercial Cleaner</option>
+              <option>Operations Manager</option>
+              <option>Owner</option>
               <option>Supervisor</option>
               <option>Admin</option>
             </select>
