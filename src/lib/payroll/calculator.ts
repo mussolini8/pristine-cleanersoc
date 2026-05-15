@@ -45,7 +45,9 @@ function startOfLocalDay(value: Date) {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
 
-function appliesToBiweeklyRule(rule: CommercialScheduleRule, serviceDate: Date) {
+function appliesToIntervalRule(rule: CommercialScheduleRule, serviceDate: Date) {
+  const interval = Math.max(1, Number(rule.frequency_interval ?? (rule.frequency_type === "biweekly" ? 2 : 1)) || 1);
+  if (interval <= 1) return true;
   if (!rule.anchor_date) return false;
   const anchor = parseISODate(rule.anchor_date);
   const service = startOfLocalDay(serviceDate);
@@ -53,22 +55,16 @@ function appliesToBiweeklyRule(rule: CommercialScheduleRule, serviceDate: Date) 
   const diffDays = Math.floor(diffMs / 86400000);
   if (diffDays < 0) return false;
   const diffWeeks = Math.floor(diffDays / 7);
-  const interval = Number(rule.frequency_interval ?? 2) || 2;
-  return diffDays % 7 === 0 && diffWeeks % interval === 0;
+  return diffWeeks % interval === 0;
 }
 
 function ruleAppliesToDate(rule: CommercialScheduleRule, serviceDate: Date) {
   const frequencyType = rule.frequency_type ?? "weekly";
-  if (frequencyType === "biweekly") return appliesToBiweeklyRule(rule, serviceDate);
   if (frequencyType === "monthly") {
     if (!rule.anchor_date) return true;
     return serviceDate.getDate() === parseISODate(rule.anchor_date).getDate();
   }
-  if (frequencyType === "custom") {
-    if (!rule.anchor_date) return true;
-    return formatISODate(serviceDate) === rule.anchor_date;
-  }
-  return true;
+  return appliesToIntervalRule(rule, serviceDate);
 }
 
 function normalizeFrequency(value?: string | null) {
@@ -144,6 +140,21 @@ function cleanMoney(value: number) {
   return Number(value.toFixed(2));
 }
 
+function resolvePayRate(account: CommercialAccount, setting: CleanerPaymentSetting | null, hours: number) {
+  const hourlyRate = Number(account.cleaner_hourly_rate ?? 0);
+  if (hourlyRate > 0) return hourlyRate;
+
+  const flatRate = Number(account.cleaner_flat_rate ?? 0);
+  if ((account.cleaner_pay_type ?? "").toLowerCase() === "flat" && flatRate > 0 && hours > 0) {
+    return cleanMoney(flatRate / hours);
+  }
+
+  const settingRate = Number(setting?.default_pay_rate ?? 0);
+  if (settingRate > 0) return settingRate;
+
+  return 0;
+}
+
 function buildExceptions(input: {
   cleanerName: string | null;
   payRate: number;
@@ -154,7 +165,11 @@ function buildExceptions(input: {
 }) {
 const exceptions: PayrollExceptionCode[] = [];
   if (!input.cleanerName) exceptions.push("missing_cleaner");
-  if (!input.payRate) exceptions.push("missing_pay_rate");
+  if (!input.payRate) {
+    const hasAccountRate = Number(input.account.cleaner_hourly_rate ?? 0) > 0 || Number(input.account.cleaner_flat_rate ?? 0) > 0;
+    const hasSettingRate = Number(input.setting?.default_pay_rate ?? 0) > 0;
+    exceptions.push(hasAccountRate || hasSettingRate ? "missing_pay_rate" : "missing_account_pay_settings");
+  }
   if (input.setting?.active === false) exceptions.push("inactive_cleaner");
   if (input.hours <= 0) exceptions.push("zero_hours");
   if (!input.hasSchedule) exceptions.push("missing_schedule");
@@ -164,9 +179,21 @@ const exceptions: PayrollExceptionCode[] = [];
 }
 
 function entryStatus(exceptions: PayrollExceptionCode[]) {
-  return exceptions.some((code) => ["missing_cleaner", "missing_pay_rate", "inactive_cleaner", "zero_hours", "missing_anchor_date", "manual_review"].includes(code))
+  return exceptions.some((code) => ["missing_cleaner", "missing_pay_rate", "inactive_cleaner", "zero_hours", "missing_anchor_date", "manual_review", "missing_account_pay_settings"].includes(code))
     ? "needs_review"
     : "draft";
+}
+
+function reviewNoteFor(exceptions: PayrollExceptionCode[], setting: CleanerPaymentSetting | null) {
+  if (setting?.manual_review_reason) return setting.manual_review_reason;
+  if (exceptions.includes("missing_account_pay_settings")) return "Missing account pay settings";
+  if (exceptions.includes("missing_pay_rate")) return "Missing rate";
+  if (exceptions.includes("missing_cleaner")) return "Missing cleaner";
+  if (exceptions.includes("missing_anchor_date")) return "Missing anchor date";
+  if (exceptions.includes("missing_schedule")) return "Missing schedule rule";
+  if (exceptions.includes("zero_hours")) return "Missing paid hours";
+  if (exceptions.includes("inactive_cleaner")) return "Cleaner payment setting is inactive";
+  return null;
 }
 
 function entryFor(input: {
@@ -210,7 +237,7 @@ function entryFor(input: {
     status: entryStatus(exceptions),
     requires_manual_review: requiresManualReview,
     review_status: requiresManualReview ? "pending" : "not_required",
-    review_notes: input.setting?.manual_review_reason ?? null,
+    review_notes: reviewNoteFor(exceptions, input.setting),
     payment_method: input.paymentMethod,
     source: input.source,
     exceptions,
@@ -233,7 +260,8 @@ export function generateEntriesForAccount(
   if (activeRules.length > 0) {
     for (const rule of activeRules) {
       const extraExceptions: PayrollExceptionCode[] = [];
-      if (rule.frequency_type === "biweekly" && !rule.anchor_date) {
+      const interval = Math.max(1, Number(rule.frequency_interval ?? (rule.frequency_type === "biweekly" ? 2 : 1)) || 1);
+      if (interval > 1 && !rule.anchor_date) {
         extraExceptions.push("missing_anchor_date");
       }
       const dates = eachDateInPeriod(period.startDate, period.endDate).filter((date) =>
@@ -246,7 +274,7 @@ export function generateEntriesForAccount(
       for (const serviceDate of dates) {
         const cleanerName = rule.assigned_cleaner_name || account.cleaner_name || null;
         const setting = getSetting(settings, cleanerName);
-        const payRate = Number(account.cleaner_hourly_rate ?? setting?.default_pay_rate ?? 0);
+        const payRate = resolvePayRate(account, setting, Number(rule.paid_hours));
         entries.push(entryFor({
           account,
           cleanerName,
@@ -264,7 +292,7 @@ export function generateEntriesForAccount(
       if (extraExceptions.includes("missing_anchor_date")) {
         const cleanerName = rule.assigned_cleaner_name || account.cleaner_name || null;
         const setting = getSetting(settings, cleanerName);
-        const payRate = Number(account.cleaner_hourly_rate ?? setting?.default_pay_rate ?? 0);
+        const payRate = resolvePayRate(account, setting, Number(rule.paid_hours));
         entries.push(entryFor({
           account,
           cleanerName,
@@ -288,7 +316,7 @@ export function generateEntriesForAccount(
   for (const serviceDate of dates) {
     const cleanerName = account.cleaner_name ?? null;
     const setting = getSetting(settings, cleanerName);
-    const payRate = Number(account.cleaner_hourly_rate ?? setting?.default_pay_rate ?? 0);
+    const payRate = resolvePayRate(account, setting, hours);
     entries.push(entryFor({
       account,
       cleanerName,
@@ -306,7 +334,7 @@ export function generateEntriesForAccount(
   if (entries.length === 0) {
     const cleanerName = account.cleaner_name ?? null;
     const setting = getSetting(settings, cleanerName);
-    const payRate = Number(account.cleaner_hourly_rate ?? setting?.default_pay_rate ?? 0);
+    const payRate = resolvePayRate(account, setting, hours);
     entries.push(entryFor({
       account,
       cleanerName,

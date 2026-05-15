@@ -471,3 +471,16 @@ create index if not exists payment_entries_category_idx
 
 create index if not exists payment_extras_source_idx
   on public.payment_extras(source_type, source_id);
+
+-- Commercial operations separation hardening 2026-05-15 (additive, non-destructive)
+-- Schedule multi-day selection is stored as one row per day so existing payroll logic remains compatible.
+create unique index if not exists payment_entries_commercial_payroll_source_uidx
+  on public.payment_entries(source_type, source_id)
+  where source_type = 'commercial_payroll' and source_id is not null;
+
+create index if not exists commercial_payroll_entries_service_date_idx
+  on public.commercial_payroll_entries(service_date, status);
+
+create index if not exists commercial_payroll_entries_natural_open_idx
+  on public.commercial_payroll_entries(pay_period_id, account_name, cleaner_name, service_date, source)
+  where status not in ('approved', 'paid', 'locked');

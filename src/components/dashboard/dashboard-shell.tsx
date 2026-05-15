@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { label: "Overview", href: "/dashboard", icon: Home },
-  { label: "Payments", href: "/payments", icon: Wallet },
-  { label: "Commercial Accounts", href: "/commercial", icon: Building2 },
+  { label: "Residential", href: "/dashboard", icon: Home },
+  { label: "Residential Payments", href: "/payments", icon: Wallet },
+  { label: "Commercial", href: "/commercial", icon: Building2 },
   { label: "Staff", href: "/staff", icon: Users },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },

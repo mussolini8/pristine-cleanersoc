@@ -183,6 +183,15 @@ async function findExistingPeriod(supabase: SupabaseClient, period: PayrollPerio
   return data as PayrollPeriodRow | null;
 }
 
+function payrollNaturalKey(entry: Pick<PayrollEntryRow, "account_name" | "cleaner_name" | "service_date" | "source">) {
+  return [
+    entry.account_name?.toLowerCase().trim() ?? "",
+    entry.cleaner_name?.toLowerCase().trim() ?? "unassigned",
+    entry.service_date ?? "unscheduled",
+    entry.source ?? "schedule_rule",
+  ].join("|");
+}
+
 export async function generatePayrollForPeriod(period: PayrollPeriod, options: { userId?: string | null; forceRecalculate?: boolean } = {}) {
   const supabase = createClient();
   const userId = options.userId ?? await getUserId(supabase);
@@ -192,8 +201,8 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
   const scheduleRules = await fetchScheduleRules(accounts);
   const existing = await findExistingPeriod(supabase, period);
 
-  if (existing && ["paid", "locked"].includes(existing.status) && !options.forceRecalculate) {
-    throw new Error("This pay period is paid or locked. Confirm before recalculating from current schedules.");
+  if (existing && ["approved", "paid", "locked"].includes(existing.status)) {
+    throw new Error("This pay period is approved, paid, or locked. Create an adjustment instead of recalculating it.");
   }
 
   let periodRow = existing;
@@ -220,8 +229,12 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
       .delete()
       .eq("source_type", "commercial_payroll")
       .eq("pay_period_id", periodRow.id)
-      .not("status", "in", "(paid,locked)");
-    await supabase.from("commercial_payroll_entries").delete().eq("pay_period_id", periodRow.id);
+      .not("status", "in", "(approved,paid,locked)");
+    await supabase
+      .from("commercial_payroll_entries")
+      .delete()
+      .eq("pay_period_id", periodRow.id)
+      .not("status", "in", "(approved,paid,locked)");
   }
 
   const entries = accounts.flatMap((account) => generateEntriesForAccount(account, period, settings, rulesForAccount(account, scheduleRules)));
@@ -244,26 +257,77 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
 
   if (periodError) throw new Error(periodError.message);
 
+  let createdEntries = 0;
+  let skippedProtectedEntries = 0;
+
   if (entries.length > 0) {
-    const { data: insertedEntries, error } = await supabase.from("commercial_payroll_entries").insert(
-      entries.map((entry) => ({ ...entry, pay_period_id: periodRow.id })),
-    ).select("*");
-    if (error) throw new Error(error.message);
-    for (const entry of (insertedEntries ?? []) as PayrollEntryRow[]) {
-      await syncCommercialPayrollEntryToPayment(entry, periodRow);
+    const { data: protectedRows } = await supabase
+      .from("commercial_payroll_entries")
+      .select("account_name,cleaner_name,service_date,source,status")
+      .eq("pay_period_id", periodRow.id)
+      .in("status", ["approved", "paid", "locked"]);
+    const protectedKeys = new Set(((protectedRows ?? []) as PayrollEntryRow[]).map(payrollNaturalKey));
+    const insertableEntries = entries.filter((entry) => !protectedKeys.has(payrollNaturalKey(entry)));
+    skippedProtectedEntries = entries.length - insertableEntries.length;
+
+    if (insertableEntries.length > 0) {
+      const { data: insertedEntries, error } = await supabase.from("commercial_payroll_entries").insert(
+        insertableEntries.map((entry) => ({ ...entry, pay_period_id: periodRow.id })),
+      ).select("*");
+      if (error) throw new Error(error.message);
+      createdEntries = insertedEntries?.length ?? 0;
+      for (const entry of (insertedEntries ?? []) as PayrollEntryRow[]) {
+        await syncCommercialPayrollEntryToPayment(entry, periodRow);
+      }
     }
   }
+
+  await updatePeriodTotals(periodRow.id);
 
   await supabase.from("payroll_audit_log").insert({
     pay_period_id: periodRow.id,
     entity_type: "pay_period",
     entity_id: periodRow.id,
     action: existing ? "recalculated" : "generated",
-    new_value: JSON.stringify({ entries: entries.length, summary }),
+    new_value: JSON.stringify({ entries: createdEntries, skipped_protected_entries: skippedProtectedEntries, summary }),
     changed_by: userId,
   });
 
-  return { period: { ...periodRow, status }, createdEntries: entries.length, summary };
+  return { period: { ...periodRow, status }, createdEntries, summary };
+}
+
+
+export async function applyCommercialAccountChangesGoingForward(accountId: string, options: { userId?: string | null } = {}) {
+  const supabase = createClient();
+  const userId = options.userId ?? await getUserId(supabase);
+  const currentPeriod = getBiweeklyPeriod(new Date());
+  const { data: futureOpenPeriods } = await supabase
+    .from("commercial_pay_periods")
+    .select("*")
+    .gte("end_date", currentPeriod.startDate)
+    .not("status", "in", "(approved,paid,locked)")
+    .order("start_date", { ascending: true });
+
+  const periodsToRefresh = (futureOpenPeriods ?? []) as PayrollPeriodRow[];
+  const hasCurrent = periodsToRefresh.some((period) => period.start_date === currentPeriod.startDate && period.end_date === currentPeriod.endDate);
+  const requestedPeriods = hasCurrent
+    ? periodsToRefresh.map((period) => ({ startDate: period.start_date, endDate: period.end_date, label: period.label ?? currentPeriod.label }))
+    : [currentPeriod, ...periodsToRefresh.map((period) => ({ startDate: period.start_date, endDate: period.end_date, label: period.label ?? currentPeriod.label }))];
+
+  const results = [];
+  for (const period of requestedPeriods) {
+    results.push(await generatePayrollForPeriod(period, { userId, forceRecalculate: true }));
+  }
+
+  await supabase.from("payroll_audit_log").insert({
+    entity_type: "commercial_account",
+    entity_id: accountId,
+    action: "account_changes_applied_going_forward",
+    new_value: JSON.stringify({ periods: requestedPeriods.map((period) => period.startDate + ":" + period.endDate) }),
+    changed_by: userId,
+  });
+
+  return { refreshedPeriods: results.length, refreshedEntries: results.reduce((sum, result) => sum + result.createdEntries, 0) };
 }
 
 export async function fetchPayrollOverview() {
