@@ -124,8 +124,24 @@ function dateLabel(value: string | null | undefined) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const className = status === "paid" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : status === "approved" ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200" : status === "locked" ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" : status === "needs_review" || status === "in_review" ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : status === "reviewed" ? "bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-200" : "bg-muted text-muted-foreground";
+  const className = status === "paid"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+    : status === "approved"
+      ? "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200"
+      : status === "locked"
+        ? "border-slate-300 bg-slate-950 text-white dark:border-slate-700 dark:bg-slate-100 dark:text-slate-950"
+        : status === "needs_review" || status === "in_review"
+          ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          : status === "reviewed"
+            ? "border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-cyan-200"
+            : "border-border bg-muted/60 text-muted-foreground";
   return <Badge className={className}>{statusLabels[status] ?? status}</Badge>;
+}
+
+function SourceBadge({ source }: { source?: string | null }) {
+  return source === "schedule_rule"
+    ? <Badge className="border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-cyan-200">Synced</Badge>
+    : <Badge className="border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200">Manual Commercial</Badge>;
 }
 
 function entryToDraft(entry: PayrollEntryRow): EntryDraft {
@@ -357,13 +373,13 @@ export default function PayrollPeriodPage() {
   return (
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <div className="space-y-5">
-        <section className="rounded-lg border border-border/80 bg-card/95 p-5 shadow-[0_22px_60px_-52px_hsl(210_40%_20%)]">
+        <section className="rounded-lg border border-border/80 bg-card p-5 shadow-[0_22px_60px_-52px_hsl(210_40%_20%)] sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <Button className="mb-3" size="sm" type="button" variant="outline" onClick={() => router.push("/commercial/payroll")}><ArrowLeft className="size-4" /> Back</Button>
-              <p className="flex items-center gap-2 text-xs font-black uppercase text-primary"><WalletCards className="size-4" /> Commercial Payroll</p>
-              <h1 className="mt-2 text-2xl font-black tracking-normal">{period?.label ?? "Payroll period"}</h1>
-              <p className="mt-1 text-sm font-semibold text-muted-foreground">{period ? `${dateLabel(period.start_date)} to ${dateLabel(period.end_date)}` : "Loading period"}</p>
+              <p className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-primary"><WalletCards className="size-4" /> Commercial Payroll Period</p>
+              <h1 className="mt-2 text-3xl font-black tracking-normal">{period?.label ?? "Payroll period"}</h1>
+              <p className="mt-2 text-sm font-semibold text-muted-foreground">{period ? `${dateLabel(period.start_date)} to ${dateLabel(period.end_date)}` : "Loading period"} · Review commercial hours before approval or paid state.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {period ? <StatusBadge status={period.status} /> : null}
@@ -374,7 +390,7 @@ export default function PayrollPeriodPage() {
           {message ? <p className="mt-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm font-bold">{message}</p> : null}
         </section>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-6">
           <Metric icon={FileClock} label="Total hours" value={summary.totalHours.toFixed(2)} />
           <Metric icon={WalletCards} label="Estimated" value={money(summary.totalEstimated)} />
           <Metric icon={PencilLine} label="Adjustments" value={money(summary.totalAdjustments)} />
@@ -395,10 +411,10 @@ export default function PayrollPeriodPage() {
           </CardHeader>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Payroll Filters</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <Card className="border-border/80">
+          <CardHeader><CardTitle>Payroll Filters</CardTitle><p className="mt-1 text-sm font-semibold text-muted-foreground">Filter by date, team, account, review state, or missing data without changing payroll records.</p></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-5">
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Date view</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={dateFilterMode} onChange={(event) => setDateFilterMode(event.target.value as DateFilterMode)}><option value="day">Day</option><option value="week">Week</option><option value="pay_period">15 Days / Pay Period</option><option value="month">Month</option><option value="custom">Custom Range</option></select></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Selected date</span><input className="h-10 w-full rounded-md border bg-background px-3 font-bold" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} /></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Custom start</span><input className="h-10 w-full rounded-md border bg-background px-3 font-bold" disabled={dateFilterMode !== "custom"} type="date" value={customStartDate} onChange={(event) => setCustomStartDate(event.target.value)} /></label>
@@ -442,7 +458,7 @@ export default function PayrollPeriodPage() {
                     </thead>
                     <tbody>
                       {loading ? <tr><td className="px-3 py-8 text-center font-bold text-muted-foreground" colSpan={11}>Loading payroll entries...</td></tr> : null}
-                      {!loading && grouped.length === 0 ? <tr><td className="px-3 py-8 text-center font-bold text-muted-foreground" colSpan={11}>No teams match these filters.</td></tr> : null}
+                      {!loading && grouped.length === 0 ? <tr><td className="px-3 py-10 text-center" colSpan={11}><div className="mx-auto max-w-md"><AlertTriangle className="mx-auto size-7 text-muted-foreground" /><p className="mt-3 font-black">No teams match these filters.</p><p className="mt-1 text-sm font-semibold text-muted-foreground">Clear a filter or widen the date range to see commercial payroll entries.</p></div></td></tr> : null}
                       {grouped.map((group) => (
                         <Fragment key={group.cleaner}>
                           <tr className="cursor-pointer border-t hover:bg-accent/40" onClick={() => { selectEntry(group.entries[0]); setExpandedTeam(expandedTeam === group.cleaner ? null : group.cleaner); }}>
@@ -464,7 +480,7 @@ export default function PayrollPeriodPage() {
                                 <div className="overflow-x-auto rounded-md border bg-background">
                                   <table className="w-full min-w-[1040px] border-collapse text-xs">
                                     <thead className="bg-muted/50 text-left uppercase text-muted-foreground"><tr><th className="px-3 py-2">Account</th><th className="px-3 py-2">Service date</th><th className="px-3 py-2">Day</th><th className="px-3 py-2">Frequency</th><th className="px-3 py-2 text-right">Base hours</th><th className="px-3 py-2 text-right">Adjusted</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2 text-right">Final</th><th className="px-3 py-2">Exceptions</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Notes</th></tr></thead>
-                                    <tbody>{group.entries.map((entry) => <tr className={`cursor-pointer border-t hover:bg-accent/40 ${selectedEntry?.id === entry.id ? "bg-accent/50" : ""}`} key={entry.id} onClick={() => selectEntry(entry)}><td className="px-3 py-2 font-black">{entry.account_name}</td><td className="px-3 py-2">{dateLabel(entry.service_date)}</td><td className="px-3 py-2">{entry.scheduled_day ?? "-"}</td><td className="px-3 py-2">{entry.source === "schedule_rule" ? "Schedule rule" : "Fallback"}</td><td className="px-3 py-2 text-right font-bold">{numberValue(entry.base_hours).toFixed(2)}</td><td className="px-3 py-2 text-right font-bold">{numberValue(entry.adjusted_hours ?? entry.base_hours).toFixed(2)}</td><td className="px-3 py-2 text-right font-bold">{money(entry.pay_rate)}</td><td className="px-3 py-2 text-right font-black">{money(entry.final_amount)}</td><td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(entry.exceptions ?? []).slice(0, 3).map((code) => <Badge className="bg-amber-100 text-amber-800" key={code}>{exceptionLabels[code] ?? code}</Badge>)}</div></td><td className="px-3 py-2"><StatusBadge status={entry.status} /></td><td className="px-3 py-2">{entry.notes ?? entry.review_notes ?? "-"}</td></tr>)}</tbody>
+                                    <tbody>{group.entries.map((entry) => <tr className={`cursor-pointer border-t hover:bg-accent/40 ${selectedEntry?.id === entry.id ? "bg-accent/50" : ""}`} key={entry.id} onClick={() => selectEntry(entry)}><td className="px-3 py-2 font-black">{entry.account_name}</td><td className="px-3 py-2">{dateLabel(entry.service_date)}</td><td className="px-3 py-2">{entry.scheduled_day ?? "-"}</td><td className="px-3 py-2"><SourceBadge source={entry.source} /></td><td className="px-3 py-2 text-right font-bold">{numberValue(entry.base_hours).toFixed(2)}</td><td className="px-3 py-2 text-right font-bold">{numberValue(entry.adjusted_hours ?? entry.base_hours).toFixed(2)}</td><td className="px-3 py-2 text-right font-bold">{money(entry.pay_rate)}</td><td className="px-3 py-2 text-right font-black">{money(entry.final_amount)}</td><td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(entry.exceptions ?? []).slice(0, 3).map((code) => <Badge className="bg-amber-100 text-amber-800" key={code}>{exceptionLabels[code] ?? code}</Badge>)}</div></td><td className="px-3 py-2"><StatusBadge status={entry.status} /></td><td className="px-3 py-2">{entry.notes ?? entry.review_notes ?? "-"}</td></tr>)}</tbody>
                                   </table>
                                 </div>
                               </td>
@@ -511,7 +527,7 @@ export default function PayrollPeriodPage() {
                           <td className="px-3 py-3 text-right font-bold">{numberValue(entry.base_hours).toFixed(2)}</td>
                           <td className="px-3 py-3 text-right font-bold">{numberValue(entry.adjusted_hours ?? entry.base_hours).toFixed(2)}</td>
                           <td className="px-3 py-3 text-right font-bold">{money(entry.pay_rate)}</td>
-                          <td className="px-3 py-3 text-right font-black">{money(entry.final_amount)}</td>
+                          <td className="px-3 py-3 text-right"><p className={numberValue(entry.final_amount) === 0 && numberValue(entry.base_hours) > 0 ? "font-black text-amber-700 dark:text-amber-200" : "font-black"}>{money(entry.final_amount)}</p>{numberValue(entry.final_amount) === 0 && numberValue(entry.base_hours) > 0 ? <p className="text-xs font-bold text-muted-foreground">{entry.review_notes ?? "Needs review"}</p> : null}</td>
                           <td className="px-3 py-3"><div className="flex flex-wrap gap-1">{(entry.exceptions ?? []).slice(0, 3).map((code) => <Badge className="bg-amber-100 text-amber-800" key={code}>{exceptionLabels[code] ?? code}</Badge>)}</div></td>
                         </tr>
                       ))}
@@ -539,7 +555,7 @@ export default function PayrollPeriodPage() {
 
           <aside className="sticky top-20 h-fit space-y-4">
             <Card>
-              <CardHeader><CardTitle>Edit This Period Only</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Edit This Period Only</CardTitle><p className="mt-1 text-sm font-semibold text-muted-foreground">Period-only changes stay out of account defaults.</p></CardHeader>
               <CardContent className="space-y-4">
                 {!selectedEntry || !entryDraft ? <p className="text-sm font-bold text-muted-foreground">Select an account entry to edit hours, rate, review, or adjustments.</p> : (
                   <>

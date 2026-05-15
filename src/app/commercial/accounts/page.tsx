@@ -365,6 +365,19 @@ function AccountRow({ acc, onEdit }: { acc: Account; onEdit: (account: Account) 
   );
 }
 
+
+function scheduleRuleSummary(rule: ScheduleRule) {
+  const selectedDays = rule.selected_days?.length ? rule.selected_days : [Number(rule.day_of_week)];
+  const dayLabels = selectedDays
+    .map((day) => DAY_OPTIONS.find(([value]) => Number(value) === day)?.[1])
+    .filter(Boolean)
+    .join(", ");
+  const interval = numberOrNull(rule.frequency_interval) ?? (rule.frequency_type === "biweekly" ? 2 : 1);
+  const cadence = interval <= 1 ? "Every week" : `Every ${interval} weeks`;
+  const hours = numberOrNull(rule.paid_hours) ?? 0;
+  const cleaner = rule.assigned_cleaner_name || "account cleaner";
+  return `${cadence} on ${dayLabels || "no days selected"} · ${hours || "No"} paid hours · ${cleaner}`;
+}
 function emptyScheduleRule(accountId: string): ScheduleRule {
   return {
     commercial_account_id: accountId,
@@ -497,7 +510,7 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
   return (
     <div className="schedule-editor">
       <div className="studio-section-title"><CalendarCheck size={15} /> Schedule pay rules</div>
-      <div className="payroll-impact">These changes affect future payroll calculations. Save changes only, then review Commercial Payroll before recalculating any open period.</div>
+      <div className="payroll-impact">Schedule rules feed future commercial payroll only. Paid, approved, locked, and closed periods stay protected.</div>
       {loadingRules ? <p className="schedule-note">Loading schedule rules...</p> : null}
       <div className="schedule-rule-list">
         {rules.map((rule, index) => {
@@ -506,6 +519,7 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
           const needsAnchor = interval > 1;
           return (
             <div className="schedule-rule-card" key={rule.id ?? index}>
+              <div className="schedule-rule-summary"><strong>{scheduleRuleSummary(rule)}</strong><span>{needsAnchor ? "Anchor date required for this cadence" : "Payroll-ready cadence"}</span></div>
               <div className="form-grid four">
                 <div className="studio-field day-chip-field"><span>Cleaning days</span><div className="day-chip-list">{DAY_OPTIONS.map(([value, label]) => { const day = Number(value); const active = selectedDays.includes(day); return <button className={active ? "day-chip active" : "day-chip"} key={value} type="button" onClick={() => updateRule(index, { day_of_week: day, selected_days: active ? selectedDays.filter((item) => item !== day) : [...selectedDays, day].sort((a, b) => a - b) })}>{label}</button>; })}</div></div>
                 <label className="studio-field"><span>Paid hours</span><input min="0" step="0.25" type="number" value={rule.paid_hours ?? ""} onChange={(event) => updateRule(index, { paid_hours: event.target.value })} /></label>
@@ -742,8 +756,9 @@ function AccountStudio({
 
           {isEdit ? (
             <div className="payroll-impact-block">
-              <strong>These changes affect future payroll calculations.</strong>
-              <div className="impact-actions"><button name="saveIntent" type="submit" value="save-only">Save changes only</button><button name="saveIntent" type="submit" value="apply-forward">Save and apply going forward</button><Link href="/commercial/payroll">Open Commercial Payroll</Link></div>
+              <strong>Payroll-safe account update</strong>
+              <p>Closed, paid, approved, and locked periods will not be changed.</p>
+              <div className="impact-actions"><button className="impact-primary" name="saveIntent" type="submit" value="save-only">Save changes only</button><button className="impact-secondary" name="saveIntent" type="submit" value="apply-forward">Apply going forward</button><Link className="impact-link" href="/commercial/payroll">Open Commercial Payroll</Link></div>
             </div>
           ) : null}
 
@@ -775,7 +790,7 @@ function AccountStudio({
           {error ? <p className="studio-error">{error}</p> : null}
           {notice ? <p className="studio-success">{notice}</p> : null}
           <button className="studio-save" disabled={saving} name="saveIntent" type="submit" value="save-only">
-            {saving ? "Saving..." : isEdit ? "Save Changes" : "Add Commercial Account"}
+            {saving ? "Saving..." : isEdit ? "Save changes only" : "Add Commercial Account"}
           </button>
         </aside>
       </div>
@@ -1089,21 +1104,29 @@ export default function CommercialPage() {
           border-radius:8px; padding:10px 12px; font-size:.8rem; font-weight:850; }
         .dark .payroll-impact, .dark .payroll-impact-block { color:hsl(42 92% 82%); }
         .payroll-impact-block { display:flex; flex-direction:column; gap:8px; }
+        .payroll-impact-block p { margin:0; color:hsl(var(--muted-foreground)); font-size:.78rem; font-weight:800; }
         .impact-actions { display:flex; flex-wrap:wrap; gap:8px; }
         .impact-actions button, .impact-actions a { border:1px solid hsl(var(--border)); border-radius:999px; background:hsl(var(--background)); color:hsl(var(--foreground));
-          padding:5px 9px; font-size:.72rem; font-weight:900; text-decoration:none; cursor:pointer; }
+          padding:7px 11px; font-size:.74rem; font-weight:900; text-decoration:none; cursor:pointer; }
+        .impact-actions .impact-primary { background:hsl(var(--primary)); border-color:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
+        .impact-actions .impact-secondary { background:hsl(var(--primary)/.08); border-color:hsl(var(--primary)/.28); color:hsl(var(--primary)); }
+        .impact-actions .impact-link { color:hsl(var(--muted-foreground)); }
         .schedule-editor { display:flex; flex-direction:column; gap:12px; border-top:1px solid hsl(var(--border)); padding-top:14px; }
         .schedule-rule-list { display:flex; flex-direction:column; gap:12px; }
-        .schedule-rule-card { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); padding:14px; display:flex; flex-direction:column; gap:12px; }
+        .schedule-rule-card { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); padding:14px; display:flex; flex-direction:column; gap:14px; box-shadow:0 12px 30px -28px hsl(210 40% 20%); }
+        .schedule-rule-summary { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; border-radius:8px; background:hsl(var(--muted)/.38); padding:10px 12px; }
+        .schedule-rule-summary strong { font-size:.84rem; font-weight:950; color:hsl(var(--foreground)); }
+        .schedule-rule-summary span { font-size:.72rem; font-weight:900; color:hsl(var(--muted-foreground)); }
         .day-chip-field { grid-column:1 / -1; }
         .day-chip-list { display:flex; flex-wrap:wrap; gap:7px; }
-        .day-chip { border:1px solid hsl(var(--border)); border-radius:999px; background:hsl(var(--background)); color:hsl(var(--muted-foreground)); padding:7px 10px; font-size:.74rem; font-weight:900; cursor:pointer; }
-        .day-chip.active { border-color:hsl(var(--primary)); background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); box-shadow:0 8px 20px -16px hsl(var(--primary)); }
+        .day-chip { border:1px solid hsl(var(--border)); border-radius:999px; background:hsl(var(--background)); color:hsl(var(--muted-foreground)); padding:8px 11px; font-size:.74rem; font-weight:900; cursor:pointer; transition:all .14s ease; }
+        .day-chip:hover { border-color:hsl(var(--primary)/.45); color:hsl(var(--primary)); }
+        .day-chip.active { border-color:hsl(var(--primary)); background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); box-shadow:0 10px 22px -18px hsl(var(--primary)); }
         .schedule-actions { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
         .add-rule-btn { border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground));
           padding:8px 12px; font-size:.78rem; font-weight:900; cursor:pointer; }
         .schedule-note { margin:0; color:hsl(var(--muted-foreground)); font-size:.8rem; font-weight:800; }
-        .schedule-warning { margin:0; color:hsl(32 90% 36%); font-size:.78rem; font-weight:900; }
+        .schedule-warning { margin:0; border:1px solid hsl(42 92% 50%/.28); background:hsl(42 92% 50%/.1); color:hsl(32 90% 34%); border-radius:8px; padding:9px 10px; font-size:.78rem; font-weight:900; }
 
         .stat-bar { display:grid; grid-template-columns:1.4fr 1fr 1fr 1.2fr 1fr 1fr; gap:10px; }
         .stat-card { min-width:0; padding:14px; border-radius:8px; background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82);

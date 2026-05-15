@@ -78,7 +78,15 @@ function MetricCard({ label, value, icon: Icon, tone = "neutral" }: { label: str
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const className = status === "paid" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : status === "approved" ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200" : status === "locked" ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" : status === "in_review" ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-muted text-muted-foreground";
+  const className = status === "paid"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+    : status === "approved"
+      ? "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200"
+      : status === "locked"
+        ? "border-slate-300 bg-slate-950 text-white dark:border-slate-700 dark:bg-slate-100 dark:text-slate-950"
+        : status === "in_review"
+          ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          : "border-border bg-muted/60 text-muted-foreground";
   return <Badge className={className}>{statusLabels[status] ?? status}</Badge>;
 }
 
@@ -243,12 +251,12 @@ export default function CommercialPayrollPage() {
   return (
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <div className="space-y-5">
-        <section className="rounded-lg border border-border/80 bg-card/95 p-5 shadow-[0_22px_60px_-52px_hsl(210_40%_20%)]">
+        <section className="rounded-lg border border-border/80 bg-card p-5 shadow-[0_22px_60px_-52px_hsl(210_40%_20%)] sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="flex items-center gap-2 text-xs font-black uppercase text-primary"><WalletCards className="size-4" /> Commercial Operations</p>
-              <h1 className="mt-2 text-2xl font-black tracking-normal">Commercial Payroll</h1>
-              <p className="mt-1 max-w-3xl text-sm font-semibold text-muted-foreground">Biweekly payroll for commercial cleaning teams, calculated from account schedules, account hours, pay settings, and manual review flags.</p>
+              <h1 className="mt-2 text-3xl font-black tracking-normal">Commercial Payroll</h1>
+              <div className="mt-3 flex flex-wrap items-center gap-2"><Badge variant="outline" className="px-3 py-1 text-sm font-black">{currentPeriod.label}</Badge><span className="text-sm font-semibold text-muted-foreground">Commercial-only payroll periods, generated from account schedules and team pay settings.</span></div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button disabled={generating} onClick={generate} type="button">
@@ -273,14 +281,17 @@ export default function CommercialPayrollPage() {
           <MetricCard icon={LockKeyhole} label="Locked periods" value={periods.filter((period) => period.status === "locked").length} />
         </div>
 
-        <Card>
-          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-            <div>
-              <CardTitle>Payment History</CardTitle>
-              <p className="mt-1 text-sm font-semibold text-muted-foreground">Open a period to review teams, account hours, adjustments, approvals, and paid status.</p>
+        <Card className="border-border/80">
+          <CardHeader className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle>Commercial Payroll Periods</CardTitle>
+                <p className="mt-1 text-sm font-semibold text-muted-foreground">Open a period to review teams, account hours, adjustments, approvals, and paid status.</p>
+              </div>
+              <Badge variant="outline" className="px-3 py-1 font-black">{visiblePeriods.length} visible</Badge>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="relative">
+            <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-5">
+              <label className="relative xl:col-span-2">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input className="h-10 rounded-md border bg-background pl-9 pr-3 text-sm font-bold" placeholder="Search periods, cleaners, accounts" value={search} onChange={(event) => setSearch(event.target.value)} />
               </label>
@@ -307,9 +318,9 @@ export default function CommercialPayrollPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[860px] border-collapse text-sm">
-                <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full min-w-[980px] border-collapse text-sm">
+                <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
                   <tr>
                     <th className="px-3 py-3">Period</th>
                     <th className="px-3 py-3">Status</th>
@@ -321,10 +332,10 @@ export default function CommercialPayrollPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {loading ? <tr><td className="px-3 py-8 text-center font-bold text-muted-foreground" colSpan={7}>Loading commercial payroll…</td></tr> : null}
-                  {!loading && visiblePeriods.length === 0 ? <tr><td className="px-3 py-8 text-center font-bold text-muted-foreground" colSpan={7}>No payroll periods match this view.</td></tr> : null}
+                  {loading ? <tr><td className="px-3 py-10 text-center font-bold text-muted-foreground" colSpan={7}>Loading commercial payroll...</td></tr> : null}
+                  {!loading && visiblePeriods.length === 0 ? <tr><td className="px-3 py-10 text-center" colSpan={7}><div className="mx-auto max-w-md"><AlertTriangle className="mx-auto size-7 text-muted-foreground" /><p className="mt-3 font-black">No commercial payroll periods match these filters.</p><p className="mt-1 text-sm font-semibold text-muted-foreground">Clear a filter or generate the current open commercial period.</p></div></td></tr> : null}
                   {visiblePeriods.map((period) => (
-                    <tr className="border-t" key={period.id}>
+                    <tr className="border-t transition-colors hover:bg-accent/30" key={period.id}>
                       <td className="px-3 py-3">
                         <p className="font-black">{period.label ?? `${dateLabel(period.start_date)} - ${dateLabel(period.end_date)}`}</p>
                         <p className="text-xs font-bold text-muted-foreground">{dateLabel(period.start_date)} to {dateLabel(period.end_date)}</p>
