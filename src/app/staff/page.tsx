@@ -4,6 +4,12 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Mail, Plus, ShieldCheck, Trash2, UserRoundCheck, Users } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { createClient } from "@/lib/supabase/client";
+import {
+  COMMERCIAL_STAFF_ROLES,
+  RESIDENTIAL_STAFF_ROLES,
+  commercialContextRole,
+  getStaffRoleDefinition,
+} from "@/lib/staff-rules";
 
 type StaffPerson = {
   id: string;
@@ -16,11 +22,11 @@ type StaffPerson = {
 const defaultStaff: StaffPerson[] = [
   { id: "jasmine-cardenas", name: "Jasmine Cardenas", email: "cardenaskarla2603@gmail.com", role: "Residential Cleaner", status: "Active" },
   { id: "juan-romero", name: "Juan Romero", email: "juanes.romero@hotmail.com", role: "Mixed Route Cleaner", status: "Active" },
-  { id: "lorena-benitez", name: "Lorena Benitez", email: "lorenabenitez382@gmail.com", role: "Residential Cleaner", status: "Active" },
+  { id: "lorena-benitez", name: "Lorena Benitez", email: "lorenabenitez382@gmail.com", role: "Mixed Route Cleaner", status: "Active" },
   { id: "gabriel-cardenas", name: "Gabriel Cardenas", email: "g18490991@gmail.com", role: "Residential Cleaner", status: "Active" },
   { id: "rosa-calderon", name: "Rosa Calderon", email: "rosicalderon1979@gmail.com", role: "Residential Cleaner", status: "Active" },
   { id: "miriam-lopez", name: "Miriam Lopez", email: "miriam.84.mvl@gmail.com", role: "Residential Cleaner", status: "Active" },
-  { id: "esperanza-yoseff", name: "Esperanza Yoseff", email: "esperanzayoseff9@gmail.com", role: "Mixed Route Cleaner", status: "Active" },
+  { id: "esperanza-youseff", name: "Esperanza Youseff", email: "esperanzayoseff9@gmail.com", role: "Mixed Route Cleaner", status: "Active" },
   { id: "blanca-garcia", name: "Blanca Garcia", email: "bceliag1971@gmail.com", role: "Residential Cleaner", status: "Active" },
   { id: "carlos-lopez", name: "Carlos Lopez", email: "operations-manager@pristine.local", role: "Operations Manager", status: "Active" },
   { id: "jake-ivan-pal", name: "Jake Ivan-Pal", email: "owner@pristine.local", role: "Owner", status: "Active" },
@@ -45,12 +51,16 @@ function fromStaffRow(row: StaffRow): StaffPerson {
 }
 
 function toStaffPayload(person: StaffPerson, userId: string) {
+  const rules = getStaffRoleDefinition(person.name, person.role);
   return {
     id: person.id,
     user_id: userId,
     name: person.name,
     email: person.email,
     role: person.role,
+    display_role: rules.displayRole,
+    team_scope: rules.teamScope,
+    commercial_payroll_eligible: rules.commercialPayrollEligible,
     status: person.status,
   };
 }
@@ -59,12 +69,22 @@ function initials(name: string) {
   return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
+type StaffView = "all" | "residential" | "commercial" | "mixed" | "leadership";
+const viewLabels: Record<StaffView, string> = {
+  all: "All",
+  residential: "Residential",
+  commercial: "Commercial",
+  mixed: "Mixed",
+  leadership: "Leadership",
+};
+
 export default function StaffPage() {
   const supabase = useMemo(() => createClient(), []);
   const [userId, setUserId] = useState<string | null>(null);
   const [staff, setStaff] = useState<StaffPerson[]>([]);
   const [draft, setDraft] = useState({ name: "", email: "", role: "Residential Cleaner", status: "Active" as StaffPerson["status"] });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [view, setView] = useState<StaffView>("all");
 
   useEffect(() => {
     let mounted = true;
@@ -128,8 +148,26 @@ export default function StaffPage() {
     };
   }, [supabase]);
 
-  const activeCount = useMemo(() => staff.filter((person) => person.status === "Active").length, [staff]);
-  const mixedCount = useMemo(() => staff.filter((person) => person.role.includes("Mixed")).length, [staff]);
+  const enrichedStaff = useMemo(() => staff.map((person) => ({
+    ...person,
+    rules: getStaffRoleDefinition(person.name, person.role),
+  })), [staff]);
+  const visibleStaff = useMemo(() => enrichedStaff.filter((person) => {
+    if (view === "all") return true;
+    if (view === "leadership") return person.rules.teamScope === "global";
+    if (view === "commercial") return ["commercial", "mixed", "global"].includes(person.rules.teamScope);
+    return person.rules.teamScope === view;
+  }), [enrichedStaff, view]);
+  const activeCount = useMemo(() => visibleStaff.filter((person) => person.status === "Active").length, [visibleStaff]);
+  const mixedCount = useMemo(() => enrichedStaff.filter((person) => person.rules.teamScope === "mixed").length, [enrichedStaff]);
+  const commercialPayrollExcluded = useMemo(() => enrichedStaff.filter((person) => !person.rules.commercialPayrollEligible && person.rules.teamScope === "mixed").length, [enrichedStaff]);
+  const pageTitle = view === "commercial" ? "Commercial Team" : view === "residential" ? "Residential Team" : "Staff";
+  const pageSubtitle = view === "commercial"
+    ? "Janitorial roster, commercial accounts, QC follow-up, and operations assignments."
+    : view === "residential"
+      ? "Residential cleaners, home cleaning assignments, QC follow-up, and operations assignments."
+      : "Team roster for residential, commercial, mixed route, leadership, QC follow-up, and operations assignments.";
+  const roleOptions = view === "commercial" ? COMMERCIAL_STAFF_ROLES : RESIDENTIAL_STAFF_ROLES;
 
   async function addPerson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -144,7 +182,7 @@ export default function StaffPage() {
     };
     const previous = staff;
     setStaff((prev) => [person, ...prev]);
-    setDraft({ name: "", email: "", role: "Residential Cleaner", status: "Active" });
+    setDraft({ name: "", email: "", role: view === "commercial" ? "Commercial Cleaner" : "Residential Cleaner", status: "Active" });
 
     const { error } = await supabase.from("staff_members").insert(toStaffPayload(person, userId));
     if (error) {
@@ -202,6 +240,10 @@ export default function StaffPage() {
         .person-status span { display:block; margin-top:3px; color:hsl(var(--muted-foreground)); font-size:.72rem; font-weight:800; }
         .delete-btn { display:grid; place-items:center; width:32px; height:32px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--muted-foreground)); cursor:pointer; }
         .delete-btn:hover { color:hsl(0 84% 50%); border-color:hsl(0 84% 60%/.35); background:hsl(0 84% 60%/.08); }
+        .staff-tabs { display:flex; flex-wrap:wrap; gap:6px; }
+        .staff-tab { height:34px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--muted-foreground)); padding:0 12px; font-size:.78rem; font-weight:950; cursor:pointer; }
+        .staff-tab.active { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); border-color:hsl(var(--primary)); }
+        .staff-badge { display:inline-flex; width:max-content; max-width:100%; align-items:center; border-radius:999px; background:hsl(43 96% 56%/.14); color:hsl(32 95% 30%); padding:3px 7px; font-size:.66rem; font-weight:950; margin-top:5px; }
         @media (max-width:980px) { .staff-form { grid-template-columns:1fr 1fr; } .add-person-btn { justify-content:center; } }
         @media (max-width:760px) { .stat-grid, .staff-list { grid-template-columns:1fr; } .person-card:nth-child(odd) { border-right:none; } .staff-form { grid-template-columns:1fr; } }
       `}</style>
@@ -210,9 +252,14 @@ export default function StaffPage() {
         <section className="staff-hero">
           <div className="hero-row">
             <div>
-              <p className="hero-kicker"><Users className="size-4" /> SOP Pristine Cleaners</p>
-              <h1 className="hero-title">Staff</h1>
-              <p className="hero-sub">Cleaner roster for payroll, QC follow-up, and operations assignments.</p>
+              <p className="hero-kicker"><Users className="size-4" /> {view === "commercial" ? "Pristine Janitorial" : "SOP Pristine Cleaners"}</p>
+              <h1 className="hero-title">{pageTitle}</h1>
+              <p className="hero-sub">{pageSubtitle}</p>
+            </div>
+            <div className="staff-tabs">
+              {(Object.keys(viewLabels) as StaffView[]).map((key) => (
+                <button className={`staff-tab ${view === key ? "active" : ""}`} key={key} type="button" onClick={() => setView(key)}>{viewLabels[key]}</button>
+              ))}
             </div>
           </div>
         </section>
@@ -229,13 +276,7 @@ export default function StaffPage() {
           <label>
             <span>Role</span>
             <select value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value })}>
-              <option>Residential Cleaner</option>
-              <option>Mixed Route Cleaner</option>
-              <option>Commercial Cleaner</option>
-              <option>Operations Manager</option>
-              <option>Owner</option>
-              <option>Supervisor</option>
-              <option>Admin</option>
+              {roleOptions.map((role) => <option key={role}>{role}</option>)}
             </select>
           </label>
           <label>
@@ -254,8 +295,8 @@ export default function StaffPage() {
         <div className="stat-grid">
           <div className="stat-card">
             <Users className="size-5" />
-            <p className="stat-label">Total Staff</p>
-            <p className="stat-value">{staff.length}</p>
+            <p className="stat-label">Visible Staff</p>
+            <p className="stat-value">{visibleStaff.length}</p>
           </div>
           <div className="stat-card">
             <UserRoundCheck className="size-5" />
@@ -267,34 +308,42 @@ export default function StaffPage() {
             <p className="stat-label">Mixed Routes</p>
             <p className="stat-value">{mixedCount}</p>
           </div>
+          <div className="stat-card">
+            <ShieldCheck className="size-5" />
+            <p className="stat-label">Excluded From Commercial Payroll</p>
+            <p className="stat-value">{commercialPayrollExcluded}</p>
+          </div>
         </div>
 
         <section className="directory">
           <div className="directory-head">
-            <h2 className="directory-title">Cleaner Directory</h2>
-            <span className="directory-count">{staff.length} people</span>
+            <h2 className="directory-title">{view === "commercial" ? "Janitorial and Commercial Account Roster" : view === "residential" ? "Residential Team Directory" : "Team Directory"}</h2>
+            <span className="directory-count">{visibleStaff.length} people</span>
           </div>
           <div className="staff-list">
-            {staff.map((person) => (
+            {visibleStaff.map((person) => {
+              const displayRole = view === "commercial" ? commercialContextRole(person.name, person.role) : person.rules.displayRole;
+              return (
               <article className="person-card" key={person.id}>
                 <div className="person-main">
                   <div className="avatar">{initials(person.name)}</div>
                   <div className="min-w-0">
                     <h3 className="person-name">{person.name}</h3>
                     <p className="person-email"><Mail className="size-3 shrink-0" /> {person.email}</p>
+                    {person.rules.note ? <span className="staff-badge">{person.rules.note}</span> : null}
                   </div>
                 </div>
                 <div className="person-side">
                   <div className="person-status">
                     <strong>{person.status}</strong>
-                    <span>{person.role}</span>
+                    <span>{displayRole}</span>
                   </div>
                   <button className="delete-btn" type="button" aria-label={`Delete ${person.name}`} onClick={() => removePerson(person.id)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
               </article>
-            ))}
+            );})}
           </div>
         </section>
       </div>

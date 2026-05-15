@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { isCommercialPayrollEligible } from "@/lib/staff-rules";
 import type { PayrollAdjustmentRow, PayrollEntryRow, PayrollPeriodRow } from "@/lib/payroll/types";
 
 export type UnifiedPaymentSource = "legacy_payment" | "manual_extra" | "commercial_payroll" | "commercial_adjustment";
@@ -199,6 +200,7 @@ export function normalizePaymentExtra(row: PaymentExtraUnifiedRow): UnifiedPayme
 }
 
 export function normalizeCommercialPayrollEntry(entry: PayrollEntryRow, period?: PayrollPeriodRow | null): UnifiedPayment {
+  const payrollEligible = isCommercialPayrollEligible(entry.cleaner_name);
   return {
     id: entry.id,
     sourceType: "commercial_payroll",
@@ -212,7 +214,7 @@ export function normalizeCommercialPayrollEntry(entry: PayrollEntryRow, period?:
     adjustedHours: entry.adjusted_hours,
     payRate: entry.pay_rate,
     adjustmentAmount: entry.adjustment_amount,
-    finalAmount: entry.final_amount,
+    finalAmount: payrollEligible ? entry.final_amount : 0,
     status: asStatus(entry.status),
     requiresReview: Boolean(entry.requires_manual_review || entry.status === "needs_review"),
     reviewStatus: entry.review_status,
@@ -223,7 +225,7 @@ export function normalizeCommercialPayrollEntry(entry: PayrollEntryRow, period?:
     serviceDate: entry.service_date ?? undefined,
     paidAt: entry.paid_at ?? undefined,
     approvedAt: entry.approved_at ?? undefined,
-    notes: entry.notes ?? entry.review_notes ?? undefined,
+    notes: payrollEligible ? entry.notes ?? entry.review_notes ?? undefined : "Mixed route · Not in commercial payroll",
     createdAt: entry.created_at,
     updatedAt: entry.updated_at,
     synced: true,
@@ -256,6 +258,30 @@ export async function syncCommercialPayrollEntryToPayment(entry: PayrollEntryRow
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id ?? null;
   const now = new Date().toISOString();
+  if (!isCommercialPayrollEligible(entry.cleaner_name)) {
+    const { data: existing } = await supabase
+      .from("payment_entries")
+      .select("id,status")
+      .eq("source_type", "commercial_payroll")
+      .eq("source_id", entry.id)
+      .maybeSingle();
+
+    if (existing?.id && !["paid", "locked"].includes(String(existing.status))) {
+      await supabase.from("payment_entries").delete().eq("id", existing.id);
+    }
+
+    await supabase.from("payroll_audit_log").insert({
+      pay_period_id: entry.pay_period_id,
+      entity_type: "payment_entry",
+      entity_id: existing?.id ?? null,
+      action: "payment_sync_skipped_excluded_mixed_route",
+      new_value: JSON.stringify({ payroll_entry_id: entry.id, cleaner_name: entry.cleaner_name }),
+      changed_by: userId,
+    });
+
+    return { id: existing?.id as string | undefined, skipped: true };
+  }
+
   const payload = {
     user_id: userId,
     cleaner_name: entry.cleaner_name ?? "Unassigned",

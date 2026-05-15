@@ -53,7 +53,7 @@ type TaskRow = {
 };
 
 const CATEGORIES = ["Residential", "Commercial", "Quality", "Team", "Admin"];
-const ASSIGNEES = ["Unassigned", "Carlos Lopez", "Operations Lead", "Laura", "Miguel", "Sofia"];
+const ASSIGNEES = ["Unassigned", "Carlos Lopez"];
 const PRIORITIES: Priority[] = ["urgent", "high", "normal", "low"];
 const RECURRENCE_LABELS: Record<Recurrence, string> = {
   none: "One-time",
@@ -91,6 +91,7 @@ function emptyTask(): Task {
 function normalizeTask(task: Task): Task {
   return {
     ...task,
+    assignee: ASSIGNEES.includes(task.assignee) ? task.assignee : "Unassigned",
     recurrence: task.recurrence ?? "none",
     custom_interval_days: task.custom_interval_days ?? "",
   };
@@ -140,7 +141,7 @@ function toTaskPayload(task: Task, userId: string) {
 }
 
 function accountOrProperty(task: Task) {
-  return task.account_name || task.property_address || "Not set";
+  return task.account_name || task.property_address || "Operations task";
 }
 
 async function notifyTaskEvent(event: "task_assigned" | "task_completed", task: Task, actorName = "Pristine Operations") {
@@ -268,7 +269,7 @@ function TaskCard({
         <p className="task-title">{task.title || "Untitled operation"}</p>
         {task.description && <p className="task-desc">{task.description}</p>}
         <div className="task-details">
-          <span className="task-detail-label">Cleaner / team</span>
+          <span className="task-detail-label">Assigned to</span>
           <span>{task.assignee || "Unassigned"}</span>
         </div>
 
@@ -301,7 +302,7 @@ function TaskModal({
   onSave: (t: Task) => void | Promise<void>;
   onClose: () => void;
 }) {
-  const [t, setT] = useState<Task>(initial);
+  const [t, setT] = useState<Task>(() => normalizeTask(initial));
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -357,7 +358,6 @@ function TaskModal({
               <label className="field-label">Assigned to</label>
               <select className="field-input" value={t.assignee}
                 onChange={(e) => setT({ ...t, assignee: e.target.value })}>
-                {ASSIGNEES.includes(t.assignee) ? null : <option value={t.assignee}>{t.assignee} (legacy)</option>}
                 {ASSIGNEES.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
             </div>
@@ -368,19 +368,6 @@ function TaskModal({
                 <option>Residential</option>
                 <option>Commercial</option>
               </select>
-            </div>
-          </div>
-
-          <div className="field-row">
-            <div style={{ flex: 1 }}>
-              <label className="field-label">Account / Client</label>
-              <input className="field-input" placeholder="Account or client" value={t.account_name}
-                onChange={(e) => setT({ ...t, account_name: e.target.value })} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label className="field-label">Property / Address</label>
-              <input className="field-input" placeholder="Property or address" value={t.property_address}
-                onChange={(e) => setT({ ...t, property_address: e.target.value })} />
             </div>
           </div>
 
@@ -429,9 +416,9 @@ function TaskModal({
 function getDefaultTasks(): Task[] {
   return [
     { id: crypto.randomUUID(), title: "Confirm supply run for field crews", description: "Verify stock levels for disinfectants, microfiber cloths, and PPE before the morning dispatch.", priority: "urgent", status: "todo", category: "Team", due_date: new Date().toISOString().slice(0, 10), assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Residential", completion_notes: "", reminder: true, recurrence: "daily", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Inspect move-in service for Orchard Hills", description: "Review the checklists and schedule final photos after the kitchen and bathrooms are complete.", priority: "high", status: "todo", category: "Residential", due_date: "", assignee: "Laura", assigned_by: "Pristine Operations", account_name: "Orchard Hills", property_address: "", panel: "Residential", completion_notes: "", reminder: false, recurrence: "none", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Restroom pivot cleanup at City Plaza", description: "Dispatch commercial team for midday restroom refresh and supply restock.", priority: "normal", status: "in_progress", category: "Commercial", due_date: "", assignee: "Miguel", assigned_by: "Pristine Operations", account_name: "City Plaza", property_address: "", panel: "Commercial", completion_notes: "", reminder: false, recurrence: "daily", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Run quality check for weekly office service", description: "Complete the QC walkthrough and upload notes for the commercial account.", priority: "normal", status: "todo", category: "Quality", due_date: "", assignee: "Sofia", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Commercial", completion_notes: "", reminder: true, recurrence: "weekly", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Inspect move-in service follow-up", description: "Review checklist status and confirm final photos are complete.", priority: "high", status: "todo", category: "Residential", due_date: "", assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Residential", completion_notes: "", reminder: false, recurrence: "none", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Commercial restroom pivot follow-up", description: "Confirm midday refresh coverage, supplies, and any client notes.", priority: "normal", status: "in_progress", category: "Commercial", due_date: "", assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Commercial", completion_notes: "", reminder: false, recurrence: "daily", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Run quality check for weekly office service", description: "Complete the QC walkthrough and add owner review notes if anything needs follow-up.", priority: "normal", status: "todo", category: "Quality", due_date: "", assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Commercial", completion_notes: "", reminder: true, recurrence: "weekly", custom_interval_days: "" },
   ];
 }
 

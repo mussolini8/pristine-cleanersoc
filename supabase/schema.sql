@@ -52,6 +52,11 @@ create table if not exists public.staff_members (
 
 alter table public.staff_members enable row level security;
 
+alter table public.staff_members
+  add column if not exists display_role text,
+  add column if not exists team_scope text,
+  add column if not exists commercial_payroll_eligible boolean not null default true;
+
 create policy "Staff members are readable by owners"
   on public.staff_members for select
   using (auth.uid() = user_id);
@@ -325,7 +330,8 @@ alter table public.commercial_payroll_adjustments
 
 alter table public.cleaner_payment_settings
   add column if not exists user_id uuid references auth.users(id) on delete cascade,
-  add column if not exists review_notes text;
+  add column if not exists review_notes text,
+  add column if not exists commercial_payroll_eligible boolean not null default true;
 
 alter table public.commercial_account_schedule_rules
   add column if not exists user_id uuid references auth.users(id) on delete cascade,
@@ -420,6 +426,58 @@ where not exists (
   select 1 from public.cleaner_payment_settings
   where lower(cleaner_name) = 'lucia portillo'
 );
+
+update public.staff_members
+set
+  role = 'Mixed Route Cleaner',
+  display_role = 'Mixed Route Cleaner',
+  team_scope = 'mixed',
+  commercial_payroll_eligible = false,
+  updated_at = now()
+where lower(name) in ('juan romero', 'esperanza youseff', 'esperanza yoseff', 'lorena benitez');
+
+update public.staff_members
+set
+  display_role = 'Operations Manager',
+  team_scope = 'global',
+  commercial_payroll_eligible = false,
+  updated_at = now()
+where lower(name) = 'carlos lopez';
+
+update public.staff_members
+set
+  display_role = 'Owner',
+  team_scope = 'global',
+  commercial_payroll_eligible = false,
+  updated_at = now()
+where lower(name) = 'jake ivan-pal';
+
+update public.staff_members
+set
+  display_role = coalesce(display_role, role),
+  team_scope = 'residential',
+  commercial_payroll_eligible = false,
+  updated_at = now()
+where lower(name) not in ('juan romero', 'esperanza youseff', 'esperanza yoseff', 'lorena benitez', 'carlos lopez', 'jake ivan-pal')
+  and role in ('Residential Cleaner', 'Deep Cleaning Specialist', 'Move In/Move Out Cleaner');
+
+update public.staff_members
+set
+  display_role = coalesce(display_role, role),
+  team_scope = 'commercial',
+  commercial_payroll_eligible = true,
+  updated_at = now()
+where lower(name) not in ('juan romero', 'esperanza youseff', 'esperanza yoseff', 'lorena benitez', 'carlos lopez', 'jake ivan-pal')
+  and role in ('Commercial Cleaner', 'Janitorial Cleaner', 'Day Porter', 'Office Cleaning Crew', 'Restaurant Cleaning Crew', 'Post Construction Crew', 'Commercial Supervisor', 'Account Manager');
+
+update public.cleaner_payment_settings
+set
+  commercial_payroll_eligible = false,
+  requires_manual_review = true,
+  manual_review_reason = 'Mixed route · Not in commercial payroll.',
+  review_notes = 'Visible in commercial operations, excluded from commercial payroll payouts.',
+  updated_at = now()
+where lower(cleaner_name) in ('juan romero', 'esperanza youseff', 'esperanza yoseff', 'lorena benitez');
 
 
 -- Unified payments progressive migration 2026-05-14

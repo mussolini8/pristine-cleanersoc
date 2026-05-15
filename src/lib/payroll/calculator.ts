@@ -6,6 +6,7 @@ import type {
   PayrollGeneratedEntry,
   PayrollPeriod,
 } from "./types";
+import { isCommercialPayrollEligible } from "@/lib/staff-rules";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -173,13 +174,14 @@ const exceptions: PayrollExceptionCode[] = [];
   if (input.setting?.active === false) exceptions.push("inactive_cleaner");
   if (input.hours <= 0) exceptions.push("zero_hours");
   if (!input.hasSchedule) exceptions.push("missing_schedule");
+  if (input.cleanerName && !isCommercialPayrollEligible(input.cleanerName)) exceptions.push("excluded_commercial_payroll");
   if (input.setting?.requires_manual_review) exceptions.push("manual_review");
   if (input.account.contract_start || input.account.contract_end) exceptions.push("contract_boundary");
   return exceptions;
 }
 
 function entryStatus(exceptions: PayrollExceptionCode[]) {
-  return exceptions.some((code) => ["missing_cleaner", "missing_pay_rate", "inactive_cleaner", "zero_hours", "missing_anchor_date", "manual_review", "missing_account_pay_settings"].includes(code))
+  return exceptions.some((code) => ["missing_cleaner", "missing_pay_rate", "inactive_cleaner", "zero_hours", "missing_anchor_date", "manual_review", "missing_account_pay_settings", "excluded_commercial_payroll", "hours_mismatch"].includes(code))
     ? "needs_review"
     : "draft";
 }
@@ -192,6 +194,8 @@ function reviewNoteFor(exceptions: PayrollExceptionCode[], setting: CleanerPayme
   if (exceptions.includes("missing_anchor_date")) return "Missing anchor date";
   if (exceptions.includes("missing_schedule")) return "Missing schedule rule";
   if (exceptions.includes("zero_hours")) return "Missing paid hours";
+  if (exceptions.includes("excluded_commercial_payroll")) return "Mixed route · Not in commercial payroll";
+  if (exceptions.includes("hours_mismatch")) return "Paid hours do not match expected payable hours";
   if (exceptions.includes("inactive_cleaner")) return "Cleaner payment setting is inactive";
   return null;
 }
@@ -218,8 +222,10 @@ function entryFor(input: {
     account: input.account,
   });
   exceptions.push(...(input.extraExceptions ?? []));
-  const estimated = cleanMoney(input.hours * input.payRate);
-  const requiresManualReview = Boolean(input.setting?.requires_manual_review || exceptions.includes("manual_review"));
+  const payrollEligible = !exceptions.includes("excluded_commercial_payroll");
+  const payableRate = payrollEligible ? input.payRate : 0;
+  const estimated = payrollEligible ? cleanMoney(input.hours * input.payRate) : 0;
+  const requiresManualReview = Boolean(input.setting?.requires_manual_review || exceptions.includes("manual_review") || exceptions.includes("excluded_commercial_payroll"));
 
   return {
     cleaner_name: input.cleanerName,
@@ -230,7 +236,7 @@ function entryFor(input: {
     scheduled_day: input.scheduledDay,
     base_hours: input.hours,
     adjusted_hours: input.hours,
-    pay_rate: input.payRate,
+    pay_rate: payableRate,
     estimated_amount: estimated,
     adjustment_amount: 0,
     final_amount: estimated,

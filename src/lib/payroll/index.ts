@@ -10,6 +10,7 @@ import {
   summarizeEntries,
 } from "./calculator";
 import { syncCommercialPayrollEntryToPayment, syncCommercialPayrollPeriodToPayments } from "@/lib/payments/unified";
+import { isCommercialPayrollEligible } from "@/lib/staff-rules";
 import type {
   CleanerPaymentSetting,
   CommercialAccount,
@@ -381,15 +382,18 @@ export async function updatePayrollEntry(entry: PayrollEntryRow, changes: Partia
   const supabase = createClient();
   const userId = await getUserId(supabase);
   const nextAdjustedHours = Number(changes.adjusted_hours ?? entry.adjusted_hours ?? entry.base_hours ?? 0);
-  const nextPayRate = Number(changes.pay_rate ?? entry.pay_rate ?? 0);
+  const payrollEligible = isCommercialPayrollEligible(entry.cleaner_name);
+  const nextPayRate = payrollEligible ? Number(changes.pay_rate ?? entry.pay_rate ?? 0) : 0;
   const nextAdjustmentAmount = Number(changes.adjustment_amount ?? entry.adjustment_amount ?? 0);
-  const finalAmount = Number((nextAdjustedHours * nextPayRate + nextAdjustmentAmount).toFixed(2));
+  const finalAmount = payrollEligible ? Number((nextAdjustedHours * nextPayRate + nextAdjustmentAmount).toFixed(2)) : 0;
   const payload = {
     ...changes,
     adjusted_hours: nextAdjustedHours,
     pay_rate: nextPayRate,
     final_amount: finalAmount,
-    estimated_amount: Number((Number(entry.base_hours ?? 0) * nextPayRate).toFixed(2)),
+    estimated_amount: payrollEligible ? Number((Number(entry.base_hours ?? 0) * nextPayRate).toFixed(2)) : 0,
+    requires_manual_review: payrollEligible ? changes.requires_manual_review ?? entry.requires_manual_review : true,
+    review_notes: payrollEligible ? changes.review_notes ?? entry.review_notes : "Mixed route · Not in commercial payroll",
     updated_at: new Date().toISOString(),
   };
 

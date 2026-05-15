@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { createClient } from "@/lib/supabase/client";
-import { generatePayrollForPeriod, getBiweeklyPeriod, updateEntryStatus, type CommercialAccount, type PayrollEntryRow, type PayrollPeriodRow } from "@/lib/payroll";
+import { generatePayrollForPeriod, getBiweeklyPeriod, parseHours, updateEntryStatus, type CommercialAccount, type PayrollEntryRow, type PayrollPeriodRow } from "@/lib/payroll";
+import { isCommercialPayrollEligible } from "@/lib/staff-rules";
 
 type StatusFilter = "all" | "needs_review" | "approved" | "paid" | "unpaid" | "draft";
 type EntryWithPeriod = PayrollEntryRow & { period?: PayrollPeriodRow | null };
@@ -41,16 +42,60 @@ function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function numberValue(value: number | string | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function exceptionLabel(entry: PayrollEntryRow) {
   if (entry.review_notes) return entry.review_notes;
   const exceptions = entry.exceptions ?? [];
+  if (exceptions.includes("excluded_commercial_payroll") || !isCommercialPayrollEligible(entry.cleaner_name)) return "Mixed route · Not in commercial payroll";
   if (exceptions.includes("missing_account_pay_settings")) return "Missing account pay settings";
   if (exceptions.includes("missing_pay_rate")) return "Missing rate";
   if (exceptions.includes("missing_cleaner")) return "Missing cleaner";
   if (exceptions.includes("missing_schedule")) return "Missing schedule rule";
   if (exceptions.includes("missing_anchor_date")) return "Missing anchor date";
   if (exceptions.includes("zero_hours")) return "Missing paid hours";
+  if (exceptions.includes("hours_mismatch")) return "Hours mismatch";
   return entry.requires_manual_review ? "Needs review" : "Clear";
+}
+
+function payableAmount(entry: PayrollEntryRow) {
+  return isCommercialPayrollEligible(entry.cleaner_name) ? numberValue(entry.final_amount ?? entry.estimated_amount) : 0;
+}
+
+function validateScheduleRow(entry: PayrollEntryRow, account?: CommercialAccount | null) {
+  const expectedHours = account ? parseHours(account.hours) : 0;
+  const scheduledHours = numberValue(entry.base_hours);
+  const paidHours = numberValue(entry.adjusted_hours ?? entry.base_hours);
+  const payrollEligible = isCommercialPayrollEligible(entry.cleaner_name);
+  const reasons: string[] = [];
+
+  if (!payrollEligible) reasons.push("Mixed route · Not in commercial payroll");
+  if (payrollEligible && numberValue(entry.pay_rate) <= 0) reasons.push("Missing rate");
+  if (entry.source !== "schedule_rule" || (entry.exceptions ?? []).includes("missing_schedule")) reasons.push("Missing schedule rule");
+  if (paidHours <= 0) reasons.push("Missing paid hours");
+  if (expectedHours > 0 && Math.abs(scheduledHours - expectedHours) > 0.01) reasons.push("Scheduled hours do not match account rule");
+  if (expectedHours > 0 && Math.abs(paidHours - expectedHours) > 0.01) reasons.push("Paid hours do not match expected payable hours");
+  if (entry.status === "draft") reasons.push("Draft row");
+  if (entry.status === "needs_review" || entry.requires_manual_review) reasons.push(exceptionLabel(entry));
+
+  const status = !payrollEligible
+    ? "excluded_from_payroll"
+    : reasons.some((reason) => reason.includes("Missing rate"))
+      ? "missing_rate"
+      : reasons.some((reason) => reason.includes("Missing schedule"))
+        ? "missing_schedule_rule"
+        : reasons.some((reason) => reason.toLowerCase().includes("hours"))
+          ? "hours_mismatch"
+          : entry.status === "draft"
+            ? "draft"
+            : reasons.length > 0
+              ? "needs_review"
+              : "valid";
+
+  return { status, reasons: Array.from(new Set(reasons)), expectedHours, scheduledHours, paidHours, payrollEligible };
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -156,6 +201,7 @@ export default function CommercialOverviewPage() {
 
   const cleanerOptions = Array.from(new Set(entries.map((entry) => entry.cleaner_name).filter(Boolean))) as string[];
   const accountOptions = Array.from(new Set(entries.map((entry) => entry.account_name).filter(Boolean)));
+  const accountsByName = useMemo(() => new Map(accounts.map((account) => [account.name.toLowerCase(), account])), [accounts]);
   const visible = entries.filter((entry) => {
     if (dayFilter !== "all" && entry.scheduled_day !== dayFilter) return false;
     if (cleanerFilter !== "all" && entry.cleaner_name !== cleanerFilter) return false;
@@ -169,16 +215,24 @@ export default function CommercialOverviewPage() {
     if (!query) return true;
     return [entry.account_name, entry.cleaner_name, entry.review_notes, entry.source, entry.scheduled_day].some((value) => String(value ?? "").toLowerCase().includes(query));
   });
+  const rowValidations = visible.map((entry) => validateScheduleRow(entry, accountsByName.get(entry.account_name.toLowerCase())));
   const metrics = {
     cleanings: visible.length,
-    hours: visible.reduce((sum, entry) => sum + Number(entry.base_hours ?? 0), 0),
-    pending: visible.filter((entry) => !["approved", "paid"].includes(entry.status)).reduce((sum, entry) => sum + Number(entry.final_amount ?? 0), 0),
-    review: visible.filter((entry) => entry.status === "needs_review" || entry.requires_manual_review).length,
+    hours: visible.reduce((sum, entry) => sum + numberValue(entry.base_hours), 0),
+    paidHours: visible.reduce((sum, entry) => sum + numberValue(entry.adjusted_hours ?? entry.base_hours), 0),
+    expectedHours: rowValidations.reduce((sum, validation) => sum + validation.expectedHours, 0),
+    pending: visible.filter((entry) => !["approved", "paid"].includes(entry.status)).reduce((sum, entry) => sum + payableAmount(entry), 0),
+    review: rowValidations.filter((validation) => validation.status !== "valid").length,
+    missingRates: rowValidations.filter((validation) => validation.status === "missing_rate").length,
+    missingScheduleRules: rowValidations.filter((validation) => validation.status === "missing_schedule_rule").length,
+    hoursMismatches: rowValidations.filter((validation) => validation.status === "hours_mismatch").length,
+    excludedMixedRoute: rowValidations.filter((validation) => validation.status === "excluded_from_payroll").length,
     approved: visible.filter((entry) => entry.status === "approved").length,
     paid: visible.filter((entry) => entry.status === "paid").length,
     open: visible.filter((entry) => !["paid", "locked"].includes(entry.status)).length,
     activeAccounts: accounts.filter((account) => account.source_sheet !== "Team supplies").length,
   };
+  const selectedAccount = accountFilter === "all" ? null : accountsByName.get(accountFilter.toLowerCase()) ?? null;
 
   return (
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
@@ -239,6 +293,34 @@ export default function CommercialOverviewPage() {
               </div>
             </div>
 
+            <div className="rounded-lg border bg-card p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-black">Filtered schedule review</h2>
+                  <p className="mt-1 max-w-3xl text-sm font-semibold text-muted-foreground">Use this view to confirm that scheduled hours, paid hours, and payroll totals match the selected commercial accounts.</p>
+                </div>
+                <Badge className="border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-cyan-200">Hours validation</Badge>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <Metric label="Filtered rows" value={metrics.cleanings} note="Only current filters" />
+                <Metric label="Scheduled hours" value={metrics.hours.toFixed(2)} note="Assigned schedule hours" />
+                <Metric label="Paid hours" value={metrics.paidHours.toFixed(2)} note="Calculated payable hours" />
+                <Metric label="Payable amount" value={money(visible.reduce((sum, entry) => sum + payableAmount(entry), 0))} note="Excludes mixed-route support" />
+                <Metric label="Rows needing review" value={metrics.review} note="Warnings in filtered scope" tone={metrics.review > 0 ? "warning" : "good"} />
+                <Metric label="Missing rates" value={metrics.missingRates} note="Rate setup needed" tone={metrics.missingRates > 0 ? "warning" : "neutral"} />
+                <Metric label="Missing schedule rules" value={metrics.missingScheduleRules} note="Account schedule needed" tone={metrics.missingScheduleRules > 0 ? "warning" : "neutral"} />
+                <Metric label="Hours mismatches" value={metrics.hoursMismatches} note="Compare to account rule" tone={metrics.hoursMismatches > 0 ? "warning" : "neutral"} />
+                <Metric label="Excluded mixed-route" value={metrics.excludedMixedRoute} note="Visible, not payable here" tone={metrics.excludedMixedRoute > 0 ? "warning" : "neutral"} />
+                <Metric label="Expected hours" value={metrics.expectedHours.toFixed(2)} note="From account rules" />
+              </div>
+              <div className="mt-4 grid gap-3 rounded-md border bg-muted/20 p-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+                <div><p className="text-xs font-black uppercase text-muted-foreground">Date range</p><p className="font-black">{periodLabel(weekStart, weekEnd)}</p></div>
+                <div><p className="text-xs font-black uppercase text-muted-foreground">Cleaner/team</p><p className="font-black">{cleanerFilter === "all" ? "All teams" : cleanerFilter}</p></div>
+                <div><p className="text-xs font-black uppercase text-muted-foreground">Account</p><p className="font-black">{accountFilter === "all" ? "All accounts" : accountFilter}</p></div>
+                <div><p className="text-xs font-black uppercase text-muted-foreground">Account rule</p><p className="font-black">{selectedAccount ? `${parseHours(selectedAccount.hours).toFixed(2)} hrs · ${selectedAccount.frequency || "No frequency"}` : "Select one account"}</p></div>
+              </div>
+            </div>
+
             {loading ? <div className="rounded-lg border p-10 text-center font-bold text-muted-foreground">Loading commercial cleanings...</div> : null}
             {!loading && visible.length === 0 ? (
               <div className="rounded-lg border border-dashed bg-muted/20 p-10 text-center">
@@ -258,18 +340,20 @@ export default function CommercialOverviewPage() {
                   <tbody>
                     {visible.map((entry) => {
                       const locked = ["paid", "locked"].includes(entry.status) || ["paid", "locked"].includes(entry.period?.status ?? "");
-                      const amountNeedsReason = Number(entry.final_amount ?? 0) === 0 && Number(entry.base_hours ?? 0) > 0;
+                      const validation = validateScheduleRow(entry, accountsByName.get(entry.account_name.toLowerCase()));
+                      const amountNeedsReason = payableAmount(entry) === 0 && numberValue(entry.base_hours) > 0;
+                      const reviewText = validation.reasons[0] ?? exceptionLabel(entry);
                       return (
                         <tr className="border-t transition-colors hover:bg-accent/30" key={entry.id}>
                           <td className="px-4 py-3"><p className="font-black">{entry.service_date ?? "Unscheduled"}</p><p className="text-xs font-bold text-muted-foreground">{entry.scheduled_day ?? "No day"}</p></td>
                           <td className="px-4 py-3"><p className="font-black">{entry.account_name}</p><p className="text-xs font-bold text-muted-foreground">{entry.city ?? "Commercial account"}</p></td>
-                          <td className="px-4 py-3 font-bold">{entry.cleaner_name ?? "Unassigned"}</td>
-                          <td className="px-4 py-3 text-right font-black">{Number(entry.base_hours ?? 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-right font-black">{Number(entry.adjusted_hours ?? entry.base_hours ?? 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-right"><p className="font-black">{entry.pay_rate ? money(entry.pay_rate) : "Missing rate"}</p><div className="mt-1 flex justify-end"><SourceBadge source={entry.source} /></div></td>
-                          <td className="px-4 py-3 text-right"><p className={amountNeedsReason ? "font-black text-amber-700 dark:text-amber-200" : "font-black"}>{money(entry.final_amount)}</p>{amountNeedsReason ? <p className="text-xs font-bold text-muted-foreground">{exceptionLabel(entry)}</p> : null}</td>
+                          <td className="px-4 py-3"><p className="font-bold">{entry.cleaner_name ?? "Unassigned"}</p>{!validation.payrollEligible ? <p className="mt-1 text-xs font-black text-amber-700 dark:text-amber-200">Mixed route · Not in commercial payroll</p> : null}</td>
+                          <td className="px-4 py-3 text-right"><p className="font-black">{numberValue(entry.base_hours).toFixed(2)}</p>{validation.expectedHours > 0 ? <p className="text-xs font-bold text-muted-foreground">Expected {validation.expectedHours.toFixed(2)}</p> : null}</td>
+                          <td className="px-4 py-3 text-right font-black">{numberValue(entry.adjusted_hours ?? entry.base_hours).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right"><p className="font-black">{validation.payrollEligible ? entry.pay_rate ? money(entry.pay_rate) : "Missing rate" : "Not payable here"}</p><div className="mt-1 flex justify-end"><SourceBadge source={entry.source} /></div></td>
+                          <td className="px-4 py-3 text-right"><p className={amountNeedsReason ? "font-black text-amber-700 dark:text-amber-200" : "font-black"}>{money(payableAmount(entry))}</p>{amountNeedsReason ? <p className="text-xs font-bold text-muted-foreground">{reviewText}</p> : null}</td>
                           <td className="px-4 py-3"><StatusBadge status={entry.status} /></td>
-                          <td className="px-4 py-3"><Badge className={entry.status === "needs_review" || entry.requires_manual_review ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200" : "border-border bg-muted/60 text-muted-foreground"}>{exceptionLabel(entry)}</Badge></td>
+                          <td className="px-4 py-3"><Badge className={validation.status !== "valid" ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200" : "border-border bg-muted/60 text-muted-foreground"}>{reviewText}</Badge></td>
                           <td className="px-4 py-3"><div className="flex justify-end gap-2"><Button asChild size="sm" variant="outline"><Link href={`/commercial/payroll/${entry.pay_period_id}`}><Eye className="size-4" /> Payroll</Link></Button><Button disabled={locked} size="sm" variant="outline" onClick={() => setEntryStatus(entry, "needs_review")} type="button">Review</Button><Button disabled={locked} size="sm" onClick={() => setEntryStatus(entry, "approved")} type="button"><BadgeCheck className="size-4" /> Approve</Button></div></td>
                         </tr>
                       );

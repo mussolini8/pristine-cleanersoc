@@ -77,6 +77,8 @@ export type PayrollExceptionCode =
   | "missing_schedule"
   | "missing_anchor_date"
   | "missing_account_pay_settings"
+  | "excluded_commercial_payroll"
+  | "hours_mismatch"
   | "manual_review"
   | "contract_boundary";
 

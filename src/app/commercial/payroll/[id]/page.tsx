@@ -10,15 +10,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import {
   addPayrollAdjustment,
+  fetchCommercialAccounts,
   fetchPayrollPeriodDetails,
   generatePayrollForPeriod,
+  parseHours,
   updateEntryStatus,
   updatePayrollEntry,
   updatePeriodStatus,
+  type CommercialAccount,
   type PayrollAdjustmentRow,
   type PayrollEntryRow,
   type PayrollPeriodRow,
 } from "@/lib/payroll";
+import { isCommercialPayrollEligible } from "@/lib/staff-rules";
 
 type EntryDraft = {
   adjusted_hours: string;
@@ -65,9 +69,11 @@ const exceptionLabels: Record<string, string> = {
   missing_pay_rate: "Missing pay rate",
   inactive_cleaner: "Inactive cleaner",
   zero_hours: "Zero hours",
-  missing_schedule: "Schedule fallback",
+  missing_schedule: "Missing schedule rule",
   missing_anchor_date: "Missing anchor date",
   missing_account_pay_settings: "Missing account pay settings",
+  excluded_commercial_payroll: "Mixed route · Not in commercial payroll",
+  hours_mismatch: "Hours mismatch",
   manual_review: "Manual review",
   contract_boundary: "Contract boundary",
 };
@@ -114,6 +120,47 @@ function money(value: number | null | undefined) {
 function numberValue(value: number | string | null | undefined) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function payableAmount(entry: PayrollEntryRow) {
+  return isCommercialPayrollEligible(entry.cleaner_name) ? numberValue(entry.final_amount ?? entry.estimated_amount) : 0;
+}
+
+function validateCommercialPayrollRow(entry: PayrollEntryRow, account?: CommercialAccount | null) {
+  const reasons: string[] = [];
+  const expectedHours = account ? parseHours(account.hours) : 0;
+  const paidHours = numberValue(entry.adjusted_hours ?? entry.base_hours);
+  const scheduledHours = numberValue(entry.base_hours);
+  const payrollEligible = isCommercialPayrollEligible(entry.cleaner_name);
+
+  if (!payrollEligible) reasons.push("Mixed route · Not in commercial payroll");
+  if (payrollEligible && numberValue(entry.pay_rate) <= 0) reasons.push("Missing rate");
+  if (entry.source !== "schedule_rule" || (entry.exceptions ?? []).includes("missing_schedule")) reasons.push("Missing schedule rule");
+  if (paidHours <= 0) reasons.push("Missing paid hours");
+  if (expectedHours > 0 && Math.abs(scheduledHours - expectedHours) > 0.01) reasons.push("Scheduled hours do not match account rule");
+  if (expectedHours > 0 && Math.abs(paidHours - expectedHours) > 0.01) reasons.push("Paid hours do not match expected payable hours");
+  if (entry.status === "draft") reasons.push("Draft row");
+  if (entry.status === "needs_review" || entry.requires_manual_review) reasons.push(entry.review_notes || "Needs review");
+  for (const code of entry.exceptions ?? []) {
+    const label = exceptionLabels[code] ?? code;
+    if (!reasons.includes(label)) reasons.push(label);
+  }
+
+  const status = !payrollEligible
+    ? "excluded_from_payroll"
+    : reasons.some((reason) => reason.includes("Missing rate"))
+      ? "missing_rate"
+      : reasons.some((reason) => reason.includes("Missing schedule"))
+        ? "missing_schedule_rule"
+        : reasons.some((reason) => reason.toLowerCase().includes("hours"))
+          ? "hours_mismatch"
+          : entry.status === "draft"
+            ? "draft"
+            : reasons.length > 0
+              ? "needs_review"
+              : "valid";
+
+  return { status, reasons: Array.from(new Set(reasons)), expectedHours, paidHours, scheduledHours, payrollEligible };
 }
 
 function dateLabel(value: string | null | undefined) {
@@ -179,6 +226,7 @@ export default function PayrollPeriodPage() {
   const [period, setPeriod] = useState<PayrollPeriodRow | null>(null);
   const [entries, setEntries] = useState<PayrollEntryRow[]>([]);
   const [adjustments, setAdjustments] = useState<PayrollAdjustmentRow[]>([]);
+  const [accounts, setAccounts] = useState<CommercialAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? entries[0] ?? null;
@@ -195,6 +243,7 @@ export default function PayrollPeriodPage() {
   const [reviewFilter, setReviewFilter] = useState("all");
   const [dataFilter, setDataFilter] = useState("all");
   const [paidFilter, setPaidFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
   const [showDetailedEntries, setShowDetailedEntries] = useState(false);
 
@@ -210,15 +259,17 @@ export default function PayrollPeriodPage() {
 
   async function load() {
     setLoading(true);
-    const details = await fetchPayrollPeriodDetails(periodId);
+    const [details, accountRows] = await Promise.all([fetchPayrollPeriodDetails(periodId), fetchCommercialAccounts()]);
+    setAccounts(accountRows);
     applyDetails(details);
     setLoading(false);
   }
 
   useEffect(() => {
     let mounted = true;
-    fetchPayrollPeriodDetails(periodId).then((details) => {
+    Promise.all([fetchPayrollPeriodDetails(periodId), fetchCommercialAccounts()]).then(([details, accountRows]) => {
       if (!mounted) return;
+      setAccounts(accountRows);
       setPeriod(details.period);
       setEntries(details.entries);
       setAdjustments(details.adjustments);
@@ -243,6 +294,7 @@ export default function PayrollPeriodPage() {
     cleaners: Array.from(new Set(entries.map((entry) => entry.cleaner_name ?? "Unassigned"))).sort(),
     accounts: Array.from(new Set(entries.map((entry) => entry.account_name))).sort(),
   }), [entries]);
+  const accountsByName = useMemo(() => new Map(accounts.map((account) => [account.name.toLowerCase(), account])), [accounts]);
 
   const filteredEntries = useMemo(() => {
     const range = getDateFilterRange(dateFilterMode, selectedDate, period, customStartDate, customEndDate);
@@ -257,25 +309,44 @@ export default function PayrollPeriodPage() {
       const matchesData = dataFilter === "all" || (dataFilter === "missing" ? hasMissingData : !hasMissingData);
       const isPaid = entry.status === "paid" || Boolean(entry.paid_at);
       const matchesPaid = paidFilter === "all" || (paidFilter === "paid" ? isPaid : !isPaid);
-      return matchesDate && matchesCleaner && matchesAccount && matchesStatus && matchesReview && matchesData && matchesPaid;
+      const query = search.trim().toLowerCase();
+      const matchesSearch = !query || [
+        entry.account_name,
+        entry.cleaner_name,
+        entry.city,
+        entry.service_date,
+        entry.scheduled_day,
+        entry.status,
+        entry.review_notes,
+        entry.notes,
+        ...(entry.exceptions ?? []),
+      ].some((value) => String(value ?? "").toLowerCase().includes(query));
+      return matchesDate && matchesCleaner && matchesAccount && matchesStatus && matchesReview && matchesData && matchesPaid && matchesSearch;
     });
-  }, [accountFilter, cleanerFilter, customEndDate, customStartDate, dataFilter, dateFilterMode, entries, paidFilter, period, reviewFilter, selectedDate, statusFilter]);
+  }, [accountFilter, cleanerFilter, customEndDate, customStartDate, dataFilter, dateFilterMode, entries, paidFilter, period, reviewFilter, search, selectedDate, statusFilter]);
+
+  const rowValidations = useMemo(() => new Map(filteredEntries.map((entry) => [
+    entry.id,
+    validateCommercialPayrollRow(entry, accountsByName.get(entry.account_name.toLowerCase())),
+  ])), [accountsByName, filteredEntries]);
 
   const grouped = useMemo(() => {
-    const map = new Map<string, { cleaner: string; baseHours: number; adjustedHours: number; finalPay: number; estimatedPay: number; adjustments: number; serviceDates: Set<string>; accounts: Set<string>; status: string; entries: PayrollEntryRow[]; requiresReview: boolean; manualReviewCount: number; paymentMethod: string | null }>();
+    const map = new Map<string, { cleaner: string; baseHours: number; adjustedHours: number; finalPay: number; estimatedPay: number; adjustments: number; serviceDates: Set<string>; accounts: Set<string>; status: string; entries: PayrollEntryRow[]; requiresReview: boolean; manualReviewCount: number; excludedCount: number; paymentMethod: string | null }>();
     for (const entry of filteredEntries) {
       const cleaner = entry.cleaner_name ?? "Unassigned";
-      const group = map.get(cleaner) ?? { cleaner, baseHours: 0, adjustedHours: 0, finalPay: 0, estimatedPay: 0, adjustments: 0, serviceDates: new Set<string>(), accounts: new Set<string>(), status: "draft", entries: [], requiresReview: false, manualReviewCount: 0, paymentMethod: entry.payment_method ?? null };
+      const validation = rowValidations.get(entry.id);
+      const group = map.get(cleaner) ?? { cleaner, baseHours: 0, adjustedHours: 0, finalPay: 0, estimatedPay: 0, adjustments: 0, serviceDates: new Set<string>(), accounts: new Set<string>(), status: "draft", entries: [], requiresReview: false, manualReviewCount: 0, excludedCount: 0, paymentMethod: entry.payment_method ?? null };
       group.baseHours += numberValue(entry.base_hours);
       group.adjustedHours += numberValue(entry.adjusted_hours ?? entry.base_hours);
-      group.finalPay += numberValue(entry.final_amount ?? entry.estimated_amount);
-      group.estimatedPay += numberValue(entry.estimated_amount);
+      group.finalPay += payableAmount(entry);
+      group.estimatedPay += validation?.payrollEligible === false ? 0 : numberValue(entry.estimated_amount);
       group.adjustments += numberValue(entry.adjustment_amount);
       group.accounts.add(entry.account_name);
       if (entry.service_date) group.serviceDates.add(entry.service_date);
       group.entries.push(entry);
-      group.requiresReview ||= Boolean(entry.requires_manual_review || entry.status === "needs_review");
-      if (entry.requires_manual_review || entry.status === "needs_review") group.manualReviewCount += 1;
+      group.requiresReview ||= Boolean(validation && validation.status !== "valid");
+      if (validation && validation.status !== "valid") group.manualReviewCount += 1;
+      if (validation?.status === "excluded_from_payroll") group.excludedCount += 1;
       group.paymentMethod ||= entry.payment_method ?? null;
       if (group.entries.some((item) => item.status === "paid")) group.status = "paid";
       else if (group.entries.every((item) => item.status === "approved" || item.status === "paid")) group.status = "approved";
@@ -284,18 +355,28 @@ export default function PayrollPeriodPage() {
       map.set(cleaner, group);
     }
     return Array.from(map.values()).sort((a, b) => b.finalPay - a.finalPay);
-  }, [filteredEntries]);
+  }, [filteredEntries, rowValidations]);
 
-  const summary = useMemo(() => ({
-    totalHours: filteredEntries.reduce((sum, entry) => sum + numberValue(entry.adjusted_hours ?? entry.base_hours), 0),
-    totalBaseHours: filteredEntries.reduce((sum, entry) => sum + numberValue(entry.base_hours), 0),
-    totalEstimated: filteredEntries.reduce((sum, entry) => sum + numberValue(entry.estimated_amount), 0),
-    totalAdjustments: filteredEntries.reduce((sum, entry) => sum + numberValue(entry.adjustment_amount), 0),
-    totalFinal: filteredEntries.reduce((sum, entry) => sum + numberValue(entry.final_amount ?? entry.estimated_amount), 0),
-    needsReview: filteredEntries.filter((entry) => entry.status === "needs_review" || entry.requires_manual_review).length,
-    approved: filteredEntries.filter((entry) => entry.status === "approved").length,
-    paid: filteredEntries.filter((entry) => entry.status === "paid").length,
-  }), [filteredEntries]);
+  const summary = useMemo(() => {
+    const validations = filteredEntries.map((entry) => rowValidations.get(entry.id)).filter(Boolean);
+    return {
+      totalHours: filteredEntries.reduce((sum, entry) => sum + numberValue(entry.adjusted_hours ?? entry.base_hours), 0),
+      totalBaseHours: filteredEntries.reduce((sum, entry) => sum + numberValue(entry.base_hours), 0),
+      totalEstimated: filteredEntries.reduce((sum, entry) => sum + (isCommercialPayrollEligible(entry.cleaner_name) ? numberValue(entry.estimated_amount) : 0), 0),
+      totalAdjustments: filteredEntries.reduce((sum, entry) => sum + (isCommercialPayrollEligible(entry.cleaner_name) ? numberValue(entry.adjustment_amount) : 0), 0),
+      totalFinal: filteredEntries.reduce((sum, entry) => sum + payableAmount(entry), 0),
+      needsReview: validations.filter((validation) => validation?.status !== "valid").length,
+      missingRates: validations.filter((validation) => validation?.status === "missing_rate").length,
+      missingScheduleRules: validations.filter((validation) => validation?.status === "missing_schedule_rule").length,
+      hoursMismatches: validations.filter((validation) => validation?.status === "hours_mismatch").length,
+      excludedMixedRoute: validations.filter((validation) => validation?.status === "excluded_from_payroll").length,
+      expectedHours: validations.reduce((sum, validation) => sum + numberValue(validation?.expectedHours), 0),
+      approved: filteredEntries.filter((entry) => entry.status === "approved").length,
+      paid: filteredEntries.filter((entry) => entry.status === "paid").length,
+    };
+  }, [filteredEntries, rowValidations]);
+  const activeRange = getDateFilterRange(dateFilterMode, selectedDate, period, customStartDate, customEndDate);
+  const selectedAccount = accountFilter === "all" ? null : accountsByName.get(accountFilter.toLowerCase()) ?? null;
 
   async function saveSelectedEntry() {
     if (!selectedEntry || !entryDraft) return;
@@ -421,13 +502,41 @@ export default function PayrollPeriodPage() {
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Custom end</span><input className="h-10 w-full rounded-md border bg-background px-3 font-bold" disabled={dateFilterMode !== "custom"} type="date" value={customEndDate} onChange={(event) => setCustomEndDate(event.target.value)} /></label>
               <div className="rounded-md border bg-muted/30 px-3 py-2"><p className="text-xs font-black uppercase text-muted-foreground">Visible entries</p><p className="text-lg font-black">{filteredEntries.length}/{entries.length}</p></div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Cleaner/team</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={cleanerFilter} onChange={(event) => setCleanerFilter(event.target.value)}><option value="all">All teams</option>{filterOptions.cleaners.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner}</option>)}</select></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Account</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}><option value="all">All accounts</option>{filterOptions.accounts.map((account) => <option key={account} value={account}>{account}</option>)}</select></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Status</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="draft">Draft</option><option value="needs_review">Needs Review</option><option value="reviewed">Reviewed</option><option value="approved">Approved</option><option value="paid">Paid</option></select></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Manual review</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value)}><option value="all">All</option><option value="manual_review">Manual review</option><option value="clear">Clear</option></select></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Missing data</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={dataFilter} onChange={(event) => setDataFilter(event.target.value)}><option value="all">All</option><option value="missing">Missing data</option><option value="complete">Complete</option></select></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Paid state</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={paidFilter} onChange={(event) => setPaidFilter(event.target.value)}><option value="all">All</option><option value="unpaid">Unpaid</option><option value="paid">Paid</option></select></label>
+              <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Search</span><input className="h-10 w-full rounded-md border bg-background px-3 font-bold" placeholder="Account, team, review" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/80">
+          <CardHeader>
+            <CardTitle>Filtered schedule review</CardTitle>
+            <p className="mt-1 text-sm font-semibold text-muted-foreground">Use this view to confirm that scheduled hours, paid hours, and payroll totals match the selected commercial accounts.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <Metric icon={FileClock} label="Filtered rows" value={String(filteredEntries.length)} />
+              <Metric icon={FileClock} label="Scheduled hours" value={summary.totalBaseHours.toFixed(2)} />
+              <Metric icon={FileClock} label="Paid hours" value={summary.totalHours.toFixed(2)} />
+              <Metric icon={CheckCircle2} label="Payable amount" value={money(summary.totalFinal)} />
+              <Metric icon={AlertTriangle} label="Rows needing review" value={String(summary.needsReview)} />
+              <Metric icon={AlertTriangle} label="Missing rates" value={String(summary.missingRates)} />
+              <Metric icon={AlertTriangle} label="Missing schedule rules" value={String(summary.missingScheduleRules)} />
+              <Metric icon={AlertTriangle} label="Hours mismatches" value={String(summary.hoursMismatches)} />
+              <Metric icon={AlertTriangle} label="Excluded mixed-route rows" value={String(summary.excludedMixedRoute)} />
+              <Metric icon={WalletCards} label="Expected account hours" value={summary.expectedHours.toFixed(2)} />
+            </div>
+            <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+              <div><p className="text-xs font-black uppercase text-muted-foreground">Date range</p><p className="font-black">{dateLabel(activeRange.start)} to {dateLabel(activeRange.end)}</p></div>
+              <div><p className="text-xs font-black uppercase text-muted-foreground">Cleaner/team</p><p className="font-black">{cleanerFilter === "all" ? "All teams" : cleanerFilter}</p></div>
+              <div><p className="text-xs font-black uppercase text-muted-foreground">Account</p><p className="font-black">{accountFilter === "all" ? "All accounts" : accountFilter}</p></div>
+              <div><p className="text-xs font-black uppercase text-muted-foreground">Account rule</p><p className="font-black">{selectedAccount ? `${parseHours(selectedAccount.hours).toFixed(2)} hrs · ${selectedAccount.frequency ?? "No frequency"}` : "Select one account for rule detail"}</p></div>
             </div>
           </CardContent>
         </Card>
@@ -468,8 +577,8 @@ export default function PayrollPeriodPage() {
                             <td className="px-3 py-3 text-right font-bold">{group.baseHours.toFixed(2)}</td>
                             <td className="px-3 py-3 text-right font-bold">{group.adjustedHours.toFixed(2)}</td>
                             <td className="px-3 py-3 text-right font-bold">{money(group.adjustments)}</td>
-                            <td className="px-3 py-3 text-right font-black">{money(group.finalPay)}</td>
-                            <td className="px-3 py-3">{group.requiresReview ? <Badge className="bg-amber-100 text-amber-800">{group.manualReviewCount} review</Badge> : <Badge variant="outline">Clear</Badge>}</td>
+                            <td className="px-3 py-3 text-right font-black">{money(group.finalPay)}{group.excludedCount ? <p className="text-xs font-bold text-muted-foreground">{group.excludedCount} excluded</p> : null}</td>
+                            <td className="px-3 py-3">{group.excludedCount ? <Badge className="bg-slate-900 text-white">Mixed route · Not payable here</Badge> : group.requiresReview ? <Badge className="bg-amber-100 text-amber-800">{group.manualReviewCount} review</Badge> : <Badge variant="outline">Clear</Badge>}</td>
                             <td className="px-3 py-3 font-bold">{group.paymentMethod ?? "-"}</td>
                             <td className="px-3 py-3"><StatusBadge status={group.status} /></td>
                             <td className="px-3 py-3"><Button size="sm" type="button" variant="outline">{expandedTeam === group.cleaner ? "Hide" : "Open"}</Button></td>
@@ -480,7 +589,10 @@ export default function PayrollPeriodPage() {
                                 <div className="overflow-x-auto rounded-md border bg-background">
                                   <table className="w-full min-w-[1040px] border-collapse text-xs">
                                     <thead className="bg-muted/50 text-left uppercase text-muted-foreground"><tr><th className="px-3 py-2">Account</th><th className="px-3 py-2">Service date</th><th className="px-3 py-2">Day</th><th className="px-3 py-2">Frequency</th><th className="px-3 py-2 text-right">Base hours</th><th className="px-3 py-2 text-right">Adjusted</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2 text-right">Final</th><th className="px-3 py-2">Exceptions</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Notes</th></tr></thead>
-                                    <tbody>{group.entries.map((entry) => <tr className={`cursor-pointer border-t hover:bg-accent/40 ${selectedEntry?.id === entry.id ? "bg-accent/50" : ""}`} key={entry.id} onClick={() => selectEntry(entry)}><td className="px-3 py-2 font-black">{entry.account_name}</td><td className="px-3 py-2">{dateLabel(entry.service_date)}</td><td className="px-3 py-2">{entry.scheduled_day ?? "-"}</td><td className="px-3 py-2"><SourceBadge source={entry.source} /></td><td className="px-3 py-2 text-right font-bold">{numberValue(entry.base_hours).toFixed(2)}</td><td className="px-3 py-2 text-right font-bold">{numberValue(entry.adjusted_hours ?? entry.base_hours).toFixed(2)}</td><td className="px-3 py-2 text-right font-bold">{money(entry.pay_rate)}</td><td className="px-3 py-2 text-right font-black">{money(entry.final_amount)}</td><td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(entry.exceptions ?? []).slice(0, 3).map((code) => <Badge className="bg-amber-100 text-amber-800" key={code}>{exceptionLabels[code] ?? code}</Badge>)}</div></td><td className="px-3 py-2"><StatusBadge status={entry.status} /></td><td className="px-3 py-2">{entry.notes ?? entry.review_notes ?? "-"}</td></tr>)}</tbody>
+                                    <tbody>{group.entries.map((entry) => {
+                                      const validation = rowValidations.get(entry.id);
+                                      return <tr className={`cursor-pointer border-t hover:bg-accent/40 ${selectedEntry?.id === entry.id ? "bg-accent/50" : ""}`} key={entry.id} onClick={() => selectEntry(entry)}><td className="px-3 py-2 font-black">{entry.account_name}</td><td className="px-3 py-2">{dateLabel(entry.service_date)}</td><td className="px-3 py-2">{entry.scheduled_day ?? "-"}</td><td className="px-3 py-2"><SourceBadge source={entry.source} /></td><td className="px-3 py-2 text-right font-bold">{numberValue(entry.base_hours).toFixed(2)}</td><td className="px-3 py-2 text-right font-bold">{numberValue(entry.adjusted_hours ?? entry.base_hours).toFixed(2)}</td><td className="px-3 py-2 text-right font-bold">{money(validation?.payrollEligible === false ? 0 : entry.pay_rate)}</td><td className="px-3 py-2 text-right font-black">{money(payableAmount(entry))}</td><td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(validation?.reasons ?? []).slice(0, 3).map((reason) => <Badge className={validation?.status === "excluded_from_payroll" ? "bg-slate-900 text-white" : "bg-amber-100 text-amber-800"} key={reason}>{reason}</Badge>)}</div></td><td className="px-3 py-2"><StatusBadge status={entry.status} /></td><td className="px-3 py-2">{entry.notes ?? entry.review_notes ?? validation?.reasons[0] ?? "-"}</td></tr>;
+                                    })}</tbody>
                                   </table>
                                 </div>
                               </td>
@@ -517,7 +629,9 @@ export default function PayrollPeriodPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredEntries.map((entry) => (
+                      {filteredEntries.map((entry) => {
+                        const validation = rowValidations.get(entry.id);
+                        return (
                         <tr className={`cursor-pointer border-t hover:bg-accent/40 ${selectedEntry?.id === entry.id ? "bg-accent/50" : ""}`} key={entry.id} onClick={() => selectEntry(entry)}>
                           <td className="px-3 py-3 font-black">{entry.account_name}</td>
                           <td className="px-3 py-3 font-bold">{entry.cleaner_name ?? "Unassigned"}</td>
@@ -526,11 +640,11 @@ export default function PayrollPeriodPage() {
                           <td className="px-3 py-3">{entry.scheduled_day ?? "-"}</td>
                           <td className="px-3 py-3 text-right font-bold">{numberValue(entry.base_hours).toFixed(2)}</td>
                           <td className="px-3 py-3 text-right font-bold">{numberValue(entry.adjusted_hours ?? entry.base_hours).toFixed(2)}</td>
-                          <td className="px-3 py-3 text-right font-bold">{money(entry.pay_rate)}</td>
-                          <td className="px-3 py-3 text-right"><p className={numberValue(entry.final_amount) === 0 && numberValue(entry.base_hours) > 0 ? "font-black text-amber-700 dark:text-amber-200" : "font-black"}>{money(entry.final_amount)}</p>{numberValue(entry.final_amount) === 0 && numberValue(entry.base_hours) > 0 ? <p className="text-xs font-bold text-muted-foreground">{entry.review_notes ?? "Needs review"}</p> : null}</td>
-                          <td className="px-3 py-3"><div className="flex flex-wrap gap-1">{(entry.exceptions ?? []).slice(0, 3).map((code) => <Badge className="bg-amber-100 text-amber-800" key={code}>{exceptionLabels[code] ?? code}</Badge>)}</div></td>
+                          <td className="px-3 py-3 text-right font-bold">{money(validation?.payrollEligible === false ? 0 : entry.pay_rate)}</td>
+                          <td className="px-3 py-3 text-right"><p className={payableAmount(entry) === 0 && numberValue(entry.base_hours) > 0 ? "font-black text-amber-700 dark:text-amber-200" : "font-black"}>{money(payableAmount(entry))}</p>{payableAmount(entry) === 0 && numberValue(entry.base_hours) > 0 ? <p className="text-xs font-bold text-muted-foreground">{validation?.reasons[0] ?? entry.review_notes ?? "Needs review"}</p> : null}</td>
+                          <td className="px-3 py-3"><div className="flex flex-wrap gap-1">{(validation?.reasons ?? []).slice(0, 3).map((reason) => <Badge className={validation?.status === "excluded_from_payroll" ? "bg-slate-900 text-white" : "bg-amber-100 text-amber-800"} key={reason}>{reason}</Badge>)}</div></td>
                         </tr>
-                      ))}
+                      );})}
                     </tbody>
                   </table>
                 </div>
@@ -564,6 +678,7 @@ export default function PayrollPeriodPage() {
                       <h2 className="mt-1 text-lg font-black">{selectedEntry.account_name}</h2>
                       <p className="text-sm font-semibold text-muted-foreground">{dateLabel(selectedEntry.service_date)} · {selectedEntry.scheduled_day ?? "No scheduled day"}</p>
                     </div>
+                    {!isCommercialPayrollEligible(selectedEntry.cleaner_name) ? <div className="rounded-md border border-slate-300 bg-slate-100 p-3 text-sm font-bold text-slate-900 dark:bg-slate-900 dark:text-slate-100">Mixed route · Not in commercial payroll. This row can stay visible for operations review, but payout remains $0.00.</div> : null}
                     {selectedEntry.requires_manual_review ? <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-900 dark:bg-amber-950/20 dark:text-amber-100">This team requires manual hour review before approval.</div> : null}
                     <div className="grid grid-cols-2 gap-3">
                       <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Final hours</span><input className="h-10 w-full rounded-md border bg-background px-3 font-bold" type="number" step="0.25" value={entryDraft.adjusted_hours} onChange={(event) => setEntryDraft({ ...entryDraft, adjusted_hours: event.target.value })} /></label>
