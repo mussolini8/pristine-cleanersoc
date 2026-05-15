@@ -165,7 +165,11 @@ function buildExceptions(input: {
 }) {
 const exceptions: PayrollExceptionCode[] = [];
   if (!input.cleanerName) exceptions.push("missing_cleaner");
-  if (!input.payRate) exceptions.push("missing_pay_rate");
+  if (!input.payRate) {
+    const hasAccountRate = Number(input.account.cleaner_hourly_rate ?? 0) > 0 || Number(input.account.cleaner_flat_rate ?? 0) > 0;
+    const hasSettingRate = Number(input.setting?.default_pay_rate ?? 0) > 0;
+    exceptions.push(hasAccountRate || hasSettingRate ? "missing_pay_rate" : "missing_account_pay_settings");
+  }
   if (input.setting?.active === false) exceptions.push("inactive_cleaner");
   if (input.hours <= 0) exceptions.push("zero_hours");
   if (!input.hasSchedule) exceptions.push("missing_schedule");
@@ -182,6 +186,7 @@ function entryStatus(exceptions: PayrollExceptionCode[]) {
 
 function reviewNoteFor(exceptions: PayrollExceptionCode[], setting: CleanerPaymentSetting | null) {
   if (setting?.manual_review_reason) return setting.manual_review_reason;
+  if (exceptions.includes("missing_account_pay_settings")) return "Missing account pay settings";
   if (exceptions.includes("missing_pay_rate")) return "Missing rate";
   if (exceptions.includes("missing_cleaner")) return "Missing cleaner";
   if (exceptions.includes("missing_anchor_date")) return "Missing anchor date";

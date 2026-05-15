@@ -183,6 +183,15 @@ async function findExistingPeriod(supabase: SupabaseClient, period: PayrollPerio
   return data as PayrollPeriodRow | null;
 }
 
+function payrollNaturalKey(entry: Pick<PayrollEntryRow, "account_name" | "cleaner_name" | "service_date" | "source">) {
+  return [
+    entry.account_name?.toLowerCase().trim() ?? "",
+    entry.cleaner_name?.toLowerCase().trim() ?? "unassigned",
+    entry.service_date ?? "unscheduled",
+    entry.source ?? "schedule_rule",
+  ].join("|");
+}
+
 export async function generatePayrollForPeriod(period: PayrollPeriod, options: { userId?: string | null; forceRecalculate?: boolean } = {}) {
   const supabase = createClient();
   const userId = options.userId ?? await getUserId(supabase);
@@ -248,26 +257,43 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
 
   if (periodError) throw new Error(periodError.message);
 
+  let createdEntries = 0;
+  let skippedProtectedEntries = 0;
+
   if (entries.length > 0) {
-    const { data: insertedEntries, error } = await supabase.from("commercial_payroll_entries").insert(
-      entries.map((entry) => ({ ...entry, pay_period_id: periodRow.id })),
-    ).select("*");
-    if (error) throw new Error(error.message);
-    for (const entry of (insertedEntries ?? []) as PayrollEntryRow[]) {
-      await syncCommercialPayrollEntryToPayment(entry, periodRow);
+    const { data: protectedRows } = await supabase
+      .from("commercial_payroll_entries")
+      .select("account_name,cleaner_name,service_date,source,status")
+      .eq("pay_period_id", periodRow.id)
+      .in("status", ["approved", "paid", "locked"]);
+    const protectedKeys = new Set(((protectedRows ?? []) as PayrollEntryRow[]).map(payrollNaturalKey));
+    const insertableEntries = entries.filter((entry) => !protectedKeys.has(payrollNaturalKey(entry)));
+    skippedProtectedEntries = entries.length - insertableEntries.length;
+
+    if (insertableEntries.length > 0) {
+      const { data: insertedEntries, error } = await supabase.from("commercial_payroll_entries").insert(
+        insertableEntries.map((entry) => ({ ...entry, pay_period_id: periodRow.id })),
+      ).select("*");
+      if (error) throw new Error(error.message);
+      createdEntries = insertedEntries?.length ?? 0;
+      for (const entry of (insertedEntries ?? []) as PayrollEntryRow[]) {
+        await syncCommercialPayrollEntryToPayment(entry, periodRow);
+      }
     }
   }
+
+  await updatePeriodTotals(periodRow.id);
 
   await supabase.from("payroll_audit_log").insert({
     pay_period_id: periodRow.id,
     entity_type: "pay_period",
     entity_id: periodRow.id,
     action: existing ? "recalculated" : "generated",
-    new_value: JSON.stringify({ entries: entries.length, summary }),
+    new_value: JSON.stringify({ entries: createdEntries, skipped_protected_entries: skippedProtectedEntries, summary }),
     changed_by: userId,
   });
 
-  return { period: { ...periodRow, status }, createdEntries: entries.length, summary };
+  return { period: { ...periodRow, status }, createdEntries, summary };
 }
 
 

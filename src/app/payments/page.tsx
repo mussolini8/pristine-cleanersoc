@@ -201,19 +201,6 @@ function formatDateForExport(value: string) {
   return `${month}/${day}`;
 }
 
-function normalizeAmericanDate(value: string) {
-  const clean = value.trim();
-  if (!clean) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return formatDateForExport(clean);
-
-  const match = clean.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$/);
-  if (!match) return clean;
-
-  const [, month, day, year] = match;
-  const normalizedYear = year ? (year.length === 2 ? `20${year}` : year) : String(new Date().getFullYear());
-  return `${month.padStart(2, "0")}/${day.padStart(2, "0")}/${normalizedYear}`;
-}
-
 function getMonthDate(offset: number) {
   const date = new Date();
   date.setMonth(date.getMonth() + offset);

@@ -19,6 +19,11 @@ import {
 } from "@/lib/payroll";
 
 type StatusFilter = "all" | PayrollPeriodRow["status"];
+type PeriodEntryIndexRow = {
+  pay_period_id: string;
+  cleaner_name: string | null;
+  account_name: string | null;
+};
 
 const statusLabels: Record<string, string> = {
   draft: "Draft",
@@ -138,35 +143,49 @@ export default function CommercialPayrollPage() {
   const [periods, setPeriods] = useState<PayrollPeriodRow[]>([]);
   const [accounts, setAccounts] = useState<CommercialAccount[]>([]);
   const [settings, setSettings] = useState<CleanerPaymentSetting[]>([]);
+  const [periodEntryIndex, setPeriodEntryIndex] = useState<PeriodEntryIndexRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [periodFilter, setPeriodFilter] = useState("all");
+  const [cleanerFilter, setCleanerFilter] = useState("all");
+  const [accountFilter, setAccountFilter] = useState("all");
   const currentPeriod = useMemo(() => getBiweeklyPeriod(), []);
 
   async function load() {
     setLoading(true);
     const overview = await fetchPayrollOverview();
+    const { data: indexRows } = await supabase
+      .from("commercial_payroll_entries")
+      .select("pay_period_id,cleaner_name,account_name")
+      .order("service_date", { ascending: false })
+      .limit(3000);
     setPeriods(overview.periods);
     setAccounts(overview.accounts);
     setSettings(overview.settings);
+    setPeriodEntryIndex((indexRows ?? []) as PeriodEntryIndexRow[]);
     setLoading(false);
   }
 
   useEffect(() => {
     let mounted = true;
-    fetchPayrollOverview().then((overview) => {
+    Promise.all([
+      fetchPayrollOverview(),
+      supabase.from("commercial_payroll_entries").select("pay_period_id,cleaner_name,account_name").order("service_date", { ascending: false }).limit(3000),
+    ]).then(([overview, indexResult]) => {
       if (!mounted) return;
       setPeriods(overview.periods);
       setAccounts(overview.accounts);
       setSettings(overview.settings);
+      setPeriodEntryIndex((indexResult.data ?? []) as PeriodEntryIndexRow[]);
       setLoading(false);
     });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [supabase]);
 
   const currentGenerated = periods.find((period) => period.start_date === currentPeriod.startDate && period.end_date === currentPeriod.endDate) ?? null;
   const activeAccounts = accounts.filter((account) => account.source_sheet !== "Team supplies");
@@ -175,6 +194,18 @@ export default function CommercialPayrollPage() {
   const missingPayRate = activeAccounts.filter((account) => !account.cleaner_hourly_rate && !getSetting(settings, account.cleaner_name)?.default_pay_rate).length;
   const manualReviewTeams = settings.filter((setting) => setting.requires_manual_review).length;
   const currentTotals = currentGenerated ?? periods[0] ?? null;
+  const entryIndexByPeriod = useMemo(() => {
+    const map = new Map<string, PeriodEntryIndexRow[]>();
+    for (const row of periodEntryIndex) {
+      const rows = map.get(row.pay_period_id) ?? [];
+      rows.push(row);
+      map.set(row.pay_period_id, rows);
+    }
+    return map;
+  }, [periodEntryIndex]);
+  const periodOptions = periods.map((period) => ({ value: period.id, label: period.label ?? `${dateLabel(period.start_date)} - ${dateLabel(period.end_date)}` }));
+  const cleanerOptions = Array.from(new Set(periodEntryIndex.map((entry) => entry.cleaner_name).filter(Boolean))).sort() as string[];
+  const accountOptions = Array.from(new Set(periodEntryIndex.map((entry) => entry.account_name).filter(Boolean))).sort() as string[];
 
   async function generate() {
     setGenerating(true);
@@ -193,10 +224,20 @@ export default function CommercialPayrollPage() {
   }
 
   const visiblePeriods = periods.filter((period) => {
+    if (periodFilter !== "all" && period.id !== periodFilter) return false;
     if (statusFilter !== "all" && period.status !== statusFilter) return false;
+    const entries = entryIndexByPeriod.get(period.id) ?? [];
+    if (cleanerFilter !== "all" && !entries.some((entry) => entry.cleaner_name === cleanerFilter)) return false;
+    if (accountFilter !== "all" && !entries.some((entry) => entry.account_name === accountFilter)) return false;
     const query = search.trim().toLowerCase();
     if (!query) return true;
-    return [period.label, period.start_date, period.end_date, period.status].some((value) => String(value ?? "").toLowerCase().includes(query));
+    return [
+      period.label,
+      period.start_date,
+      period.end_date,
+      period.status,
+      ...entries.flatMap((entry) => [entry.cleaner_name, entry.account_name]),
+    ].some((value) => String(value ?? "").toLowerCase().includes(query));
   });
 
   return (
@@ -241,8 +282,20 @@ export default function CommercialPayrollPage() {
             <div className="flex flex-wrap items-center gap-2">
               <label className="relative">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <input className="h-10 rounded-md border bg-background pl-9 pr-3 text-sm font-bold" placeholder="Search periods" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <input className="h-10 rounded-md border bg-background pl-9 pr-3 text-sm font-bold" placeholder="Search periods, cleaners, accounts" value={search} onChange={(event) => setSearch(event.target.value)} />
               </label>
+              <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}>
+                <option value="all">All periods</option>
+                {periodOptions.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}
+              </select>
+              <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={cleanerFilter} onChange={(event) => setCleanerFilter(event.target.value)}>
+                <option value="all">All cleaners</option>
+                {cleanerOptions.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner}</option>)}
+              </select>
+              <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}>
+                <option value="all">All accounts</option>
+                {accountOptions.map((account) => <option key={account} value={account}>{account}</option>)}
+              </select>
               <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
                 <option value="all">All statuses</option>
                 <option value="draft">Draft</option>
