@@ -633,3 +633,48 @@ drop policy if exists "Operation task audit is writable by signed in users" on p
 create policy "Operation task audit is writable by signed in users"
   on public.operation_task_audit_log for insert
   with check (auth.uid() is not null);
+
+-- Residential monthly SOP recurring task templates 2026-05-18
+create table if not exists public.operation_task_templates (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  natural_key text not null,
+  title text not null,
+  description text,
+  category text not null,
+  frequency text not null default 'monthly',
+  schedule_label text not null,
+  preferred_due_timing text,
+  week_scope text not null default 'general',
+  week_of_month integer,
+  day_of_week text,
+  assigned_to text not null default 'Carlos Lopez',
+  assigned_role text not null default 'Operations Manager',
+  panel text not null default 'Residential',
+  business_unit text not null default 'Pristine Cleaners / Residential',
+  priority text not null default 'normal',
+  status text not null default 'active',
+  source text not null default 'monthly_sop',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.operation_task_templates enable row level security;
+
+create unique index if not exists operation_task_templates_user_natural_key_uidx
+  on public.operation_task_templates(user_id, natural_key);
+
+create index if not exists operation_task_templates_residential_sop_idx
+  on public.operation_task_templates(panel, source, status, week_scope, day_of_week);
+
+drop policy if exists "Operation task templates are readable by owners" on public.operation_task_templates;
+create policy "Operation task templates are readable by owners"
+  on public.operation_task_templates for select
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+drop policy if exists "Operation task templates are editable by owners" on public.operation_task_templates;
+create policy "Operation task templates are editable by owners"
+  on public.operation_task_templates for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));

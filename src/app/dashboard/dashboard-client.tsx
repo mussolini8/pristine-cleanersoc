@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { createClient } from "@/lib/supabase/client";
-import { getResidentialServices, getCommercialServices } from "@/data/service-types";
+import { getResidentialServices } from "@/data/service-types";
 import {
   Plus, X, Edit2, Check, AlertTriangle, Clock, CheckCircle2,
-  Circle, ArrowRight, Bell, Repeat2, GripVertical,
+  Circle, ArrowRight, Bell, Repeat2, GripVertical, CalendarDays, Filter,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -52,9 +52,57 @@ type TaskRow = {
   custom_interval_days: number | null;
 };
 
-const CATEGORIES = ["Residential", "Commercial", "Quality", "Team", "Admin"];
+type SopTaskSeed = {
+  natural_key: string;
+  title: string;
+  description: string;
+  category: string;
+  frequency: string;
+  schedule_label: string;
+  preferred_due_timing: string;
+  week_scope: string;
+  week_of_month: number | null;
+  day_of_week: string | null;
+  priority: Priority;
+};
+
+type SopTaskTemplate = SopTaskSeed & {
+  id: string;
+  assigned_to: string;
+  assigned_role: string;
+  panel: "Residential";
+  business_unit: string;
+  status: "active" | "inactive";
+  source: "monthly_sop";
+};
+
+type SopTaskTemplateRow = SopTaskTemplate & {
+  priority: string;
+  status: string;
+  source: string;
+  panel: string;
+};
+
+type SopFilters = {
+  week: string;
+  day: string;
+  category: string;
+  assignedTo: string;
+  status: string;
+  frequency: string;
+};
+
+const CATEGORIES = ["Billing", "Billing / Reporting", "Client Follow-Up", "Cleaner Coordination", "Quality Control", "Inventory", "Marketing", "Reporting", "Admin / CRM"];
 const ASSIGNEES = ["Unassigned", "Carlos Lopez"];
 const PRIORITIES: Priority[] = ["urgent", "high", "normal", "low"];
+const SOP_FILTERS_DEFAULT: SopFilters = {
+  week: "all",
+  day: "all",
+  category: "all",
+  assignedTo: "all",
+  status: "active",
+  frequency: "all",
+};
 const RECURRENCE_LABELS: Record<Recurrence, string> = {
   none: "One-time",
   daily: "Daily",
@@ -92,6 +140,7 @@ function normalizeTask(task: Task): Task {
   return {
     ...task,
     assignee: ASSIGNEES.includes(task.assignee) ? task.assignee : "Unassigned",
+    panel: "Residential",
     recurrence: task.recurrence ?? "none",
     custom_interval_days: task.custom_interval_days ?? "",
   };
@@ -138,6 +187,42 @@ function toTaskPayload(task: Task, userId: string) {
     recurrence: task.recurrence,
     custom_interval_days: task.custom_interval_days ? Number(task.custom_interval_days) : null,
   };
+}
+
+function fromSopTemplateRow(row: SopTaskTemplateRow): SopTaskTemplate {
+  return {
+    id: row.id,
+    natural_key: row.natural_key,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    frequency: row.frequency,
+    schedule_label: row.schedule_label,
+    preferred_due_timing: row.preferred_due_timing,
+    week_scope: row.week_scope,
+    week_of_month: row.week_of_month,
+    day_of_week: row.day_of_week,
+    assigned_to: row.assigned_to,
+    assigned_role: row.assigned_role,
+    panel: "Residential",
+    business_unit: row.business_unit,
+    priority: (PRIORITIES.includes(row.priority as Priority) ? row.priority : "normal") as Priority,
+    status: row.status === "inactive" ? "inactive" : "active",
+    source: "monthly_sop",
+  };
+}
+
+function weekLabel(value: string | null | undefined) {
+  if (!value || value === "general") return "General";
+  return value.replace("week_", "Week ");
+}
+
+function priorityLabel(priority: Priority) {
+  return priority === "high" ? "High" : priority === "urgent" ? "Urgent" : priority === "low" ? "Low" : "Medium";
+}
+
+function frequencyLabel(value: string) {
+  return value === "weekly" ? "Weekly" : value === "monthly" ? "Monthly" : value;
 }
 
 function accountOrProperty(task: Task) {
@@ -366,7 +451,6 @@ function TaskModal({
               <select className="field-input" value={t.panel}
                 onChange={(e) => setT({ ...t, panel: e.target.value as Task["panel"] })}>
                 <option>Residential</option>
-                <option>Commercial</option>
               </select>
             </div>
           </div>
@@ -415,10 +499,8 @@ function TaskModal({
 // ─── Dashboard page ───────────────────────────────────────────────────
 function getDefaultTasks(): Task[] {
   return [
-    { id: crypto.randomUUID(), title: "Confirm supply run for field crews", description: "Verify stock levels for disinfectants, microfiber cloths, and PPE before the morning dispatch.", priority: "urgent", status: "todo", category: "Team", due_date: new Date().toISOString().slice(0, 10), assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Residential", completion_notes: "", reminder: true, recurrence: "daily", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Inspect move-in service follow-up", description: "Review checklist status and confirm final photos are complete.", priority: "high", status: "todo", category: "Residential", due_date: "", assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Residential", completion_notes: "", reminder: false, recurrence: "none", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Commercial restroom pivot follow-up", description: "Confirm midday refresh coverage, supplies, and any client notes.", priority: "normal", status: "in_progress", category: "Commercial", due_date: "", assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Commercial", completion_notes: "", reminder: false, recurrence: "daily", custom_interval_days: "" },
-    { id: crypto.randomUUID(), title: "Run quality check for weekly office service", description: "Complete the QC walkthrough and add owner review notes if anything needs follow-up.", priority: "normal", status: "todo", category: "Quality", due_date: "", assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Commercial", completion_notes: "", reminder: true, recurrence: "weekly", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Confirm supply run for field crews", description: "Verify stock levels for disinfectants, microfiber cloths, and PPE before the morning dispatch.", priority: "urgent", status: "todo", category: "Inventory", due_date: new Date().toISOString().slice(0, 10), assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Residential", completion_notes: "", reminder: true, recurrence: "daily", custom_interval_days: "" },
+    { id: crypto.randomUUID(), title: "Inspect move-in service follow-up", description: "Review checklist status and confirm final photos are complete.", priority: "high", status: "todo", category: "Quality Control", due_date: "", assignee: "Carlos Lopez", assigned_by: "Pristine Operations", account_name: "", property_address: "", panel: "Residential", completion_notes: "", reminder: false, recurrence: "none", custom_interval_days: "" },
   ];
 }
 
@@ -426,6 +508,8 @@ export default function DashboardPage() {
   const supabase = useMemo(() => createClient(), []);
   const [userId, setUserId] = useState<string | null>(null);
   const [tasks, setTasks]   = useState<Task[]>([]);
+  const [sopTemplates, setSopTemplates] = useState<SopTaskTemplate[]>([]);
+  const [sopFilters, setSopFilters] = useState<SopFilters>(SOP_FILTERS_DEFAULT);
   const [modal, setModal]   = useState<Task | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -446,6 +530,7 @@ export default function DashboardPage() {
       const { data, error } = await supabase
         .from("operation_tasks")
         .select("*")
+        .eq("panel", "Residential")
         .order("created_at", { ascending: true });
 
       if (!mounted) return;
@@ -455,25 +540,49 @@ export default function DashboardPage() {
         return;
       }
 
-      if (data && data.length > 0) {
-        setTasks((data as TaskRow[]).map(fromTaskRow));
+      if (data && data.length > 0) setTasks((data as TaskRow[]).map(fromTaskRow));
+
+      if (!data || data.length === 0) {
+        const seeded = getDefaultTasks().filter((task) => task.panel === "Residential");
+        const { data: created, error: seedError } = await supabase
+          .from("operation_tasks")
+          .insert(seeded.map((task) => toTaskPayload(task, user.id)))
+          .select("*");
+
+        if (!mounted) return;
+        if (seedError) {
+          setLoadError(seedError.message);
+          setTasks([]);
+          return;
+        }
+
+        setTasks(((created ?? []) as TaskRow[]).map(fromTaskRow));
+      }
+
+      const seedResponse = await fetch("/api/residential-sop/seed", { method: "POST" });
+      if (!mounted) return;
+      if (!seedResponse.ok) {
+        const result = await seedResponse.json().catch(() => null);
+        setLoadError(result?.error ?? "Could not seed residential SOP templates.");
         return;
       }
 
-      const seeded = getDefaultTasks();
-      const { data: created, error: seedError } = await supabase
-        .from("operation_tasks")
-        .insert(seeded.map((task) => toTaskPayload(task, user.id)))
-        .select("*");
+      const { data: templates, error: templateError } = await supabase
+        .from("operation_task_templates")
+        .select("*")
+        .eq("panel", "Residential")
+        .eq("source", "monthly_sop")
+        .order("week_of_month", { ascending: true, nullsFirst: true })
+        .order("day_of_week", { ascending: true })
+        .order("title", { ascending: true });
 
       if (!mounted) return;
-      if (seedError) {
-        setLoadError(seedError.message);
-        setTasks([]);
+      if (templateError) {
+        setLoadError(templateError.message);
         return;
       }
 
-      setTasks(((created ?? []) as TaskRow[]).map(fromTaskRow));
+      setSopTemplates(((templates ?? []) as SopTaskTemplateRow[]).map(fromSopTemplateRow));
     }
 
     loadSupabaseTasks();
@@ -560,10 +669,28 @@ export default function DashboardPage() {
   }
 
   const filtered = filter === "all" ? tasks : tasks.filter((t) => t.category === filter);
+  const sopFilterOptions = useMemo(() => ({
+    weeks: Array.from(new Set(sopTemplates.map((task) => task.week_scope))).sort(),
+    days: Array.from(new Set(sopTemplates.map((task) => task.day_of_week).filter(Boolean) as string[])),
+    categories: Array.from(new Set(sopTemplates.map((task) => task.category))).sort(),
+    assignees: Array.from(new Set(sopTemplates.map((task) => task.assigned_to))).sort(),
+    statuses: Array.from(new Set(sopTemplates.map((task) => task.status))).sort(),
+    frequencies: Array.from(new Set(sopTemplates.map((task) => task.frequency))).sort(),
+  }), [sopTemplates]);
+  const filteredSopTemplates = useMemo(() => sopTemplates.filter((task) => {
+    const matchesWeek = sopFilters.week === "all" || task.week_scope === sopFilters.week;
+    const matchesDay = sopFilters.day === "all" || task.day_of_week === sopFilters.day;
+    const matchesCategory = sopFilters.category === "all" || task.category === sopFilters.category;
+    const matchesAssignee = sopFilters.assignedTo === "all" || task.assigned_to === sopFilters.assignedTo;
+    const matchesStatus = sopFilters.status === "all" || task.status === sopFilters.status;
+    const matchesFrequency = sopFilters.frequency === "all" || task.frequency === sopFilters.frequency;
+    return matchesWeek && matchesDay && matchesCategory && matchesAssignee && matchesStatus && matchesFrequency;
+  }), [sopFilters, sopTemplates]);
   const urgentCount = tasks.filter((t) => t.priority === "urgent" && t.status !== "done").length;
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayCount = tasks.filter((t) => t.due_date === todayStr && t.status !== "done").length;
   const doneCount = tasks.filter((t) => t.status === "done").length;
+  const activeSopCount = sopTemplates.filter((task) => task.status === "active").length;
 
   return (
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
@@ -586,6 +713,29 @@ export default function DashboardPage() {
         .service-card p { margin:0 0 10px; font-size:.88rem; line-height:1.5; color:hsl(var(--foreground)); }
         .service-badges { display:flex; flex-wrap:wrap; gap:8px; }
         .service-badges span { padding:5px 9px; border-radius:999px; font-size:.68rem; font-weight:700; background:hsl(var(--muted)/.12); color:hsl(var(--muted-foreground)); }
+        .sop-section { border:1px solid hsl(var(--border)/.82); border-radius:8px; background:hsl(var(--card)/.96); overflow:hidden; box-shadow:0 18px 55px -48px hsl(215 40% 20%); }
+        .sop-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:16px; border-bottom:1px solid hsl(var(--border)); }
+        .sop-kicker { display:flex; align-items:center; gap:7px; font-size:.68rem; font-weight:950; letter-spacing:.1em; text-transform:uppercase; color:hsl(var(--primary)); }
+        .sop-title { margin-top:6px; font-size:1.05rem; font-weight:950; color:hsl(var(--foreground)); }
+        .sop-sub { margin-top:4px; color:hsl(var(--muted-foreground)); font-size:.82rem; font-weight:650; }
+        .sop-count { border-radius:8px; background:hsl(var(--primary)/.1); color:hsl(var(--primary)); padding:9px 11px; font-size:.8rem; font-weight:950; white-space:nowrap; }
+        .sop-filters { display:grid; grid-template-columns:repeat(6, minmax(120px, 1fr)); gap:8px; padding:12px 16px; border-bottom:1px solid hsl(var(--border)); background:hsl(var(--muted)/.18); }
+        .sop-filters label { display:flex; flex-direction:column; gap:5px; min-width:0; }
+        .sop-filters span { font-size:.62rem; font-weight:950; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
+        .sop-filters select { height:34px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); padding:0 8px; font-size:.75rem; font-weight:800; min-width:0; }
+        .sop-list { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }
+        .sop-item { display:flex; flex-direction:column; gap:9px; padding:13px 14px; border-bottom:1px solid hsl(var(--border)); min-width:0; }
+        .sop-item:nth-child(odd) { border-right:1px solid hsl(var(--border)); }
+        .sop-item-top { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+        .sop-item h3 { margin:0; font-size:.86rem; font-weight:950; line-height:1.25; color:hsl(var(--foreground)); }
+        .sop-description { margin:0; color:hsl(var(--muted-foreground)); font-size:.74rem; line-height:1.45; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+        .sop-badges { display:flex; flex-wrap:wrap; gap:5px; }
+        .sop-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; background:hsl(var(--muted)/.5); color:hsl(var(--muted-foreground)); padding:3px 7px; font-size:.65rem; font-weight:900; }
+        .sop-badge.high { background:hsl(25 95% 55%/.12); color:#f97316; }
+        .sop-empty { padding:24px; text-align:center; color:hsl(var(--muted-foreground)); font-size:.82rem; font-weight:800; }
+        @media (max-width:1080px) { .sop-filters { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
+        @media (max-width:760px) { .sop-list { grid-template-columns:1fr; } .sop-item:nth-child(odd) { border-right:none; } .sop-filters { grid-template-columns:1fr 1fr; } }
+        @media (max-width:520px) { .sop-filters { grid-template-columns:1fr; } }
         .kpi.urgent { box-shadow:inset 3px 0 0 #ef4444, 0 16px 44px -42px hsl(215 40% 20%); }
         .kpi.today  { box-shadow:inset 3px 0 0 #f97316, 0 16px 44px -42px hsl(215 40% 20%); }
         .kpi.done   { box-shadow:inset 3px 0 0 hsl(var(--primary)), 0 16px 44px -42px hsl(215 40% 20%); }
@@ -711,7 +861,7 @@ export default function DashboardPage() {
         <div className="dash-header">
           <div>
             <h1 className="dash-title">Cleaning Operations Center</h1>
-            <p className="dash-sub">Pristine Cleaners / Pristine Janitorial — Command Center</p>
+            <p className="dash-sub">Pristine Cleaners — Residential Operations Center</p>
           </div>
           <button className="add-btn" onClick={() => setModal(emptyTask())}>
             <Plus size={15} /> Add Operation
@@ -740,6 +890,10 @@ export default function DashboardPage() {
             <div className="kpi-label">Completed</div>
             <div className="kpi-val">{doneCount}</div>
           </div>
+          <div className="kpi">
+            <div className="kpi-label">Monthly SOP</div>
+            <div className="kpi-val">{activeSopCount}</div>
+          </div>
         </div>
 
         {/* Filter */}
@@ -753,12 +907,88 @@ export default function DashboardPage() {
           ) : null}
         </div>
 
+        <section className="sop-section">
+          <div className="sop-head">
+            <div>
+              <p className="sop-kicker"><CalendarDays size={14} /> Residential SOP Tasks</p>
+              <h2 className="sop-title">Monthly recurring operations templates</h2>
+              <p className="sop-sub">Assigned to Carlos Lopez as Operations Manager. Templates do not send assignment emails until real task instances are created.</p>
+            </div>
+            <div className="sop-count">{filteredSopTemplates.length} shown / {activeSopCount} active</div>
+          </div>
+          <div className="sop-filters">
+            <label>
+              <span>Week</span>
+              <select value={sopFilters.week} onChange={(event) => setSopFilters((current) => ({ ...current, week: event.target.value }))}>
+                <option value="all">All weeks</option>
+                {sopFilterOptions.weeks.map((week) => <option key={week} value={week}>{weekLabel(week)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Day</span>
+              <select value={sopFilters.day} onChange={(event) => setSopFilters((current) => ({ ...current, day: event.target.value }))}>
+                <option value="all">All days</option>
+                {sopFilterOptions.days.map((day) => <option key={day} value={day}>{day}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Category</span>
+              <select value={sopFilters.category} onChange={(event) => setSopFilters((current) => ({ ...current, category: event.target.value }))}>
+                <option value="all">All categories</option>
+                {sopFilterOptions.categories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Assigned to</span>
+              <select value={sopFilters.assignedTo} onChange={(event) => setSopFilters((current) => ({ ...current, assignedTo: event.target.value }))}>
+                <option value="all">All owners</option>
+                {sopFilterOptions.assignees.map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Status</span>
+              <select value={sopFilters.status} onChange={(event) => setSopFilters((current) => ({ ...current, status: event.target.value }))}>
+                <option value="all">All statuses</option>
+                {sopFilterOptions.statuses.map((status) => <option key={status} value={status}>{status}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Frequency</span>
+              <select value={sopFilters.frequency} onChange={(event) => setSopFilters((current) => ({ ...current, frequency: event.target.value }))}>
+                <option value="all">All frequencies</option>
+                {sopFilterOptions.frequencies.map((frequency) => <option key={frequency} value={frequency}>{frequencyLabel(frequency)}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="sop-list">
+            {filteredSopTemplates.length === 0 ? (
+              <div className="sop-empty"><Filter size={18} className="mx-auto mb-2" /> No SOP templates match these filters.</div>
+            ) : filteredSopTemplates.map((template) => (
+              <article className="sop-item" key={template.natural_key}>
+                <div className="sop-item-top">
+                  <h3>{template.title}</h3>
+                  <span className={`sop-badge ${template.priority === "high" ? "high" : ""}`}>{priorityLabel(template.priority)}</span>
+                </div>
+                <p className="sop-description">{template.description}</p>
+                <div className="sop-badges">
+                  <span className="sop-badge"><Repeat2 size={10} /> {frequencyLabel(template.frequency)}</span>
+                  <span className="sop-badge">{template.schedule_label}</span>
+                  <span className="sop-badge">{weekLabel(template.week_scope)}</span>
+                  {template.day_of_week ? <span className="sop-badge">{template.day_of_week}</span> : null}
+                  <span className="sop-badge">{template.category}</span>
+                  <span className="sop-badge">{template.assigned_to}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
         {/* Service type quick reference */}
         <div className="service-grid">
-          {[...getResidentialServices().slice(0, 2), ...getCommercialServices().slice(0, 2)].map((service) => (
+          {getResidentialServices().slice(0, 4).map((service) => (
             <div key={service.id} className="service-card">
               <div className="service-card-header">
-                <span className="service-type">{service.category === "residential" ? "Residential" : "Commercial"}</span>
+                <span className="service-type">Residential</span>
                 <strong>{service.label}</strong>
               </div>
               <p>{service.description}</p>
