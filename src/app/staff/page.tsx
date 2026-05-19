@@ -58,8 +58,6 @@ function toStaffPayload(person: StaffPerson, userId: string) {
     name: person.name,
     email: person.email,
     role: person.role,
-    display_role: rules.displayRole,
-    team_scope: rules.teamScope,
     status: person.status,
   };
 }

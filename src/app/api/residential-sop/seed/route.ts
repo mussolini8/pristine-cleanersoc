@@ -25,8 +25,6 @@ function staffPayload(userId: string, email: string) {
     name: "Carlos Lopez",
     email,
     role: "Operations Manager",
-    display_role: "Operations Manager",
-    team_scope: "global",
     status: "Active",
     updated_at: new Date().toISOString(),
   };

@@ -28,8 +28,6 @@ function staffPayload(userId) {
     name: "Carlos Lopez",
     email: operationsEmail,
     role: "Operations Manager",
-    display_role: "Operations Manager",
-    team_scope: "global",
     status: "Active",
     updated_at: new Date().toISOString(),
   };
