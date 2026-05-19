@@ -60,7 +60,6 @@ function toStaffPayload(person: StaffPerson, userId: string) {
     role: person.role,
     display_role: rules.displayRole,
     team_scope: rules.teamScope,
-    commercial_payroll_eligible: rules.commercialPayrollEligible,
     status: person.status,
   };
 }

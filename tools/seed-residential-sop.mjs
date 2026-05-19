@@ -30,7 +30,6 @@ function staffPayload(userId) {
     role: "Operations Manager",
     display_role: "Operations Manager",
     team_scope: "global",
-    commercial_payroll_eligible: false,
     status: "Active",
     updated_at: new Date().toISOString(),
   };
