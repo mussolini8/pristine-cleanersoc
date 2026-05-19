@@ -1,18 +1,42 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { createClient } from "@/lib/supabase/client";
 import { getResidentialServices } from "@/data/service-types";
 import {
   Plus, X, Edit2, Check, AlertTriangle, Clock, CheckCircle2,
   Circle, ArrowRight, Bell, Repeat2, GripVertical, CalendarDays, Filter,
+  ChevronDown, CalendarRange, RotateCcw,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────
 type Priority = "urgent" | "high" | "normal" | "low";
 type Status   = "todo" | "in_progress" | "done";
 type Recurrence = "none" | "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly" | "custom";
+type DayOfWeek = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday";
+type ScheduleQuickPreset = "all" | "today" | "tomorrow" | "this_week" | "next_week" | "this_month" | "next_month";
+type ScheduleWeekValue = "all" | "week_1" | "week_2" | "week_3" | "week_4" | "last";
+type ScheduleFrequencyValue = "all" | "weekly" | "monthly" | "one-time" | "custom";
+type SchedulePatternValue =
+  | "all"
+  | "every_friday"
+  | "third_wednesday"
+  | "last_friday"
+  | "week_1_tuesday"
+  | "week_2_wednesday"
+  | "week_3_wednesday"
+  | "week_4_friday";
+
+type SopScheduleFilter = {
+  quick: ScheduleQuickPreset;
+  week: ScheduleWeekValue;
+  day: "all" | DayOfWeek;
+  frequency: ScheduleFrequencyValue;
+  pattern: SchedulePatternValue;
+  rangeStart: string;
+  rangeEnd: string;
+};
 
 type Task = {
   id: string;
@@ -63,6 +87,12 @@ type SopTaskSeed = {
   week_scope: string;
   week_of_month: number | null;
   day_of_week: string | null;
+  due_date?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  schedule_summary?: string | null;
+  recurrence_rule_json?: unknown;
+  ordinal_week?: number | string | null;
   priority: Priority;
 };
 
@@ -84,25 +114,61 @@ type SopTaskTemplateRow = SopTaskTemplate & {
 };
 
 type SopFilters = {
-  week: string;
-  day: string;
+  schedule: SopScheduleFilter;
   category: string;
   assignedTo: string;
   status: string;
-  frequency: string;
 };
 
 const CATEGORIES = ["Billing", "Billing / Reporting", "Client Follow-Up", "Cleaner Coordination", "Quality Control", "Inventory", "Marketing", "Reporting", "Admin / CRM"];
 const ASSIGNEES = ["Unassigned", "Carlos Lopez"];
 const PRIORITIES: Priority[] = ["urgent", "high", "normal", "low"];
-const SOP_FILTERS_DEFAULT: SopFilters = {
+const DAY_OPTIONS: DayOfWeek[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const SOP_SCHEDULE_DEFAULT: SopScheduleFilter = {
+  quick: "all",
   week: "all",
   day: "all",
+  frequency: "all",
+  pattern: "all",
+  rangeStart: "",
+  rangeEnd: "",
+};
+const SOP_FILTERS_DEFAULT: SopFilters = {
+  schedule: SOP_SCHEDULE_DEFAULT,
   category: "all",
   assignedTo: "all",
   status: "active",
-  frequency: "all",
 };
+const SOP_QUICK_OPTIONS: { value: ScheduleQuickPreset; label: string }[] = [
+  { value: "today", label: "Today" },
+  { value: "tomorrow", label: "Tomorrow" },
+  { value: "this_week", label: "This week" },
+  { value: "next_week", label: "Next week" },
+  { value: "this_month", label: "This month" },
+  { value: "next_month", label: "Next month" },
+];
+const SOP_WEEK_OPTIONS: { value: Exclude<ScheduleWeekValue, "all">; label: string }[] = [
+  { value: "week_1", label: "Week 1" },
+  { value: "week_2", label: "Week 2" },
+  { value: "week_3", label: "Week 3" },
+  { value: "week_4", label: "Week 4" },
+  { value: "last", label: "Last week" },
+];
+const SOP_FREQUENCY_OPTIONS: { value: Exclude<ScheduleFrequencyValue, "all">; label: string }[] = [
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "one-time", label: "One-time" },
+  { value: "custom", label: "Custom" },
+];
+const SOP_PATTERN_OPTIONS: { value: Exclude<SchedulePatternValue, "all">; label: string }[] = [
+  { value: "every_friday", label: "Every Friday" },
+  { value: "third_wednesday", label: "3rd Wednesday" },
+  { value: "last_friday", label: "Last Friday" },
+  { value: "week_1_tuesday", label: "Week 1 Tuesday" },
+  { value: "week_2_wednesday", label: "Week 2 Wednesday" },
+  { value: "week_3_wednesday", label: "Week 3 Wednesday" },
+  { value: "week_4_friday", label: "Week 4 Friday" },
+];
 const RECURRENCE_LABELS: Record<Recurrence, string> = {
   none: "One-time",
   daily: "Daily",
@@ -202,6 +268,12 @@ function fromSopTemplateRow(row: SopTaskTemplateRow): SopTaskTemplate {
     week_scope: row.week_scope,
     week_of_month: row.week_of_month,
     day_of_week: row.day_of_week,
+    due_date: row.due_date,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    schedule_summary: row.schedule_summary,
+    recurrence_rule_json: row.recurrence_rule_json,
+    ordinal_week: row.ordinal_week,
     assigned_to: row.assigned_to,
     assigned_role: row.assigned_role,
     panel: "Residential",
@@ -221,12 +293,648 @@ function priorityLabel(priority: Priority) {
   return priority === "high" ? "High" : priority === "urgent" ? "Urgent" : priority === "low" ? "Low" : "Medium";
 }
 
+function normalizeSearchText(value: string | null | undefined) {
+  return (value ?? "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function normalizeFrequencyValue(value: string | null | undefined): ScheduleFrequencyValue {
+  const normalized = normalizeSearchText(value).replace(/\s+/g, "-");
+  if (normalized === "weekly") return "weekly";
+  if (normalized === "monthly") return "monthly";
+  if (normalized === "custom") return "custom";
+  if (normalized === "one-time" || normalized === "one-off" || normalized === "none") return "one-time";
+  return "custom";
+}
+
+function normalizeDay(value: string | null | undefined): DayOfWeek | null {
+  const normalized = normalizeSearchText(value);
+  return DAY_OPTIONS.find((day) => day.toLowerCase() === normalized) ?? null;
+}
+
+function parseDayFromText(text: string): DayOfWeek | null {
+  return DAY_OPTIONS.find((day) => text.includes(day.toLowerCase())) ?? null;
+}
+
+function parseWeekFromText(text: string): number | "last" | null {
+  if (text.includes("last week")) return "last";
+  if (text.includes("week 4") || text.includes("4th")) return 4;
+  if (text.includes("week 3") || text.includes("3rd") || text.includes("third")) return 3;
+  if (text.includes("week 2") || text.includes("2nd") || text.includes("second")) return 2;
+  if (text.includes("week 1") || text.includes("1st") || text.includes("first")) return 1;
+  return null;
+}
+
+function getJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function getJsonString(record: Record<string, unknown> | null, keys: string[]) {
+  if (!record) return "";
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
+}
+
+function getJsonNumber(record: Record<string, unknown> | null, keys: string[]) {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const parsed = parseInt(value, 10);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function getSopScheduleText(task: SopTaskTemplate) {
+  const recurrenceRule = getJsonRecord(task.recurrence_rule_json);
+  return normalizeSearchText([
+    task.schedule_label,
+    task.preferred_due_timing,
+    task.schedule_summary,
+    getJsonString(recurrenceRule, ["schedule_summary", "summary", "label", "description"]),
+    task.natural_key,
+  ].filter(Boolean).join(" "));
+}
+
+function getSopOrdinalWeek(task: SopTaskTemplate, text: string, recurrenceRule: Record<string, unknown> | null) {
+  const jsonWeek = getJsonNumber(recurrenceRule, ["week_of_month", "weekOfMonth", "ordinal_week", "ordinalWeek"]);
+  if (jsonWeek) return jsonWeek;
+  if (typeof task.ordinal_week === "number") return task.ordinal_week;
+  if (typeof task.ordinal_week === "string") {
+    const parsed = parseInt(task.ordinal_week, 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  if (typeof task.week_of_month === "number") return task.week_of_month;
+  const parsed = parseWeekFromText(text);
+  return typeof parsed === "number" ? parsed : null;
+}
+
+function getSopScheduleRule(task: SopTaskTemplate) {
+  const recurrenceRule = getJsonRecord(task.recurrence_rule_json);
+  const text = getSopScheduleText(task);
+  const dayOfWeek = normalizeDay(task.day_of_week)
+    ?? normalizeDay(getJsonString(recurrenceRule, ["day_of_week", "dayOfWeek", "weekday", "day"]))
+    ?? parseDayFromText(text);
+  const weekFromText = parseWeekFromText(text);
+  const weekOfMonth = getSopOrdinalWeek(task, text, recurrenceRule);
+  const explicitStart = toDateKey(
+    task.start_date
+    ?? task.due_date
+    ?? getJsonString(recurrenceRule, ["start_date", "startDate", "due_date", "dueDate"])
+  );
+  const explicitEnd = toDateKey(
+    task.end_date
+    ?? task.due_date
+    ?? getJsonString(recurrenceRule, ["end_date", "endDate", "due_date", "dueDate"])
+  );
+  const frequency = task.frequency || getJsonString(recurrenceRule, ["frequency", "freq", "recurrence"]);
+
+  return {
+    text,
+    dayOfWeek,
+    weekOfMonth,
+    weekFromText,
+    frequency: normalizeFrequencyValue(frequency),
+    isEveryFriday: text.includes("every friday"),
+    isLastFriday: text.includes("last friday"),
+    isLastWeek: text.includes("last week") || weekFromText === "last",
+    explicitStart,
+    explicitEnd,
+  };
+}
+
+function toDateKey(value: string | null | undefined) {
+  if (!value) return "";
+  const [datePart] = value.split("T");
+  return /^\d{4}-\d{2}-\d{2}$/.test(datePart) ? datePart : "";
+}
+
+function parseDateKey(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  return new Date(Number(year), Number(month) - 1, Number(day));
+}
+
+function formatLocalDateKey(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function formatFriendlyDate(value: string) {
+  const date = parseDateKey(value);
+  if (!date) return value;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function startOfWeek(date: Date) {
+  const start = startOfLocalDay(date);
+  const mondayOffset = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - mondayOffset);
+  return start;
+}
+
+function endOfWeek(date: Date) {
+  const end = startOfWeek(date);
+  end.setDate(end.getDate() + 6);
+  return end;
+}
+
+function getQuickDateRange(preset: ScheduleQuickPreset) {
+  const today = startOfLocalDay(new Date());
+  if (preset === "today") return { start: today, end: today };
+  if (preset === "tomorrow") {
+    const tomorrow = addDays(today, 1);
+    return { start: tomorrow, end: tomorrow };
+  }
+  if (preset === "this_week") return { start: startOfWeek(today), end: endOfWeek(today) };
+  if (preset === "next_week") {
+    const nextWeek = addDays(startOfWeek(today), 7);
+    return { start: nextWeek, end: addDays(nextWeek, 6) };
+  }
+  if (preset === "this_month") {
+    return {
+      start: new Date(today.getFullYear(), today.getMonth(), 1),
+      end: new Date(today.getFullYear(), today.getMonth() + 1, 0),
+    };
+  }
+  if (preset === "next_month") {
+    return {
+      start: new Date(today.getFullYear(), today.getMonth() + 1, 1),
+      end: new Date(today.getFullYear(), today.getMonth() + 2, 0),
+    };
+  }
+  return null;
+}
+
+function getDayName(date: Date): DayOfWeek {
+  const names: ("Sunday" | DayOfWeek)[] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return names[date.getDay()] === "Sunday" ? "Sunday" : names[date.getDay()];
+}
+
+function getWeekOfMonth(date: Date) {
+  return Math.min(4, Math.ceil(date.getDate() / 7));
+}
+
+function getWeekdayOccurrenceInMonth(date: Date) {
+  return Math.floor((date.getDate() - 1) / 7) + 1;
+}
+
+function isLastWeekOfMonth(date: Date) {
+  return addDays(date, 7).getMonth() !== date.getMonth();
+}
+
+function isLastWeekdayOfMonth(date: Date) {
+  return addDays(date, 7).getMonth() !== date.getMonth();
+}
+
+function datesOverlap(startA: string, endA: string, startB: string, endB: string) {
+  return startA <= endB && startB <= endA;
+}
+
+function taskMatchesDate(task: SopTaskTemplate, date: Date) {
+  const rule = getSopScheduleRule(task);
+  const dateKey = formatLocalDateKey(date);
+
+  if (rule.explicitStart && rule.explicitEnd && datesOverlap(rule.explicitStart, rule.explicitEnd, dateKey, dateKey)) {
+    return true;
+  }
+
+  if (!rule.dayOfWeek || getDayName(date) !== rule.dayOfWeek) return false;
+  if (rule.frequency === "weekly" || rule.isEveryFriday) return true;
+
+  if (rule.isLastFriday && rule.dayOfWeek === "Friday") {
+    return isLastWeekdayOfMonth(date) || getWeekdayOccurrenceInMonth(date) === 4;
+  }
+
+  if (rule.isLastWeek) return isLastWeekOfMonth(date) || getWeekOfMonth(date) === 4;
+  if (rule.weekOfMonth) return getWeekdayOccurrenceInMonth(date) === rule.weekOfMonth;
+
+  return true;
+}
+
+function taskMatchesDateRange(task: SopTaskTemplate, startKey: string, endKey: string) {
+  const start = parseDateKey(startKey);
+  const end = parseDateKey(endKey);
+  if (!start || !end || start > end) return true;
+
+  const rule = getSopScheduleRule(task);
+  if (rule.explicitStart && rule.explicitEnd && datesOverlap(rule.explicitStart, rule.explicitEnd, startKey, endKey)) {
+    return true;
+  }
+
+  const cursor = new Date(start);
+  let checkedDays = 0;
+  while (cursor <= end && checkedDays <= 370) {
+    if (taskMatchesDate(task, cursor)) return true;
+    cursor.setDate(cursor.getDate() + 1);
+    checkedDays += 1;
+  }
+
+  return false;
+}
+
+function taskMatchesWeek(task: SopTaskTemplate, week: ScheduleWeekValue) {
+  if (week === "all") return true;
+  const rule = getSopScheduleRule(task);
+  if (week === "last") {
+    return rule.isLastWeek || rule.isLastFriday || rule.weekFromText === "last" || rule.weekOfMonth === 4 || task.week_scope === "week_4";
+  }
+  const weekNumber = Number(week.replace("week_", ""));
+  return task.week_scope === week || rule.weekOfMonth === weekNumber || rule.text.includes(`week ${weekNumber}`);
+}
+
+function taskMatchesDay(task: SopTaskTemplate, day: "all" | DayOfWeek) {
+  if (day === "all") return true;
+  return getSopScheduleRule(task).dayOfWeek === day;
+}
+
+function taskMatchesFrequency(task: SopTaskTemplate, frequency: ScheduleFrequencyValue) {
+  if (frequency === "all") return true;
+  return getSopScheduleRule(task).frequency === frequency;
+}
+
+function taskMatchesPattern(task: SopTaskTemplate, pattern: SchedulePatternValue) {
+  if (pattern === "all") return true;
+  const rule = getSopScheduleRule(task);
+
+  if (pattern === "every_friday") return rule.dayOfWeek === "Friday" && (rule.frequency === "weekly" || rule.isEveryFriday);
+  if (pattern === "third_wednesday") return rule.dayOfWeek === "Wednesday" && rule.weekOfMonth === 3;
+  if (pattern === "last_friday") {
+    return rule.dayOfWeek === "Friday" && (rule.isLastFriday || rule.isLastWeek || rule.weekOfMonth === 4);
+  }
+
+  const patternParts: Record<Exclude<SchedulePatternValue, "all" | "every_friday" | "third_wednesday" | "last_friday">, { week: ScheduleWeekValue; day: DayOfWeek }> = {
+    week_1_tuesday: { week: "week_1", day: "Tuesday" },
+    week_2_wednesday: { week: "week_2", day: "Wednesday" },
+    week_3_wednesday: { week: "week_3", day: "Wednesday" },
+    week_4_friday: { week: "week_4", day: "Friday" },
+  };
+  const parts = patternParts[pattern];
+  return taskMatchesWeek(task, parts.week) && taskMatchesDay(task, parts.day);
+}
+
+function getScheduleRange(filter: SopScheduleFilter) {
+  const start = toDateKey(filter.rangeStart);
+  const end = toDateKey(filter.rangeEnd || filter.rangeStart);
+  return start ? { start, end: end || start } : null;
+}
+
+function isScheduleFilterActive(filter: SopScheduleFilter) {
+  return (
+    filter.quick !== "all" ||
+    filter.week !== "all" ||
+    filter.day !== "all" ||
+    filter.frequency !== "all" ||
+    filter.pattern !== "all" ||
+    Boolean(getScheduleRange(filter))
+  );
+}
+
+function taskMatchesScheduleFilter(task: SopTaskTemplate, filter: SopScheduleFilter) {
+  if (!isScheduleFilterActive(filter)) return true;
+
+  const quickRange = getQuickDateRange(filter.quick);
+  if (quickRange) {
+    const start = formatLocalDateKey(quickRange.start);
+    const end = formatLocalDateKey(quickRange.end);
+    if (!taskMatchesDateRange(task, start, end)) return false;
+  }
+
+  const customRange = getScheduleRange(filter);
+  if (customRange && !taskMatchesDateRange(task, customRange.start, customRange.end)) return false;
+  if (!taskMatchesWeek(task, filter.week)) return false;
+  if (!taskMatchesDay(task, filter.day)) return false;
+  if (!taskMatchesFrequency(task, filter.frequency)) return false;
+  if (!taskMatchesPattern(task, filter.pattern)) return false;
+
+  return true;
+}
+
+function scheduleSummary(filter: SopScheduleFilter) {
+  const parts: string[] = [];
+  const quickLabel = SOP_QUICK_OPTIONS.find((option) => option.value === filter.quick)?.label;
+  const range = getScheduleRange(filter);
+  const weekLabelText = SOP_WEEK_OPTIONS.find((option) => option.value === filter.week)?.label;
+  const patternLabel = SOP_PATTERN_OPTIONS.find((option) => option.value === filter.pattern)?.label;
+  const frequencyLabelText = SOP_FREQUENCY_OPTIONS.find((option) => option.value === filter.frequency)?.label;
+
+  if (quickLabel) parts.push(quickLabel);
+  if (range) parts.push(range.start === range.end ? formatFriendlyDate(range.start) : `${formatFriendlyDate(range.start)} - ${formatFriendlyDate(range.end)}`);
+  if (weekLabelText) parts.push(weekLabelText);
+  if (filter.day !== "all") parts.push(filter.day);
+  if (patternLabel) parts.push(patternLabel === "3rd Wednesday" ? "3rd Wednesday of every month" : patternLabel);
+  if (frequencyLabelText) parts.push(frequencyLabelText);
+
+  return parts.length > 0 ? parts.join(" · ") : "All scheduled tasks";
+}
+
+function setScheduleQuick(filter: SopScheduleFilter, quick: ScheduleQuickPreset): SopScheduleFilter {
+  return { ...filter, quick };
+}
+
+function setSchedulePattern(filter: SopScheduleFilter, pattern: SchedulePatternValue): SopScheduleFilter {
+  return {
+    ...filter,
+    pattern,
+    ...(pattern !== "all"
+      ? {
+          quick: "all" as ScheduleQuickPreset,
+          week: "all" as ScheduleWeekValue,
+          day: "all" as const,
+          frequency: "all" as ScheduleFrequencyValue,
+          rangeStart: "",
+          rangeEnd: "",
+        }
+      : {}),
+  };
+}
+
 function frequencyLabel(value: string) {
-  return value === "weekly" ? "Weekly" : value === "monthly" ? "Monthly" : value;
+  const normalized = normalizeFrequencyValue(value);
+  if (normalized === "weekly") return "Weekly";
+  if (normalized === "monthly") return "Monthly";
+  if (normalized === "one-time") return "One-time";
+  if (normalized === "custom") return "Custom";
+  return value;
 }
 
 function accountOrProperty(task: Task) {
   return task.account_name || task.property_address || "Operations task";
+}
+
+function ScheduleFilterPopover({
+  value,
+  onChange,
+}: {
+  value: SopScheduleFilter;
+  onChange: (filter: SopScheduleFilter) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<SopScheduleFilter>(value);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const popoverId = "residential-sop-schedule-filter";
+  const appliedSummary = scheduleSummary(value);
+  const draftHasSchedule = isScheduleFilterActive(draft);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function closeOnOutsideInteraction(event: MouseEvent) {
+      if (!popoverRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideInteraction);
+    document.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideInteraction);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  function applyDraft() {
+    onChange(draft);
+    setOpen(false);
+  }
+
+  function clearSchedule() {
+    setDraft(SOP_SCHEDULE_DEFAULT);
+    onChange(SOP_SCHEDULE_DEFAULT);
+    setOpen(false);
+  }
+
+  function selectWeek(week: Exclude<ScheduleWeekValue, "all">) {
+    setDraft((current) => ({
+      ...current,
+      quick: "all",
+      pattern: "all",
+      rangeStart: "",
+      rangeEnd: "",
+      week: current.week === week ? "all" : week,
+    }));
+  }
+
+  function selectDay(day: DayOfWeek) {
+    setDraft((current) => ({
+      ...current,
+      quick: "all",
+      pattern: "all",
+      rangeStart: "",
+      rangeEnd: "",
+      day: current.day === day ? "all" : day,
+    }));
+  }
+
+  function selectFrequency(frequency: Exclude<ScheduleFrequencyValue, "all">) {
+    setDraft((current) => ({
+      ...current,
+      quick: "all",
+      pattern: "all",
+      rangeStart: "",
+      rangeEnd: "",
+      frequency: current.frequency === frequency ? "all" : frequency,
+    }));
+  }
+
+  function selectRange(field: "rangeStart" | "rangeEnd", date: string) {
+    setDraft((current) => ({
+      ...current,
+      quick: "all",
+      week: "all",
+      day: "all",
+      frequency: "all",
+      pattern: "all",
+      [field]: date,
+    }));
+  }
+
+  return (
+    <div className="schedule-filter" ref={popoverRef}>
+      <button
+        type="button"
+        className={`schedule-trigger ${isScheduleFilterActive(value) ? "active" : ""}`}
+        aria-label={`Schedule filter: ${appliedSummary}`}
+        aria-expanded={open}
+        aria-controls={popoverId}
+        onClick={() => {
+          if (!open) setDraft(value);
+          setOpen((current) => !current);
+        }}
+      >
+        <CalendarRange size={15} />
+        <span className="schedule-trigger-copy">
+          <span>Schedule</span>
+          <strong>{appliedSummary}</strong>
+        </span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </button>
+
+      {open ? (
+        <div className="schedule-popover" id={popoverId} role="dialog" aria-label="Schedule filter">
+          <div className="schedule-popover-head">
+            <div>
+              <span>Schedule</span>
+              <strong>{scheduleSummary(draft)}</strong>
+            </div>
+            <button type="button" className="schedule-icon-btn" aria-label="Clear schedule" onClick={() => setDraft(SOP_SCHEDULE_DEFAULT)}>
+              <RotateCcw size={14} />
+            </button>
+          </div>
+
+          <div className="schedule-section">
+            <p>Quick views</p>
+            <div className="schedule-chip-grid quick">
+              <button
+                type="button"
+                className={`schedule-chip ${!draftHasSchedule ? "selected" : ""}`}
+                aria-pressed={!draftHasSchedule}
+                onClick={() => setDraft(SOP_SCHEDULE_DEFAULT)}
+              >
+                All scheduled tasks
+              </button>
+              {SOP_QUICK_OPTIONS.map((option) => (
+                <button
+                  type="button"
+                  key={option.value}
+                  className={`schedule-chip ${draft.quick === option.value ? "selected" : ""}`}
+                  aria-pressed={draft.quick === option.value}
+                  onClick={() => setDraft((current) => setScheduleQuick({
+                    ...current,
+                    week: "all",
+                    day: "all",
+                    frequency: "all",
+                    pattern: "all",
+                    rangeStart: "",
+                    rangeEnd: "",
+                  }, option.value))}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="schedule-section two-col">
+            <div>
+              <p>SOP week</p>
+              <div className="schedule-chip-grid compact">
+                {SOP_WEEK_OPTIONS.map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    className={`schedule-chip ${draft.week === option.value ? "selected" : ""}`}
+                    aria-pressed={draft.week === option.value}
+                    onClick={() => selectWeek(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p>Day</p>
+              <div className="schedule-chip-grid compact">
+                {DAY_OPTIONS.map((day) => (
+                  <button
+                    type="button"
+                    key={day}
+                    className={`schedule-chip ${draft.day === day ? "selected" : ""}`}
+                    aria-pressed={draft.day === day}
+                    onClick={() => selectDay(day)}
+                  >
+                    {day.slice(0, 3)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="schedule-section">
+            <p>Recurring patterns</p>
+            <div className="schedule-chip-grid patterns">
+              {SOP_PATTERN_OPTIONS.map((option) => (
+                <button
+                  type="button"
+                  key={option.value}
+                  className={`schedule-chip ${draft.pattern === option.value ? "selected" : ""}`}
+                  aria-pressed={draft.pattern === option.value}
+                  onClick={() => setDraft((current) => setSchedulePattern(current, current.pattern === option.value ? "all" : option.value))}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="schedule-section two-col">
+            <div>
+              <p>Frequency</p>
+              <div className="schedule-chip-grid compact">
+                {SOP_FREQUENCY_OPTIONS.map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    className={`schedule-chip ${draft.frequency === option.value ? "selected" : ""}`}
+                    aria-pressed={draft.frequency === option.value}
+                    onClick={() => selectFrequency(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p>Calendar</p>
+              <div className="schedule-date-grid">
+                <label>
+                  <span>Start</span>
+                  <input
+                    type="date"
+                    value={draft.rangeStart}
+                    aria-label="Schedule range start"
+                    onChange={(event) => selectRange("rangeStart", event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>End</span>
+                  <input
+                    type="date"
+                    value={draft.rangeEnd}
+                    min={draft.rangeStart || undefined}
+                    aria-label="Schedule range end"
+                    onChange={(event) => selectRange("rangeEnd", event.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="schedule-popover-footer">
+            <button type="button" className="schedule-clear" onClick={clearSchedule}>Clear</button>
+            <button type="button" className="schedule-apply" onClick={applyDraft}>Apply</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 async function notifyTaskEvent(event: "task_assigned" | "task_completed", task: Task, actorName = "Pristine Operations") {
@@ -670,27 +1378,31 @@ export default function DashboardPage() {
 
   const filtered = filter === "all" ? tasks : tasks.filter((t) => t.category === filter);
   const sopFilterOptions = useMemo(() => ({
-    weeks: Array.from(new Set(sopTemplates.map((task) => task.week_scope))).sort(),
-    days: Array.from(new Set(sopTemplates.map((task) => task.day_of_week).filter(Boolean) as string[])),
     categories: Array.from(new Set(sopTemplates.map((task) => task.category))).sort(),
     assignees: Array.from(new Set(sopTemplates.map((task) => task.assigned_to))).sort(),
     statuses: Array.from(new Set(sopTemplates.map((task) => task.status))).sort(),
-    frequencies: Array.from(new Set(sopTemplates.map((task) => task.frequency))).sort(),
   }), [sopTemplates]);
   const filteredSopTemplates = useMemo(() => sopTemplates.filter((task) => {
-    const matchesWeek = sopFilters.week === "all" || task.week_scope === sopFilters.week;
-    const matchesDay = sopFilters.day === "all" || task.day_of_week === sopFilters.day;
+    const matchesSchedule = taskMatchesScheduleFilter(task, sopFilters.schedule);
     const matchesCategory = sopFilters.category === "all" || task.category === sopFilters.category;
     const matchesAssignee = sopFilters.assignedTo === "all" || task.assigned_to === sopFilters.assignedTo;
     const matchesStatus = sopFilters.status === "all" || task.status === sopFilters.status;
-    const matchesFrequency = sopFilters.frequency === "all" || task.frequency === sopFilters.frequency;
-    return matchesWeek && matchesDay && matchesCategory && matchesAssignee && matchesStatus && matchesFrequency;
+    return matchesSchedule && matchesCategory && matchesAssignee && matchesStatus;
   }), [sopFilters, sopTemplates]);
+  const hasScheduleFilter = isScheduleFilterActive(sopFilters.schedule);
   const urgentCount = tasks.filter((t) => t.priority === "urgent" && t.status !== "done").length;
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayCount = tasks.filter((t) => t.due_date === todayStr && t.status !== "done").length;
   const doneCount = tasks.filter((t) => t.status === "done").length;
   const activeSopCount = sopTemplates.filter((task) => task.status === "active").length;
+
+  function clearSopScheduleFilter() {
+    setSopFilters((current) => ({ ...current, schedule: SOP_SCHEDULE_DEFAULT }));
+  }
+
+  function clearAllSopFilters() {
+    setSopFilters(SOP_FILTERS_DEFAULT);
+  }
 
   return (
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
@@ -719,10 +1431,45 @@ export default function DashboardPage() {
         .sop-title { margin-top:6px; font-size:1.05rem; font-weight:950; color:hsl(var(--foreground)); }
         .sop-sub { margin-top:4px; color:hsl(var(--muted-foreground)); font-size:.82rem; font-weight:650; }
         .sop-count { border-radius:8px; background:hsl(var(--primary)/.1); color:hsl(var(--primary)); padding:9px 11px; font-size:.8rem; font-weight:950; white-space:nowrap; }
-        .sop-filters { display:grid; grid-template-columns:repeat(6, minmax(120px, 1fr)); gap:8px; padding:12px 16px; border-bottom:1px solid hsl(var(--border)); background:hsl(var(--muted)/.18); }
-        .sop-filters label { display:flex; flex-direction:column; gap:5px; min-width:0; }
-        .sop-filters span { font-size:.62rem; font-weight:950; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
-        .sop-filters select { height:34px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); padding:0 8px; font-size:.75rem; font-weight:800; min-width:0; }
+        .sop-filters { position:relative; display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px; padding:12px 16px; border-bottom:1px solid hsl(var(--border)); background:hsl(var(--muted)/.18); }
+        .sop-select-field { display:flex; flex-direction:column; gap:5px; min-width:145px; flex:1 1 145px; }
+        .sop-select-field span { font-size:.62rem; font-weight:950; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
+        .sop-select-field select { height:38px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); padding:0 9px; font-size:.75rem; font-weight:850; min-width:0; outline:none; transition:border-color .15s, box-shadow .15s; }
+        .sop-select-field select:focus-visible { border-color:hsl(var(--primary)); box-shadow:0 0 0 3px hsl(var(--primary)/.12); }
+        .sop-clear-filters { height:38px; display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--muted-foreground)); padding:0 12px; font-size:.75rem; font-weight:900; cursor:pointer; transition:all .15s ease; }
+        .sop-clear-filters:hover { border-color:hsl(var(--primary)/.35); color:hsl(var(--primary)); background:hsl(var(--primary)/.06); }
+        .sop-clear-filters:focus-visible { outline:3px solid hsl(var(--primary)/.18); outline-offset:2px; }
+        .schedule-filter { position:relative; flex:2 1 250px; min-width:230px; }
+        .schedule-trigger { width:100%; min-height:38px; display:flex; align-items:center; gap:8px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); padding:7px 10px; cursor:pointer; text-align:left; transition:all .15s ease; }
+        .schedule-trigger:hover, .schedule-trigger.active { border-color:hsl(var(--primary)/.36); background:hsl(var(--primary)/.055); }
+        .schedule-trigger:focus-visible { outline:3px solid hsl(var(--primary)/.18); outline-offset:2px; }
+        .schedule-trigger-copy { display:flex; flex-direction:column; min-width:0; flex:1; gap:1px; }
+        .schedule-trigger-copy span { font-size:.6rem; line-height:1; font-weight:950; letter-spacing:.04em; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
+        .schedule-trigger-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.76rem; line-height:1.15; font-weight:950; color:hsl(var(--foreground)); }
+        .schedule-popover { position:absolute; z-index:40; top:calc(100% + 8px); left:0; width:min(680px, calc(100vw - 32px)); max-height:min(78vh, 680px); overflow:auto; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--card)); box-shadow:0 28px 90px -34px rgba(15,23,42,.38); padding:12px; }
+        .schedule-popover-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:4px 4px 10px; border-bottom:1px solid hsl(var(--border)); }
+        .schedule-popover-head div { display:flex; flex-direction:column; gap:3px; min-width:0; }
+        .schedule-popover-head span, .schedule-section p, .schedule-date-grid span { margin:0; font-size:.62rem; line-height:1.1; font-weight:950; letter-spacing:.05em; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
+        .schedule-popover-head strong { font-size:.9rem; line-height:1.25; font-weight:950; color:hsl(var(--foreground)); }
+        .schedule-icon-btn { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--muted-foreground)); cursor:pointer; }
+        .schedule-icon-btn:hover { color:hsl(var(--primary)); border-color:hsl(var(--primary)/.35); }
+        .schedule-icon-btn:focus-visible, .schedule-chip:focus-visible, .schedule-date-grid input:focus-visible, .schedule-clear:focus-visible, .schedule-apply:focus-visible { outline:3px solid hsl(var(--primary)/.18); outline-offset:2px; }
+        .schedule-section { padding:12px 4px 0; }
+        .schedule-section.two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+        .schedule-chip-grid { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }
+        .schedule-chip-grid.quick .schedule-chip { flex:1 1 138px; }
+        .schedule-chip-grid.compact .schedule-chip { flex:1 1 70px; }
+        .schedule-chip-grid.patterns .schedule-chip { flex:1 1 150px; }
+        .schedule-chip { min-height:32px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); padding:6px 9px; font-size:.74rem; font-weight:850; cursor:pointer; transition:all .15s ease; }
+        .schedule-chip:hover { border-color:hsl(var(--primary)/.35); background:hsl(var(--primary)/.055); }
+        .schedule-chip.selected { border-color:hsl(var(--primary)/.55); background:hsl(var(--primary)/.11); color:hsl(var(--primary)); box-shadow:inset 0 0 0 1px hsl(var(--primary)/.08); }
+        .schedule-date-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+        .schedule-date-grid label { display:flex; flex-direction:column; gap:5px; min-width:0; }
+        .schedule-date-grid input { width:100%; height:34px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); padding:0 8px; font-size:.74rem; font-weight:800; font-family:inherit; box-sizing:border-box; }
+        .schedule-popover-footer { display:flex; justify-content:flex-end; gap:8px; padding:12px 4px 2px; margin-top:2px; border-top:1px solid hsl(var(--border)); }
+        .schedule-clear, .schedule-apply { height:34px; border-radius:8px; padding:0 13px; font-size:.75rem; font-weight:950; cursor:pointer; }
+        .schedule-clear { border:1px solid hsl(var(--border)); background:transparent; color:hsl(var(--muted-foreground)); }
+        .schedule-apply { border:1px solid hsl(var(--primary)); background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
         .sop-list { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }
         .sop-item { display:flex; flex-direction:column; gap:9px; padding:13px 14px; border-bottom:1px solid hsl(var(--border)); min-width:0; }
         .sop-item:nth-child(odd) { border-right:1px solid hsl(var(--border)); }
@@ -732,10 +1479,21 @@ export default function DashboardPage() {
         .sop-badges { display:flex; flex-wrap:wrap; gap:5px; }
         .sop-badge { display:inline-flex; align-items:center; gap:4px; border-radius:999px; background:hsl(var(--muted)/.5); color:hsl(var(--muted-foreground)); padding:3px 7px; font-size:.65rem; font-weight:900; }
         .sop-badge.high { background:hsl(25 95% 55%/.12); color:#f97316; }
-        .sop-empty { padding:24px; text-align:center; color:hsl(var(--muted-foreground)); font-size:.82rem; font-weight:800; }
-        @media (max-width:1080px) { .sop-filters { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
-        @media (max-width:760px) { .sop-list { grid-template-columns:1fr; } .sop-item:nth-child(odd) { border-right:none; } .sop-filters { grid-template-columns:1fr 1fr; } }
-        @media (max-width:520px) { .sop-filters { grid-template-columns:1fr; } }
+        .sop-empty { grid-column:1 / -1; padding:34px 18px; text-align:center; color:hsl(var(--muted-foreground)); font-size:.82rem; font-weight:800; }
+        .sop-empty-card { max-width:360px; margin:0 auto; display:flex; flex-direction:column; align-items:center; gap:8px; }
+        .sop-empty-card h3 { margin:0; color:hsl(var(--foreground)); font-size:.98rem; font-weight:950; }
+        .sop-empty-card p { margin:0; line-height:1.45; }
+        .sop-empty-card button { margin-top:4px; height:34px; border:1px solid hsl(var(--border)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--primary)); padding:0 12px; font-size:.75rem; font-weight:950; cursor:pointer; }
+        .sop-empty-card button:focus-visible { outline:3px solid hsl(var(--primary)/.18); outline-offset:2px; }
+        @media (max-width:760px) {
+          .sop-list { grid-template-columns:1fr; }
+          .sop-item:nth-child(odd) { border-right:none; }
+          .sop-filters { align-items:stretch; }
+          .schedule-filter, .sop-select-field, .sop-clear-filters { flex-basis:100%; min-width:0; }
+          .schedule-popover { position:fixed; inset:auto 12px 12px; width:auto; max-height:86vh; }
+          .schedule-section.two-col { grid-template-columns:1fr; }
+        }
+        @media (max-width:520px) { .schedule-date-grid { grid-template-columns:1fr; } }
         .kpi.urgent { box-shadow:inset 3px 0 0 #ef4444, 0 16px 44px -42px hsl(215 40% 20%); }
         .kpi.today  { box-shadow:inset 3px 0 0 #f97316, 0 16px 44px -42px hsl(215 40% 20%); }
         .kpi.done   { box-shadow:inset 3px 0 0 hsl(var(--primary)), 0 16px 44px -42px hsl(215 40% 20%); }
@@ -917,52 +1675,47 @@ export default function DashboardPage() {
             <div className="sop-count">{filteredSopTemplates.length} shown / {activeSopCount} active</div>
           </div>
           <div className="sop-filters">
-            <label>
-              <span>Week</span>
-              <select value={sopFilters.week} onChange={(event) => setSopFilters((current) => ({ ...current, week: event.target.value }))}>
-                <option value="all">All weeks</option>
-                {sopFilterOptions.weeks.map((week) => <option key={week} value={week}>{weekLabel(week)}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>Day</span>
-              <select value={sopFilters.day} onChange={(event) => setSopFilters((current) => ({ ...current, day: event.target.value }))}>
-                <option value="all">All days</option>
-                {sopFilterOptions.days.map((day) => <option key={day} value={day}>{day}</option>)}
-              </select>
-            </label>
-            <label>
+            <ScheduleFilterPopover
+              value={sopFilters.schedule}
+              onChange={(schedule) => setSopFilters((current) => ({ ...current, schedule }))}
+            />
+            <label className="sop-select-field">
               <span>Category</span>
               <select value={sopFilters.category} onChange={(event) => setSopFilters((current) => ({ ...current, category: event.target.value }))}>
                 <option value="all">All categories</option>
                 {sopFilterOptions.categories.map((category) => <option key={category} value={category}>{category}</option>)}
               </select>
             </label>
-            <label>
+            <label className="sop-select-field">
               <span>Assigned to</span>
               <select value={sopFilters.assignedTo} onChange={(event) => setSopFilters((current) => ({ ...current, assignedTo: event.target.value }))}>
                 <option value="all">All owners</option>
                 {sopFilterOptions.assignees.map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
               </select>
             </label>
-            <label>
+            <label className="sop-select-field">
               <span>Status</span>
               <select value={sopFilters.status} onChange={(event) => setSopFilters((current) => ({ ...current, status: event.target.value }))}>
                 <option value="all">All statuses</option>
                 {sopFilterOptions.statuses.map((status) => <option key={status} value={status}>{status}</option>)}
               </select>
             </label>
-            <label>
-              <span>Frequency</span>
-              <select value={sopFilters.frequency} onChange={(event) => setSopFilters((current) => ({ ...current, frequency: event.target.value }))}>
-                <option value="all">All frequencies</option>
-                {sopFilterOptions.frequencies.map((frequency) => <option key={frequency} value={frequency}>{frequencyLabel(frequency)}</option>)}
-              </select>
-            </label>
+            <button type="button" className="sop-clear-filters" aria-label="Clear Residential SOP filters" onClick={clearAllSopFilters}>
+              <RotateCcw size={13} /> Clear filters
+            </button>
           </div>
           <div className="sop-list">
             {filteredSopTemplates.length === 0 ? (
-              <div className="sop-empty"><Filter size={18} className="mx-auto mb-2" /> No SOP templates match these filters.</div>
+              <div className="sop-empty">
+                <div className="sop-empty-card">
+                  <Filter size={18} />
+                  <h3>No SOP tasks match this schedule</h3>
+                  <p>Try another week, day, or date range.</p>
+                  <button type="button" onClick={hasScheduleFilter ? clearSopScheduleFilter : clearAllSopFilters}>
+                    {hasScheduleFilter ? "Clear schedule filter" : "Clear filters"}
+                  </button>
+                </div>
+              </div>
             ) : filteredSopTemplates.map((template) => (
               <article className="sop-item" key={template.natural_key}>
                 <div className="sop-item-top">
