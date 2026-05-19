@@ -1,9 +1,10 @@
-export type AppRole = "residential" | "commercial" | "admin" | "owner" | "operations_manager";
-export type AccessArea = "residential" | "commercial";
+export type AppRole = "residential" | "commercial" | "admin" | "owner" | "operations_manager" | "seo";
+export type AccessArea = "residential" | "commercial" | "seo" | "operations";
 
 export const USERNAME_AUTH_EMAILS: Record<string, string> = {
   pristinecleaners: "pristinecleaners@pristine.local",
   pristinejanitorial: "pristinejanitorial@pristine.local",
+  pristineseo: "pristineseo@pristine.local",
 };
 
 export const ROLE_LABELS: Record<AppRole, string> = {
@@ -12,6 +13,7 @@ export const ROLE_LABELS: Record<AppRole, string> = {
   admin: "Admin",
   owner: "Owner",
   operations_manager: "Operations Manager",
+  seo: "SEO Specialist",
 };
 
 export const PROTECTED_ROUTE_ACCESS: { prefix: string; area: AccessArea }[] = [
@@ -19,6 +21,10 @@ export const PROTECTED_ROUTE_ACCESS: { prefix: string; area: AccessArea }[] = [
   { prefix: "/residential", area: "residential" },
   { prefix: "/payments", area: "residential" },
   { prefix: "/commercial", area: "commercial" },
+  { prefix: "/seo", area: "seo" },
+  { prefix: "/staff", area: "operations" },
+  { prefix: "/reports", area: "operations" },
+  { prefix: "/settings", area: "operations" },
 ];
 
 const elevatedRoles: AppRole[] = ["admin", "owner"];
@@ -33,7 +39,7 @@ export function resolveLoginEmail(identifier: string) {
 }
 
 export function normalizeAppRole(value: string | null | undefined): AppRole {
-  if (value === "commercial" || value === "admin" || value === "owner" || value === "operations_manager") {
+  if (value === "commercial" || value === "admin" || value === "owner" || value === "operations_manager" || value === "seo") {
     return value;
   }
   return "residential";
@@ -42,11 +48,13 @@ export function normalizeAppRole(value: string | null | undefined): AppRole {
 export function canAccessArea(role: AppRole, area: AccessArea) {
   if (elevatedRoles.includes(role)) return true;
   if (role === "operations_manager") return true;
+  if (area === "operations") return role !== "seo";
   return role === area;
 }
 
 export function getDefaultPathForRole(role: AppRole) {
   if (role === "commercial") return "/commercial";
+  if (role === "seo") return "/seo";
   return "/dashboard";
 }
 

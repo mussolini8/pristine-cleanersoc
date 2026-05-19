@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, Home, LogOut, Search, Settings, Users, Wallet } from "lucide-react";
+import { BarChart3, Building2, Home, LineChart, LogOut, Search, Settings, Users, Wallet } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
@@ -15,9 +15,10 @@ const navItems = [
   { label: "Residential", href: "/dashboard", icon: Home, area: "residential" as AccessArea },
   { label: "Residential Payments", href: "/payments", icon: Wallet, area: "residential" as AccessArea },
   { label: "Commercial", href: "/commercial", icon: Building2, area: "commercial" as AccessArea },
-  { label: "Staff", href: "/staff", icon: Users },
-  { label: "Reports", href: "/reports", icon: BarChart3 },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { label: "SEO", href: "/seo", icon: LineChart, area: "seo" as AccessArea },
+  { label: "Staff", href: "/staff", icon: Users, area: "operations" as AccessArea },
+  { label: "Reports", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
+  { label: "Settings", href: "/settings", icon: Settings, area: "operations" as AccessArea },
 ];
 
 export function DashboardShell({

@@ -16,6 +16,7 @@ const serverEnvSchema = publicEnvSchema.extend({
   GMAIL_APP_PASSWORD: optionalString,
   OPERATIONS_MANAGER_EMAIL: optionalEmail,
   OWNER_EMAIL: optionalEmail,
+  SEO_USER_EMAIL: optionalEmail,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
 });
 
@@ -38,6 +39,7 @@ export function getServerEnv() {
     GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD,
     OPERATIONS_MANAGER_EMAIL: process.env.OPERATIONS_MANAGER_EMAIL,
     OWNER_EMAIL: process.env.OWNER_EMAIL,
+    SEO_USER_EMAIL: process.env.SEO_USER_EMAIL,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   });
 }

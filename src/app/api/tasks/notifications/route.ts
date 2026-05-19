@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
+  sendSeoTaskAssignedEmail,
+  sendSeoTaskCompletedEmail,
   sendTaskAssignedEmail,
   sendTaskCompletedEmail,
   type TaskNotificationPayload,
@@ -24,8 +26,17 @@ const owner = {
   role: "Owner",
 };
 
+const seoSpecialist = {
+  name: "Pristine SEO",
+  role: "SEO Specialist",
+};
+
 function isCarlos(value: string | null | undefined) {
   return String(value ?? "").trim().toLowerCase() === "carlos lopez";
+}
+
+function isSeoTask(task: TaskNotificationPayload) {
+  return String(task.panel ?? "").trim().toLowerCase() === "seo";
 }
 
 async function writeAudit(
@@ -66,6 +77,32 @@ export async function POST(request: Request) {
   });
 
   try {
+    if (body.event === "task_assigned" && isSeoTask(body.task)) {
+      const result = await sendSeoTaskAssignedEmail(body.task, {
+        ...seoSpecialist,
+        email: process.env.SEO_USER_EMAIL,
+      });
+      await writeAudit(supabase, body.task.id, result.sent ? "notification_sent" : "notification_failed", {
+        event: body.event,
+        recipient: seoSpecialist.name,
+        reason: result.reason,
+      });
+      return NextResponse.json({ ok: true, notification: result });
+    }
+
+    if (body.event === "task_completed" && isSeoTask(body.task)) {
+      const result = await sendSeoTaskCompletedEmail(body.task, seoSpecialist, {
+        ...owner,
+        email: process.env.OWNER_EMAIL,
+      });
+      await writeAudit(supabase, body.task.id, result.sent ? "notification_sent" : "notification_failed", {
+        event: body.event,
+        recipient: owner.name,
+        reason: result.reason,
+      });
+      return NextResponse.json({ ok: true, notification: result });
+    }
+
     if (body.event === "task_assigned" && isCarlos(body.task.assignedTo)) {
       const result = await sendTaskAssignedEmail(body.task, {
         ...operationsManager,

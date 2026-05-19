@@ -568,14 +568,17 @@ begin
     case
       when lower(new.email) = 'pristinecleaners@pristine.local' then 'pristinecleaners'
       when lower(new.email) = 'pristinejanitorial@pristine.local' then 'pristinejanitorial'
+      when lower(new.email) = 'pristineseo@pristine.local' then 'pristineseo'
       else null
     end,
     case
       when lower(new.email) = 'pristinejanitorial@pristine.local' then 'commercial'
+      when lower(new.email) = 'pristineseo@pristine.local' then 'seo'
       else 'residential'
     end,
     case
       when lower(new.email) = 'pristinejanitorial@pristine.local' then 'commercial'
+      when lower(new.email) = 'pristineseo@pristine.local' then 'seo'
       else 'residential'
     end
   )
@@ -587,6 +590,8 @@ begin
   return new;
 end;
 $$;
+
+-- SEO operations panel 2026-05-19
 
 update public.profiles p
 set username = 'pristinecleaners',
@@ -606,13 +611,66 @@ from auth.users u
 where p.id = u.id
   and lower(u.email) = 'pristinejanitorial@pristine.local';
 
+update public.profiles p
+set username = 'pristineseo',
+    full_name = coalesce(nullif(p.full_name, ''), 'Pristine SEO'),
+    app_role = 'seo',
+    access_scope = 'seo',
+    updated_at = now()
+from auth.users u
+where p.id = u.id
+  and lower(u.email) = 'pristineseo@pristine.local';
+
 alter table public.operation_tasks
   add column if not exists assigned_by text,
   add column if not exists account_name text,
   add column if not exists property_address text,
   add column if not exists panel text not null default 'Residential',
   add column if not exists completion_notes text,
-  add column if not exists completed_at timestamptz;
+  add column if not exists completed_at timestamptz,
+  add column if not exists assigned_to uuid references auth.users(id) on delete set null,
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists completed_by uuid references auth.users(id) on delete set null,
+  add column if not exists business_unit text,
+  add column if not exists metadata jsonb not null default '{}'::jsonb;
+
+create index if not exists operation_tasks_panel_status_idx
+  on public.operation_tasks(panel, status, due_date);
+
+create index if not exists operation_tasks_assigned_to_idx
+  on public.operation_tasks(assigned_to);
+
+drop policy if exists "SEO tasks are readable by SEO and owners" on public.operation_tasks;
+create policy "SEO tasks are readable by SEO and owners"
+  on public.operation_tasks for select
+  using (
+    lower(panel) = 'seo'
+    and exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+        and p.app_role in ('seo', 'owner', 'admin')
+    )
+  );
+
+drop policy if exists "SEO tasks are editable by SEO and owners" on public.operation_tasks;
+create policy "SEO tasks are editable by SEO and owners"
+  on public.operation_tasks for all
+  using (
+    lower(panel) = 'seo'
+    and exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+        and p.app_role in ('seo', 'owner', 'admin')
+    )
+  )
+  with check (
+    lower(panel) = 'seo'
+    and exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+        and p.app_role in ('seo', 'owner', 'admin')
+    )
+  );
 
 create table if not exists public.operation_task_audit_log (
   id uuid primary key default gen_random_uuid(),
@@ -633,6 +691,164 @@ drop policy if exists "Operation task audit is writable by signed in users" on p
 create policy "Operation task audit is writable by signed in users"
   on public.operation_task_audit_log for insert
   with check (auth.uid() is not null);
+
+create table if not exists public.operation_task_comments (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.operation_tasks(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  author_name text not null default 'Pristine Operations',
+  body text not null,
+  internal boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+alter table public.operation_task_comments enable row level security;
+
+create index if not exists operation_task_comments_task_created_idx
+  on public.operation_task_comments(task_id, created_at);
+
+drop policy if exists "Operation task comments readable by task viewers" on public.operation_task_comments;
+create policy "Operation task comments readable by task viewers"
+  on public.operation_task_comments for select
+  using (
+    exists (
+      select 1 from public.operation_tasks t
+      where t.id = task_id
+        and (
+          t.user_id = auth.uid()
+          or (
+            lower(t.panel) = 'seo'
+            and exists (
+              select 1 from public.profiles p
+              where p.id = auth.uid()
+                and p.app_role in ('seo', 'owner', 'admin')
+            )
+          )
+        )
+    )
+  );
+
+drop policy if exists "Operation task comments writable by task viewers" on public.operation_task_comments;
+create policy "Operation task comments writable by task viewers"
+  on public.operation_task_comments for insert
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.operation_tasks t
+      where t.id = task_id
+        and (
+          t.user_id = auth.uid()
+          or (
+            lower(t.panel) = 'seo'
+            and exists (
+              select 1 from public.profiles p
+              where p.id = auth.uid()
+                and p.app_role in ('seo', 'owner', 'admin')
+            )
+          )
+        )
+    )
+  );
+
+create table if not exists public.operation_task_attachments (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.operation_tasks(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  file_name text not null,
+  file_path text not null,
+  file_url text,
+  file_type text,
+  file_size integer,
+  uploaded_by text not null default 'Pristine Operations',
+  created_at timestamptz not null default now()
+);
+
+alter table public.operation_task_attachments enable row level security;
+
+create index if not exists operation_task_attachments_task_created_idx
+  on public.operation_task_attachments(task_id, created_at);
+
+drop policy if exists "Operation task attachments readable by task viewers" on public.operation_task_attachments;
+create policy "Operation task attachments readable by task viewers"
+  on public.operation_task_attachments for select
+  using (
+    exists (
+      select 1 from public.operation_tasks t
+      where t.id = task_id
+        and (
+          t.user_id = auth.uid()
+          or (
+            lower(t.panel) = 'seo'
+            and exists (
+              select 1 from public.profiles p
+              where p.id = auth.uid()
+                and p.app_role in ('seo', 'owner', 'admin')
+            )
+          )
+        )
+    )
+  );
+
+drop policy if exists "Operation task attachments writable by task viewers" on public.operation_task_attachments;
+create policy "Operation task attachments writable by task viewers"
+  on public.operation_task_attachments for insert
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.operation_tasks t
+      where t.id = task_id
+        and (
+          t.user_id = auth.uid()
+          or (
+            lower(t.panel) = 'seo'
+            and exists (
+              select 1 from public.profiles p
+              where p.id = auth.uid()
+                and p.app_role in ('seo', 'owner', 'admin')
+            )
+          )
+        )
+    )
+  );
+
+drop policy if exists "Operation task attachments deletable by uploader or owners" on public.operation_task_attachments;
+create policy "Operation task attachments deletable by uploader or owners"
+  on public.operation_task_attachments for delete
+  using (
+    auth.uid() = user_id
+    or exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid()
+        and p.app_role in ('owner', 'admin')
+    )
+  );
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'seo-task-attachments',
+  'seo-task-attachments',
+  false,
+  10485760,
+  array['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+)
+on conflict (id) do update set
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "SEO task attachments storage readable by signed in users" on storage.objects;
+create policy "SEO task attachments storage readable by signed in users"
+  on storage.objects for select
+  using (bucket_id = 'seo-task-attachments' and auth.uid() is not null);
+
+drop policy if exists "SEO task attachments storage uploadable by signed in users" on storage.objects;
+create policy "SEO task attachments storage uploadable by signed in users"
+  on storage.objects for insert
+  with check (bucket_id = 'seo-task-attachments' and auth.uid() is not null);
+
+drop policy if exists "SEO task attachments storage deletable by signed in users" on storage.objects;
+create policy "SEO task attachments storage deletable by signed in users"
+  on storage.objects for delete
+  using (bucket_id = 'seo-task-attachments' and auth.uid() is not null);
 
 -- Residential monthly SOP recurring task templates 2026-05-18
 create table if not exists public.operation_task_templates (

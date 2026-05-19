@@ -36,6 +36,7 @@ GMAIL_USER=
 GMAIL_APP_PASSWORD=
 OPERATIONS_MANAGER_EMAIL=
 OWNER_EMAIL=
+SEO_USER_EMAIL=
 ```
 
 4. Run the app:
@@ -60,8 +61,9 @@ npm run dev
 - `src/components/dashboard` contains authenticated product UI.
 - `src/lib/supabase` contains browser, server, and proxy session clients.
 - `src/lib/validations` contains reusable Zod schemas.
-- `proxy.ts` refreshes Supabase sessions and protects `/dashboard`.
+- `proxy.ts` refreshes Supabase sessions and protects `/dashboard`, `/commercial`, and `/seo`.
 - `docs/operations-notifications.md` documents residential/commercial access and task notification setup.
+- `docs/seo-panel.md` documents the isolated SEO Kanban panel, role, uploads, comments, and notifications.
 
 ## Deployment
 
