@@ -25,6 +25,7 @@ import {
   Paperclip,
   Plus,
   RotateCcw,
+  Search,
   Settings2,
   ShieldCheck,
   Upload,
@@ -62,10 +63,18 @@ import {
 import { getStaffRoleDefinition } from "@/lib/staff-rules";
 import type { PayrollEntryRow, PayrollPeriodRow } from "@/lib/payroll/types";
 import { cn } from "@/lib/utils";
+import {
+  getCalendarEventColor,
+  mapPaymentToCalendarEvent,
+  mapTaskToCalendarEvent,
+  type NormalizedCalendarEvent,
+} from "@/lib/calendar-events";
 
 type UnifiedView = "dashboard" | "tasks" | "calendar" | "payments" | "staff" | "reports" | "settings";
 type DatePreset = "today" | "week" | "month" | "custom";
 type CalendarView = "month" | "week" | "day" | "agenda";
+type TaskViewMode = "kanban" | "calendar" | "list";
+type PaymentViewMode = "calendar" | "list";
 type TaskStatus = "backlog" | "todo" | "in_progress" | "waiting_review" | "completed";
 type Priority = "urgent" | "high" | "normal" | "low";
 type ReportType =
@@ -103,10 +112,14 @@ type OperationTaskRow = {
   property_address?: string | null;
   panel?: string | null;
   business_unit?: string | null;
+  recurrence?: string | null;
+  custom_interval_days?: number | null;
   completion_notes?: string | null;
   completed_at?: string | null;
   reminder?: boolean | null;
   metadata?: Record<string, unknown> | null;
+  created_by?: string | null;
+  completed_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -151,7 +164,24 @@ type CommercialAccountRow = {
   name: string;
   cleaner_name?: string | null;
   city?: string | null;
+  pricing_model?: string | null;
+  hours?: number | string | null;
   frequency?: string | null;
+  revenue?: number | null;
+  cost?: number | null;
+  cleaner_pay_type?: string | null;
+  cleaner_hourly_rate?: number | null;
+  cleaner_flat_rate?: number | null;
+  payment_method?: string | null;
+  contract_start?: string | null;
+  contract_end?: string | null;
+  last_qcc_date?: string | null;
+  last_contact_date?: string | null;
+  has_supplies?: boolean | null;
+  has_keys?: boolean | null;
+  supply_delivery_date?: string | null;
+  estimated_fill_date?: string | null;
+  supplies_notes?: string | null;
   source_sheet?: string | null;
 };
 
@@ -201,6 +231,16 @@ type PaymentFilters = {
   account: string;
   source: string;
   needsReview: boolean;
+  search: string;
+  commercialOnly: boolean;
+};
+
+type TaskFilters = {
+  status: string;
+  priority: string;
+  category: string;
+  assignee: string;
+  search: string;
 };
 
 type ReportFilters = {
@@ -264,8 +304,15 @@ function parseDate(value: string | null | undefined) {
   if (!value) return null;
   const [datePart] = value.split("T");
   const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const monthMatch = datePart.match(/^(\d{4})-(\d{2})$/);
+  if (monthMatch) return new Date(Number(monthMatch[1]), Number(monthMatch[2]) - 1, 1);
+  return null;
+}
+
+function dateKeyFromValue(value: string | null | undefined) {
+  const date = parseDate(value);
+  return date ? formatDateKey(date) : "";
 }
 
 function displayDate(value: string | null | undefined) {
@@ -288,6 +335,37 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function getCalendarRange(viewMode: CalendarView, anchor: Date) {
+  if (viewMode === "day") {
+    const key = formatDateKey(anchor);
+    return { start: key, end: key };
+  }
+
+  if (viewMode === "week") {
+    const start = startOfWeek(anchor);
+    return { start: formatDateKey(start), end: formatDateKey(addDays(start, 6)) };
+  }
+
+  return {
+    start: formatDateKey(new Date(anchor.getFullYear(), anchor.getMonth(), 1)),
+    end: formatDateKey(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)),
+  };
+}
+
+function getCalendarLabel(viewMode: CalendarView, anchor: Date) {
+  if (viewMode === "day") return anchor.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  if (viewMode === "week") {
+    const start = startOfWeek(anchor);
+    const end = addDays(start, 6);
+    return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  }
+  return anchor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
 function getDateWindow(preset: DatePreset, customStart: string, customEnd: string) {
@@ -313,8 +391,8 @@ function getDateWindow(preset: DatePreset, customStart: string, customEnd: strin
 }
 
 function isWithinWindow(value: string | null | undefined, start: string, end: string) {
-  if (!value) return false;
-  const key = value.slice(0, 10);
+  const key = dateKeyFromValue(value);
+  if (!key) return false;
   return key >= start && key <= end;
 }
 
@@ -598,6 +676,238 @@ function TaskCard({
   );
 }
 
+function ViewToggle<TValue extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: TValue;
+  options: { value: TValue; label: string }[];
+  onChange: (value: TValue) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-border bg-background/80 p-1" aria-label={label}>
+      {options.map((option) => (
+        <button
+          type="button"
+          key={option.value}
+          className={cn(
+            "rounded px-3 py-1.5 text-xs font-black text-muted-foreground transition hover:bg-accent hover:text-foreground",
+            value === option.value && "bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground",
+          )}
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CalendarToolbar({
+  viewMode,
+  anchor,
+  onViewModeChange,
+  onNavigate,
+  onToday,
+}: {
+  viewMode: CalendarView;
+  anchor: Date;
+  onViewModeChange: (viewMode: CalendarView) => void;
+  onNavigate: (direction: -1 | 1) => void;
+  onToday: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-card p-3">
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="icon" aria-label="Previous calendar period" onClick={() => onNavigate(-1)}><ChevronLeft className="size-4" /></Button>
+        <div className="min-w-56 text-center text-sm font-black">{getCalendarLabel(viewMode, anchor)}</div>
+        <Button variant="outline" size="icon" aria-label="Next calendar period" onClick={() => onNavigate(1)}><ChevronRight className="size-4" /></Button>
+        <Button variant="outline" size="sm" onClick={onToday}>Today</Button>
+      </div>
+      <ViewToggle
+        label="Calendar view"
+        value={viewMode}
+        onChange={onViewModeChange}
+        options={[
+          { value: "month", label: "Month" },
+          { value: "week", label: "Week" },
+          { value: "day", label: "Day" },
+          { value: "agenda", label: "Agenda" },
+        ]}
+      />
+    </div>
+  );
+}
+
+function CalendarEventPill({
+  event,
+  dense = false,
+  onSelect,
+}: {
+  event: NormalizedCalendarEvent;
+  dense?: boolean;
+  onSelect: (event: NormalizedCalendarEvent) => void;
+}) {
+  const isCompletedTask = event.type === "task" && (event.status === "completed" || event.status === "done");
+  return (
+    <button
+      type="button"
+      className={cn(
+        "group flex w-full min-w-0 items-start gap-2 rounded-md border px-2 py-1.5 text-left shadow-sm transition hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        event.color.eventClass,
+        dense && "px-2 py-1",
+      )}
+      onClick={() => onSelect(event)}
+    >
+      <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", event.color.dotClass)} />
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-1">
+          <span className={cn("truncate font-black leading-tight", dense ? "text-[11px]" : "text-xs")}>{event.title}</span>
+          {isCompletedTask ? <Check className="size-3 shrink-0" /> : null}
+        </span>
+        <span className={cn("block truncate font-bold opacity-75", dense ? "text-[10px]" : "text-[11px]")}>{event.summary || statusLabel(event.status)}</span>
+      </span>
+    </button>
+  );
+}
+
+function OperationsCalendar({
+  events,
+  viewMode,
+  anchor,
+  emptyMessage,
+  onEventSelect,
+}: {
+  events: NormalizedCalendarEvent[];
+  viewMode: CalendarView;
+  anchor: Date;
+  emptyMessage: string;
+  onEventSelect: (event: NormalizedCalendarEvent) => void;
+}) {
+  const today = todayKey();
+  const sortedEvents = [...events].sort((a, b) => `${a.start}-${a.title}`.localeCompare(`${b.start}-${b.title}`));
+
+  if (viewMode === "agenda") {
+    return (
+      <Card>
+        <CardContent className="grid gap-2 p-4">
+          {sortedEvents.length === 0 ? <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm font-bold text-muted-foreground">{emptyMessage}</div> : null}
+          {sortedEvents.map((event) => (
+            <button
+              type="button"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/75 p-3 text-left transition hover:border-primary/30 hover:bg-accent/25"
+              key={event.id}
+              onClick={() => onEventSelect(event)}
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={event.color.badgeClass}>{event.type === "booking" ? "Booking" : statusLabel(event.type)}</Badge>
+                  <UnitBadge unit={event.businessUnit} />
+                  <Badge variant="outline">{statusLabel(event.status)}</Badge>
+                </div>
+                <p className="mt-2 truncate font-black">{event.title}</p>
+                <p className="text-xs font-bold text-muted-foreground">{event.summary}</p>
+              </div>
+              <div className="text-right text-sm font-black">{displayDate(event.start)}</div>
+            </button>
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (viewMode === "day") {
+    const key = formatDateKey(anchor);
+    const dayEvents = sortedEvents.filter((event) => event.start === key);
+    return (
+      <section className={cn("rounded-lg border border-border bg-card p-4", key === today && "border-primary/45 bg-primary/5")}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-black uppercase text-muted-foreground">{anchor.toLocaleDateString("en-US", { weekday: "long" })}</p>
+            <h2 className="text-xl font-black">{anchor.toLocaleDateString("en-US", { month: "long", day: "numeric" })}</h2>
+          </div>
+          <Badge variant="outline">{dayEvents.length} items</Badge>
+        </div>
+        <div className="grid gap-2">
+          {dayEvents.length === 0 ? <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm font-bold text-muted-foreground">{emptyMessage}</div> : null}
+          {dayEvents.map((event) => <CalendarEventPill event={event} key={event.id} onSelect={onEventSelect} />)}
+        </div>
+      </section>
+    );
+  }
+
+  if (viewMode === "week") {
+    const start = startOfWeek(anchor);
+    const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
+    return (
+      <div className="grid gap-3 lg:grid-cols-7">
+        {days.map((day) => {
+          const key = formatDateKey(day);
+          const dayEvents = sortedEvents.filter((event) => event.start === key);
+          return (
+            <section className={cn("min-h-96 rounded-lg border border-border bg-card p-3", key === today && "border-primary/45 bg-primary/5")} key={key}>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-black uppercase text-muted-foreground">{day.toLocaleDateString("en-US", { weekday: "short" })}</p>
+                  <p className="text-sm font-black">{day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</p>
+                </div>
+                <Badge variant="outline">{dayEvents.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {dayEvents.length === 0 ? <div className="rounded-md border border-dashed border-border p-3 text-center text-xs font-bold text-muted-foreground">Open day</div> : null}
+                {dayEvents.map((event) => <CalendarEventPill event={event} dense key={event.id} onSelect={onEventSelect} />)}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const monthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const gridStart = startOfWeek(monthStart);
+  const days = Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+
+  return (
+    <div className="grid grid-cols-7 overflow-hidden rounded-lg border border-border bg-card">
+      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+        <div className="border-b border-border bg-muted/45 p-2 text-xs font-black text-muted-foreground" key={day}>{day}</div>
+      ))}
+      {days.map((day) => {
+        const key = formatDateKey(day);
+        const dayEvents = sortedEvents.filter((event) => event.start === key);
+        const isOutside = day.getMonth() !== anchor.getMonth();
+        return (
+          <section className={cn("min-h-36 border-b border-r border-border p-2 transition", isOutside && "bg-muted/20 text-muted-foreground", key === today && "bg-primary/5 ring-1 ring-inset ring-primary/40")} key={key}>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className={cn("grid size-7 place-items-center rounded-md text-xs font-black", key === today && "bg-primary text-primary-foreground")}>{day.getDate()}</span>
+              {dayEvents.length ? <span className="text-[11px] font-black text-muted-foreground">{dayEvents.length}</span> : null}
+            </div>
+            <div className="space-y-1.5">
+              {dayEvents.slice(0, 5).map((event) => <CalendarEventPill event={event} dense key={event.id} onSelect={onEventSelect} />)}
+              {dayEvents.length > 5 ? <div className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] font-bold text-muted-foreground">+{dayEvents.length - 5} more</div> : null}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function DetailField({ label, value }: { label: string; value: string | number | null | undefined }) {
+  if (value === null || value === undefined || value === "") return null;
+  return (
+    <div className="rounded-md border border-border bg-background/75 p-3">
+      <p className="text-[11px] font-black uppercase text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words text-sm font-bold">{value}</p>
+    </div>
+  );
+}
+
 export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView; envStatus?: EnvStatus }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -615,16 +925,20 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
-  const [datePreset, setDatePreset] = useState<DatePreset>("week");
+  const [datePreset, setDatePreset] = useState<DatePreset>("month");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [calendarView, setCalendarView] = useState<CalendarView>("month");
   const [calendarAnchor, setCalendarAnchor] = useState(() => new Date());
+  const [taskView, setTaskView] = useState<TaskViewMode>("calendar");
+  const [paymentView, setPaymentView] = useState<PaymentViewMode>("calendar");
   const [selectedTask, setSelectedTask] = useState<UnifiedTask | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<UnifiedPayment | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [paymentFilters, setPaymentFilters] = useState<PaymentFilters>({ status: "all", cleaner: "all", account: "all", source: "all", needsReview: false });
+  const [taskFilters, setTaskFilters] = useState<TaskFilters>({ status: "all", priority: "all", category: "all", assignee: "all", search: "" });
+  const [paymentFilters, setPaymentFilters] = useState<PaymentFilters>({ status: "all", cleaner: "all", account: "all", source: "all", needsReview: false, search: "", commercialOnly: true });
   const [reportFilters, setReportFilters] = useState<ReportFilters>({ type: "payments", status: "all", staff: "all", category: "all", account: "all" });
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -638,6 +952,34 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     params.set("unit", nextUnit);
     router.replace(`${pathname}?${params.toString()}`);
   }
+
+  function updateCalendarAnchorFromKey(value: string) {
+    const nextAnchor = parseDate(value);
+    if (nextAnchor) setCalendarAnchor(nextAnchor);
+  }
+
+  function changeDatePreset(nextPreset: DatePreset) {
+    setDatePreset(nextPreset);
+    const nextWindow = getDateWindow(nextPreset, customStart, customEnd);
+    updateCalendarAnchorFromKey(nextWindow.start);
+  }
+
+  function changeCustomStart(date: string) {
+    setCustomStart(date);
+    if (date) updateCalendarAnchorFromKey(date);
+  }
+
+  function changeCustomEnd(date: string) {
+    setCustomEnd(date);
+  }
+
+  useEffect(() => {
+    if (view !== "payments" || searchParams.get("unit")) return;
+    if (!getUserAllowedUnits(role).includes("commercial")) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("unit", "commercial");
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [pathname, role, router, searchParams, view]);
 
   useEffect(() => {
     let mounted = true;
@@ -740,9 +1082,28 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   }), [allowedUnits, role, tasks, unit, view]);
 
   const visibleTasks = useMemo(() => scopedTasks.filter((task) => {
-    if (datePreset === "custom" && !customStart && !customEnd) return true;
-    return !task.due_date || isWithinWindow(task.due_date, dateWindow.start, dateWindow.end);
-  }), [customEnd, customStart, datePreset, dateWindow.end, dateWindow.start, scopedTasks]);
+    const shouldApplyDateWindow = !(datePreset === "custom" && !customStart && !customEnd);
+    if (shouldApplyDateWindow && task.due_date && !isWithinWindow(task.due_date, dateWindow.start, dateWindow.end)) return false;
+    if (taskFilters.status !== "all" && task.normalizedStatus !== taskFilters.status) return false;
+    if (taskFilters.priority !== "all" && task.normalizedPriority !== taskFilters.priority) return false;
+    if (taskFilters.category !== "all" && task.category !== taskFilters.category) return false;
+    if (taskFilters.assignee !== "all" && (task.assignee ?? "Unassigned") !== taskFilters.assignee) return false;
+    const search = taskFilters.search.trim().toLowerCase();
+    if (search) {
+      const haystack = [
+        task.title,
+        task.description,
+        task.category,
+        task.assignee,
+        task.account_name,
+        task.property_address,
+        task.panel,
+        task.business_unit,
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  }), [customEnd, customStart, datePreset, dateWindow.end, dateWindow.start, scopedTasks, taskFilters]);
 
   const scopedPayments = useMemo(() => payments.filter((payment) => {
     const paymentBusinessUnit = paymentUnit(payment);
@@ -752,13 +1113,29 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
 
   const visiblePayments = useMemo(() => scopedPayments.filter((payment) => {
     if (!isWithinWindow(paymentDate(payment), dateWindow.start, dateWindow.end)) return false;
+    if (paymentFilters.commercialOnly && unit !== "residential" && paymentUnit(payment) !== "commercial") return false;
     if (paymentFilters.status !== "all" && payment.status !== paymentFilters.status) return false;
     if (paymentFilters.cleaner !== "all" && payment.cleanerName !== paymentFilters.cleaner) return false;
     if (paymentFilters.account !== "all" && payment.accountName !== paymentFilters.account) return false;
     if (paymentFilters.source !== "all" && payment.sourceType !== paymentFilters.source) return false;
     if (paymentFilters.needsReview && !payment.requiresReview && payment.finalAmount !== 0) return false;
+    const search = paymentFilters.search.trim().toLowerCase();
+    if (search) {
+      const haystack = [
+        payment.cleanerName,
+        payment.cleanerEmail,
+        payment.cleanerType,
+        payment.accountName,
+        payment.sourceType,
+        payment.paymentType,
+        payment.status,
+        payment.paymentMethod,
+        payment.notes,
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
     return true;
-  }), [dateWindow.end, dateWindow.start, paymentFilters, scopedPayments]);
+  }), [dateWindow.end, dateWindow.start, paymentFilters, scopedPayments, unit]);
 
   const scopedStaff = useMemo(() => staff.filter((person) => staffMatchesUnit(person, unit)), [staff, unit]);
   const scopedAccounts = useMemo(() => unit === "residential" ? [] : accounts.filter((account) => account.source_sheet !== "Team supplies"), [accounts, unit]);
@@ -778,7 +1155,9 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     for (const row of attachmentRows) attachmentCounts.set(row.task_id, (attachmentCounts.get(row.task_id) ?? 0) + 1);
     setComments(commentRows);
     setAttachments(attachmentRows);
-    setTasks(((taskResult.data ?? []) as OperationTaskRow[]).map((row) => mapTask(row, commentCounts.get(row.id) ?? 0, attachmentCounts.get(row.id) ?? 0)));
+    const mappedTasks = ((taskResult.data ?? []) as OperationTaskRow[]).map((row) => mapTask(row, commentCounts.get(row.id) ?? 0, attachmentCounts.get(row.id) ?? 0));
+    setTasks(mappedTasks);
+    setSelectedTask((current) => current ? mappedTasks.find((task) => task.id === current.id) ?? current : null);
   }
 
   async function saveTaskDraft(event: FormEvent<HTMLFormElement>) {
@@ -962,6 +1341,68 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     });
   }
 
+  function applyCalendarWindow(nextView: CalendarView, nextAnchor: Date) {
+    const range = getCalendarRange(nextView, nextAnchor);
+    setDatePreset("custom");
+    setCustomStart(range.start);
+    setCustomEnd(range.end);
+  }
+
+  function changeCalendarView(nextView: CalendarView) {
+    setCalendarView(nextView);
+    applyCalendarWindow(nextView, calendarAnchor);
+  }
+
+  function navigateCalendar(direction: -1 | 1) {
+    const nextAnchor = calendarView === "month" || calendarView === "agenda"
+      ? addMonths(calendarAnchor, direction)
+      : addDays(calendarAnchor, calendarView === "week" ? direction * 7 : direction);
+    setCalendarAnchor(nextAnchor);
+    applyCalendarWindow(calendarView, nextAnchor);
+  }
+
+  function jumpCalendarToday() {
+    const today = new Date();
+    setCalendarAnchor(today);
+    applyCalendarWindow(calendarView, today);
+  }
+
+  const paymentCalendarEvents = useMemo(() => visiblePayments
+    .map((payment) => mapPaymentToCalendarEvent(payment, {
+      amountLabel: money(payment.finalAmount),
+      sourceLabel: sourceLabel(payment),
+      date: paymentDate(payment),
+      businessUnit: paymentUnit(payment),
+    }))
+    .filter((event) => event.start), [visiblePayments]);
+
+  const taskCalendarEvents = useMemo(() => visibleTasks
+    .map((task) => mapTaskToCalendarEvent(task))
+    .filter((event) => event.start), [visibleTasks]);
+
+  function openCalendarEventDetail(event: NormalizedCalendarEvent) {
+    if (event.type === "task") {
+      const task = tasks.find((item) => item.id === event.sourceId);
+      if (task) {
+        setSelectedPayment(null);
+        setSelectedTask(task);
+      }
+      return;
+    }
+
+    if (event.type === "booking" || event.type === "payment") {
+      const sourceType = String(event.meta.sourceType ?? "");
+      const payment = payments.find((item) => item.id === event.sourceId && item.sourceType === sourceType);
+      if (payment) {
+        setSelectedTask(null);
+        setSelectedPayment(payment);
+      }
+      return;
+    }
+
+    setMessage("SOP templates are shown for rhythm context. Create or open a task instance to manage completion.");
+  }
+
   const canCreateForCurrentUnit = unit === "both"
     ? allowedUnits.some((allowedUnit) => canManageUnit(role, allowedUnit))
     : canManageUnit(role, unit);
@@ -977,9 +1418,9 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
           customStart={customStart}
           customEnd={customEnd}
           onUnitChange={updateUnit}
-          onDatePresetChange={setDatePreset}
-          onCustomStartChange={setCustomStart}
-          onCustomEndChange={setCustomEnd}
+          onDatePresetChange={changeDatePreset}
+          onCustomStartChange={changeCustomStart}
+          onCustomEndChange={changeCustomEnd}
         />
 
         {message ? (
@@ -1004,6 +1445,7 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
 
       {taskDraft ? renderTaskModal() : null}
       {selectedTask ? renderTaskDetail() : null}
+      {selectedPayment ? renderPaymentDetail() : null}
     </DashboardShell>
   );
 
@@ -1077,39 +1519,125 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
 
   function renderTasks() {
     const categories = Array.from(new Set(scopedTasks.map((task) => task.category).filter(Boolean))).sort();
+    const assigneeOptions = Array.from(new Set(scopedTasks.map((task) => task.assignee ?? "Unassigned"))).sort();
+    const scheduledTaskCount = visibleTasks.filter((task) => task.due_date).length;
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-card p-3">
-          <div className="flex flex-wrap gap-2 text-sm font-bold text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3 text-sm font-bold text-muted-foreground">
             <span>{visibleTasks.length} tasks</span>
+            <span>{scheduledTaskCount} scheduled</span>
             <span>{categories.length} categories</span>
             <span>{scopedSopTemplates.length} SOP templates</span>
           </div>
-          <Button disabled={!canCreateForCurrentUnit} onClick={() => openTaskDraft()}><Plus className="size-4" /> Create task</Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ViewToggle
+              label="Task view"
+              value={taskView}
+              onChange={setTaskView}
+              options={[
+                { value: "kanban", label: "Kanban" },
+                { value: "calendar", label: "Calendar" },
+                { value: "list", label: "List" },
+              ]}
+            />
+            <Button disabled={!canCreateForCurrentUnit} onClick={() => openTaskDraft()}><Plus className="size-4" /> Create task</Button>
+          </div>
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-5">
-          {COLUMNS.map((column) => {
-            const columnTasks = visibleTasks.filter((task) => task.normalizedStatus === column.id);
-            return (
-              <section className="min-h-[340px] rounded-lg border border-border/80 bg-card/80 p-3" key={column.id}>
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-black">{column.label}</h2>
-                    <p className="text-xs font-semibold text-muted-foreground">{column.helper}</p>
-                  </div>
-                  <Badge variant="outline">{columnTasks.length}</Badge>
-                </div>
-                <div className="space-y-2">
-                  {columnTasks.length === 0 ? <div className="rounded-md border border-dashed border-border p-4 text-center text-xs font-bold text-muted-foreground">No tasks here.</div> : null}
-                  {columnTasks.map((task) => (
-                    <TaskCard task={task} key={task.id} onSelect={setSelectedTask} onComplete={completeTask} />
-                  ))}
-                </div>
-              </section>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
+          <div className="relative min-w-60 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              className="h-9 w-full rounded-md border bg-background px-9 text-sm font-bold"
+              value={taskFilters.search}
+              onChange={(event) => setTaskFilters((current) => ({ ...current, search: event.target.value }))}
+              placeholder="Search tasks"
+              aria-label="Search tasks"
+            />
+          </div>
+          <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={taskFilters.status} onChange={(event) => setTaskFilters((current) => ({ ...current, status: event.target.value }))} aria-label="Task status filter">
+            <option value="all">All statuses</option>
+            {COLUMNS.map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}
+          </select>
+          <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={taskFilters.priority} onChange={(event) => setTaskFilters((current) => ({ ...current, priority: event.target.value }))} aria-label="Task priority filter">
+            <option value="all">All priorities</option>
+            {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={taskFilters.category} onChange={(event) => setTaskFilters((current) => ({ ...current, category: event.target.value }))} aria-label="Task category filter">
+            <option value="all">All categories</option>
+            {categories.map((category) => <option key={category}>{category}</option>)}
+          </select>
+          <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={taskFilters.assignee} onChange={(event) => setTaskFilters((current) => ({ ...current, assignee: event.target.value }))} aria-label="Task assignee filter">
+            <option value="all">All assignees</option>
+            {assigneeOptions.map((assignee) => <option key={assignee}>{assignee}</option>)}
+          </select>
+          <Button variant="outline" onClick={() => setTaskFilters({ status: "all", priority: "all", category: "all", assignee: "all", search: "" })}><RotateCcw className="size-4" /> Clear</Button>
         </div>
+
+        {taskView === "calendar" ? (
+          <div className="space-y-3">
+            <CalendarToolbar viewMode={calendarView} anchor={calendarAnchor} onViewModeChange={changeCalendarView} onNavigate={navigateCalendar} onToday={jumpCalendarToday} />
+            <OperationsCalendar events={taskCalendarEvents} viewMode={calendarView} anchor={calendarAnchor} emptyMessage="No scheduled tasks match these filters." onEventSelect={openCalendarEventDetail} />
+          </div>
+        ) : null}
+
+        {taskView === "kanban" ? (
+          <div className="grid gap-3 xl:grid-cols-5">
+            {COLUMNS.map((column) => {
+              const columnTasks = visibleTasks.filter((task) => task.normalizedStatus === column.id);
+              return (
+                <section className="min-h-[340px] rounded-lg border border-border/80 bg-card/80 p-3" key={column.id}>
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-black">{column.label}</h2>
+                      <p className="text-xs font-semibold text-muted-foreground">{column.helper}</p>
+                    </div>
+                    <Badge variant="outline">{columnTasks.length}</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {columnTasks.length === 0 ? <div className="rounded-md border border-dashed border-border p-4 text-center text-xs font-bold text-muted-foreground">No tasks here.</div> : null}
+                    {columnTasks.map((task) => (
+                      <TaskCard task={task} key={task.id} onSelect={setSelectedTask} onComplete={completeTask} />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {taskView === "list" ? (
+          <Card>
+            <CardContent className="grid gap-2 p-4">
+              {visibleTasks.length === 0 ? <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm font-bold text-muted-foreground">No tasks match these filters.</div> : null}
+              {visibleTasks.map((task) => (
+                <button
+                  type="button"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/75 p-3 text-left transition hover:border-primary/30 hover:bg-accent/25"
+                  key={task.id}
+                  onClick={() => setSelectedTask(task)}
+                >
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <UnitBadge unit={task.unit} />
+                      <Badge variant="outline">{statusLabel(task.normalizedStatus)}</Badge>
+                      <Badge variant="outline">{PRIORITY_LABELS[task.normalizedPriority]}</Badge>
+                      <Badge variant="outline">{task.category}</Badge>
+                    </div>
+                    <p className="mt-2 font-black">{task.title || "Untitled task"}</p>
+                    <p className="text-xs font-bold text-muted-foreground">{task.assignee || "Unassigned"} · {displayDate(task.due_date)}</p>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs font-bold text-muted-foreground">
+                    <span className="flex items-center gap-1"><MessageSquare className="size-3.5" /> {task.commentsCount}</span>
+                    <span className="flex items-center gap-1"><Paperclip className="size-3.5" /> {task.attachmentsCount}</span>
+                    {task.normalizedStatus === "completed" ? <Check className="size-4 text-emerald-600" /> : null}
+                  </div>
+                </button>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
 
         {scopedSopTemplates.length ? (
           <Card>
@@ -1139,107 +1667,36 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   }
 
   function calendarEvents() {
-    const taskEvents = scopedTasks.map((task) => ({
-      id: `task-${task.id}`,
-      date: task.due_date?.slice(0, 10) ?? "",
-      title: task.title,
-      type: "Task",
-      unit: task.unit,
-      status: task.normalizedStatus,
-      assigned: task.assignee ?? "Unassigned",
-      detail: task.account_name || task.property_address || task.category,
-    }));
-    const paymentEvents = scopedPayments.map((payment) => ({
-      id: `payment-${payment.sourceType}-${payment.id}`,
-      date: paymentDate(payment).slice(0, 10),
-      title: `${payment.cleanerName} · ${money(payment.finalAmount)}`,
-      type: "Payment",
-      unit: paymentUnit(payment),
-      status: payment.status,
-      assigned: payment.cleanerName,
-      detail: payment.accountName ?? sourceLabel(payment),
-    }));
-    const sopEvents = scopedSopTemplates.map((template) => ({
+    const sopEvents: NormalizedCalendarEvent[] = scopedSopTemplates.map((template) => ({
       id: `sop-${template.id}`,
-      date: "",
+      sourceId: template.id,
+      type: "sop",
       title: template.title,
-      type: "SOP",
-      unit: "residential" as const,
+      start: "",
       status: template.frequency,
-      assigned: template.assigned_to,
-      detail: template.schedule_label,
+      businessUnit: "residential",
+      color: getCalendarEventColor("sop", template.frequency, "residential"),
+      summary: `${template.assigned_to} · ${template.schedule_label}`,
+      meta: {
+        category: template.category,
+        schedule: template.schedule_label,
+      },
     }));
-    return [...taskEvents, ...paymentEvents, ...sopEvents].filter((event) => event.date ? isWithinWindow(event.date, dateWindow.start, dateWindow.end) : calendarView === "agenda");
+    return [...taskCalendarEvents, ...paymentCalendarEvents, ...sopEvents.filter((event) => calendarView === "agenda" || Boolean(event.start))];
   }
 
   function renderCalendar() {
     const events = calendarEvents();
-    const monthStart = new Date(calendarAnchor.getFullYear(), calendarAnchor.getMonth(), 1);
-    const gridStart = startOfWeek(monthStart);
-    const days = Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
-    const anchorLabel = calendarAnchor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    const viewEvents = calendarView === "agenda" ? events : events.filter((event) => event.date);
-
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-card p-3">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" aria-label="Previous month" onClick={() => setCalendarAnchor(new Date(calendarAnchor.getFullYear(), calendarAnchor.getMonth() - 1, 1))}><ChevronLeft className="size-4" /></Button>
-            <div className="min-w-44 text-center text-sm font-black">{anchorLabel}</div>
-            <Button variant="outline" size="icon" aria-label="Next month" onClick={() => setCalendarAnchor(new Date(calendarAnchor.getFullYear(), calendarAnchor.getMonth() + 1, 1))}><ChevronRight className="size-4" /></Button>
-          </div>
-          <div className="flex flex-wrap gap-1 rounded-md border border-border bg-background p-1">
-            {(["month", "week", "day", "agenda"] as CalendarView[]).map((option) => (
-              <button className={cn("rounded px-3 py-1.5 text-xs font-black capitalize text-muted-foreground", calendarView === option && "bg-primary text-primary-foreground")} key={option} type="button" onClick={() => setCalendarView(option)}>{option}</button>
-            ))}
-          </div>
+        <div className="grid gap-3 md:grid-cols-4">
+          <MetricCard icon={CalendarDays} label="Calendar items" value={events.length} />
+          <MetricCard icon={CheckSquare} label="Tasks" value={taskCalendarEvents.length} />
+          <MetricCard icon={WalletCards} label="Payments" value={paymentCalendarEvents.length} />
+          <MetricCard icon={ClipboardCheck} label="SOP context" value={scopedSopTemplates.length} />
         </div>
-
-        {calendarView === "month" ? (
-          <div className="grid grid-cols-7 overflow-hidden rounded-lg border border-border bg-card">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-b border-border bg-muted/40 p-2 text-xs font-black text-muted-foreground" key={day}>{day}</div>)}
-            {days.map((day) => {
-              const key = formatDateKey(day);
-              const dayEvents = viewEvents.filter((event) => event.date === key);
-              return (
-                <div className={cn("min-h-32 border-b border-r border-border p-2", day.getMonth() !== calendarAnchor.getMonth() && "bg-muted/20 text-muted-foreground")} key={key}>
-                  <div className="text-xs font-black">{day.getDate()}</div>
-                  <div className="mt-2 space-y-1">
-                    {dayEvents.slice(0, 4).map((event) => (
-                      <div className="truncate rounded border border-border bg-background px-2 py-1 text-[11px] font-bold" key={event.id}>
-                        <span className="mr-1 text-primary">{event.type}</span>{event.title}
-                      </div>
-                    ))}
-                    {dayEvents.length > 4 ? <div className="text-[11px] font-bold text-muted-foreground">+{dayEvents.length - 4} more</div> : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>{calendarView === "agenda" ? "Agenda" : `${statusLabel(calendarView)} view`}</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {viewEvents.length === 0 ? <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm font-bold text-muted-foreground">No calendar items for this period.</div> : null}
-              {viewEvents.map((event) => (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/70 p-3" key={event.id}>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline">{event.type}</Badge>
-                      <UnitBadge unit={event.unit} />
-                      <Badge variant="outline">{String(event.status).replace("_", " ")}</Badge>
-                    </div>
-                    <p className="mt-2 font-black">{event.title}</p>
-                    <p className="text-xs font-bold text-muted-foreground">{event.assigned} · {event.detail}</p>
-                  </div>
-                  <div className="text-right text-sm font-black">{event.date ? displayDate(event.date) : event.detail}</div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
+        <CalendarToolbar viewMode={calendarView} anchor={calendarAnchor} onViewModeChange={changeCalendarView} onNavigate={navigateCalendar} onToday={jumpCalendarToday} />
+        <OperationsCalendar events={events} viewMode={calendarView} anchor={calendarAnchor} emptyMessage="No calendar items match this period." onEventSelect={openCalendarEventDetail} />
       </div>
     );
   }
@@ -1248,13 +1705,8 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     const cleanerOptions = Array.from(new Set(scopedPayments.map((payment) => payment.cleanerName).filter(Boolean))).sort();
     const accountOptions = Array.from(new Set(scopedPayments.map((payment) => payment.accountName).filter(Boolean) as string[])).sort();
     const sourceOptions = Array.from(new Set(scopedPayments.map((payment) => payment.sourceType))).sort();
-    const byDate = new Map<string, UnifiedPayment[]>();
-    for (const payment of visiblePayments) {
-      const date = paymentDate(payment).slice(0, 10) || todayKey();
-      byDate.set(date, [...(byDate.get(date) ?? []), payment]);
-    }
-    const start = parseDate(dateWindow.start) ?? new Date();
-    const days = Array.from({ length: datePreset === "today" ? 1 : datePreset === "week" ? 7 : 35 }, (_, index) => addDays(start, index));
+    const commercialOnlyActive = paymentFilters.commercialOnly && unit !== "residential";
+    const resetPaymentFilters = () => setPaymentFilters({ status: "all", cleaner: "all", account: "all", source: "all", needsReview: false, search: "", commercialOnly: true });
 
     return (
       <div className="space-y-4">
@@ -1264,7 +1716,35 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
           <MetricCard icon={CheckCircle2} label="Paid / locked" value={visiblePayments.filter((payment) => payment.status === "paid" || payment.status === "locked").length} tone="good" />
           <MetricCard icon={AlertTriangle} label="Needs review" value={visiblePayments.filter((payment) => payment.requiresReview || payment.finalAmount === 0).length} tone="warn" />
         </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-card p-3">
+          <div className="flex flex-wrap items-center gap-3 text-sm font-bold text-muted-foreground">
+            <span>{paymentCalendarEvents.length} calendar items</span>
+            <span>{visiblePayments.filter((payment) => paymentUnit(payment) === "commercial").length} commercial</span>
+            <span>{dateWindow.label}</span>
+          </div>
+          <ViewToggle
+            label="Payment view"
+            value={paymentView}
+            onChange={setPaymentView}
+            options={[
+              { value: "calendar", label: "Calendar" },
+              { value: "list", label: "List" },
+            ]}
+          />
+        </div>
+
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
+          <div className="relative min-w-64 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              className="h-9 w-full rounded-md border bg-background px-9 text-sm font-bold"
+              value={paymentFilters.search}
+              onChange={(event) => setPaymentFilters((current) => ({ ...current, search: event.target.value }))}
+              placeholder="Search account, cleaner, source"
+              aria-label="Search payments"
+            />
+          </div>
           <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={paymentFilters.status} onChange={(event) => setPaymentFilters((current) => ({ ...current, status: event.target.value }))} aria-label="Payment status filter">
             <option value="all">All statuses</option>
             {["draft", "needs_review", "approved", "paid", "locked", "legacy"].map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
@@ -1281,51 +1761,53 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
             <option value="all">All sources</option>
             {sourceOptions.map((source) => <option key={source} value={source}>{sourceLabel({ sourceType: source } as UnifiedPayment)}</option>)}
           </select>
+          <button className={cn("h-9 rounded-md border px-3 text-sm font-black disabled:opacity-50", commercialOnlyActive ? "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/35 dark:text-sky-100" : "bg-background text-muted-foreground")} type="button" disabled={unit === "residential"} onClick={() => setPaymentFilters((current) => ({ ...current, commercialOnly: !current.commercialOnly }))}>Only commercial</button>
           <button className={cn("h-9 rounded-md border px-3 text-sm font-black", paymentFilters.needsReview ? "border-amber-300 bg-amber-50 text-amber-800" : "bg-background text-muted-foreground")} type="button" onClick={() => setPaymentFilters((current) => ({ ...current, needsReview: !current.needsReview }))}>Needs review</button>
-          <Button variant="outline" onClick={() => setPaymentFilters({ status: "all", cleaner: "all", account: "all", source: "all", needsReview: false })}><RotateCcw className="size-4" /> Clear</Button>
+          <Button variant="outline" onClick={resetPaymentFilters}><RotateCcw className="size-4" /> Clear</Button>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-7">
-          {days.map((day) => {
-            const key = formatDateKey(day);
-            const dayPayments = byDate.get(key) ?? [];
-            return (
-              <section className="min-h-44 rounded-lg border border-border bg-card p-3" key={key}>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-black text-muted-foreground">{day.toLocaleDateString("en-US", { weekday: "short" })}</p>
-                    <p className="text-sm font-black">{day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</p>
-                  </div>
-                  <Badge variant="outline">{dayPayments.length}</Badge>
-                </div>
-                <div className="space-y-2">
-                  {dayPayments.map((payment) => (
-                    <article className="rounded-md border border-border bg-background/75 p-2" key={`${payment.sourceType}-${payment.id}`}>
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-xs font-black">{payment.cleanerName}</p>
-                          <p className="text-[11px] font-bold text-muted-foreground">{payment.accountName ?? sourceLabel(payment)}</p>
-                        </div>
-                        <strong className="text-xs text-primary">{money(payment.finalAmount)}</strong>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1">
+        {paymentView === "calendar" ? (
+          <div className="space-y-3">
+            <CalendarToolbar viewMode={calendarView} anchor={calendarAnchor} onViewModeChange={changeCalendarView} onNavigate={navigateCalendar} onToday={jumpCalendarToday} />
+            <OperationsCalendar events={paymentCalendarEvents} viewMode={calendarView} anchor={calendarAnchor} emptyMessage="No commercial payments or bookings match these filters." onEventSelect={openCalendarEventDetail} />
+          </div>
+        ) : null}
+
+        {paymentView === "list" ? (
+          <Card>
+            <CardContent className="grid gap-2 p-4">
+              {visiblePayments.length === 0 ? <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm font-bold text-muted-foreground">No payments match these filters.</div> : null}
+              {visiblePayments.map((payment) => (
+                <button
+                  type="button"
+                  className="rounded-lg border border-border bg-background/75 p-3 text-left transition hover:border-primary/30 hover:bg-accent/25"
+                  key={`${payment.sourceType}-${payment.id}`}
+                  onClick={() => setSelectedPayment(payment)}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <UnitBadge unit={paymentUnit(payment)} />
                         <Badge variant="outline">{statusLabel(payment.status)}</Badge>
                         <Badge variant="outline">{sourceLabel(payment)}</Badge>
+                        {payment.synced ? <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">Synced</Badge> : null}
+                        {(payment.requiresReview || payment.finalAmount === 0) ? <Badge className="border-rose-200 bg-rose-50 text-rose-800">Needs Review</Badge> : null}
                       </div>
-                      {(payment.requiresReview || payment.finalAmount === 0) ? <p className="mt-2 text-[11px] font-bold text-amber-700">{getPaymentReviewReason(payment)}</p> : null}
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {payment.payPeriodId ? <Button asChild size="sm" variant="outline"><Link href={`/commercial/payroll/${payment.payPeriodId}`}>Open</Link></Button> : null}
-                        <Button size="sm" variant="outline" disabled={payment.status === "paid" || payment.status === "locked" || payment.sourceType === "commercial_payroll"} onClick={() => markPaymentPaid(payment)}>Mark paid</Button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-        {visiblePayments.length === 0 ? <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm font-bold text-muted-foreground">No payments scheduled for this period.</div> : null}
+                      <p className="mt-2 font-black">{payment.accountName ?? payment.cleanerName}</p>
+                      <p className="text-xs font-bold text-muted-foreground">{payment.cleanerName} · {displayDate(paymentDate(payment))}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-primary">{money(payment.finalAmount)}</p>
+                      <p className="text-xs font-bold text-muted-foreground">{payment.paymentMethod ?? "No method"}</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {paymentView === "calendar" && visiblePayments.length === 0 ? <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm font-bold text-muted-foreground">No payments scheduled for this period.</div> : null}
       </div>
     );
   }
@@ -1658,59 +2140,230 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     );
   }
 
+  function renderPaymentDetail() {
+    if (!selectedPayment) return null;
+    const account = accounts.find((item) => (selectedPayment.accountId && item.id === selectedPayment.accountId) || (selectedPayment.accountName && item.name === selectedPayment.accountName));
+    const isProtected = selectedPayment.status === "approved" || selectedPayment.status === "paid" || selectedPayment.status === "locked";
+    const canMarkPaid = selectedPayment.sourceType === "legacy_payment" && selectedPayment.status !== "paid" && selectedPayment.status !== "locked";
+    const title = selectedPayment.sourceType === "commercial_payroll" ? "Booking / Payment summary" : "Payment summary";
+    const accountName = selectedPayment.accountName ?? account?.name ?? "Commercial account";
+    const initial = (accountName || selectedPayment.cleanerName || "P").trim().charAt(0).toUpperCase();
+    const hours = selectedPayment.adjustedHours ?? selectedPayment.baseHours ?? account?.hours;
+    const protectedCopy = selectedPayment.sourceType === "commercial_payroll"
+      ? "Commercial payroll entries are managed from the payroll period. Approved, paid, and locked payroll states stay protected here."
+      : "Protected payment states are shown here and are not recalculated from the calendar.";
+
+    function confirmMarkPaid() {
+      if (!selectedPayment || !canMarkPaid) return;
+      if (!window.confirm("Mark this payment as paid? This updates the payment status and paid date.")) return;
+      markPaymentPaid(selectedPayment);
+    }
+
+    return (
+      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl overflow-auto border-l border-border bg-card shadow-2xl">
+        <div className="sticky top-0 z-10 border-b border-border bg-card/95 p-5 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase text-primary">{title}</p>
+              <h2 className="mt-2 text-2xl font-black">{accountName}</h2>
+              <p className="mt-1 text-sm font-semibold text-muted-foreground">{selectedPayment.cleanerName} · {money(selectedPayment.finalAmount)}</p>
+            </div>
+            <button type="button" className="grid size-9 place-items-center rounded-md border border-border bg-background" aria-label="Close payment detail" onClick={() => setSelectedPayment(null)}><X className="size-5" /></button>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <UnitBadge unit={paymentUnit(selectedPayment)} />
+            <Badge variant="outline">{statusLabel(selectedPayment.status)}</Badge>
+            <Badge variant="outline">{sourceLabel(selectedPayment)}</Badge>
+            {selectedPayment.requiresReview || selectedPayment.finalAmount === 0 ? <Badge className="border-rose-200 bg-rose-50 text-rose-800">Needs Review</Badge> : null}
+            {selectedPayment.status === "approved" ? <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">Approved</Badge> : null}
+            {selectedPayment.status === "paid" ? <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">Paid</Badge> : null}
+            {selectedPayment.status === "locked" ? <Badge className="border-slate-300 bg-slate-100 text-slate-800">Locked</Badge> : null}
+            {selectedPayment.synced ? <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">Synced</Badge> : null}
+            {paymentUnit(selectedPayment) === "commercial" && selectedPayment.sourceType !== "commercial_payroll" ? <Badge className="border-sky-200 bg-sky-50 text-sky-800">Manual Commercial</Badge> : null}
+          </div>
+        </div>
+
+        <div className="space-y-5 p-5">
+          <section className="rounded-lg border border-border bg-background/60 p-4">
+            <div className="flex items-start gap-3">
+              <div className="grid size-14 shrink-0 place-items-center rounded-lg border border-border bg-card text-xl font-black text-primary">{initial}</div>
+              <div className="min-w-0">
+                <h3 className="font-black">{accountName}</h3>
+                <p className="mt-1 text-sm font-semibold text-muted-foreground">{account?.city ?? "Address not recorded"}</p>
+                <div className="mt-3 grid gap-2 text-sm font-bold text-muted-foreground sm:grid-cols-2">
+                  <span>Cleaner/team: {account?.cleaner_name ?? selectedPayment.cleanerName}</span>
+                  <span>Payment method: {selectedPayment.paymentMethod ?? account?.payment_method ?? "Not recorded"}</span>
+                  {selectedPayment.cleanerEmail ? <span>Cleaner email: {selectedPayment.cleanerEmail}</span> : null}
+                  {account?.last_contact_date ? <span>Last contact: {displayDate(account.last_contact_date)}</span> : null}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="mb-3 font-black">Booking / payment details</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <DetailField label="Payment ID" value={selectedPayment.id} />
+              <DetailField label="Booking / source ID" value={selectedPayment.sourceId} />
+              <DetailField label="Pay period" value={selectedPayment.periodStart || selectedPayment.periodEnd ? `${displayDate(selectedPayment.periodStart)} - ${displayDate(selectedPayment.periodEnd ?? selectedPayment.periodStart)}` : null} />
+              <DetailField label="Service date" value={displayDate(paymentDate(selectedPayment))} />
+              <DetailField label="Service" value={selectedPayment.paymentType ? statusLabel(selectedPayment.paymentType) : account?.pricing_model} />
+              <DetailField label="Frequency" value={account?.frequency} />
+              <DetailField label="Length / duration" value={hours ? `${hours} hours` : null} />
+              <DetailField label="Professionals count" value={selectedPayment.cleanerName ? 1 : null} />
+              <DetailField label="Assigned to" value={account?.cleaner_name ?? selectedPayment.cleanerName} />
+              <DetailField label="Provider payment / amount" value={money(selectedPayment.finalAmount)} />
+              <DetailField label="Final amount" value={money(selectedPayment.finalAmount)} />
+              <DetailField label="Status" value={statusLabel(selectedPayment.status)} />
+              <DetailField label="Source" value={sourceLabel(selectedPayment)} />
+              <DetailField label="Payment method" value={selectedPayment.paymentMethod ?? account?.payment_method} />
+              <DetailField label="Approved at" value={selectedPayment.approvedAt ? new Date(selectedPayment.approvedAt).toLocaleString() : null} />
+              <DetailField label="Paid at" value={selectedPayment.paidAt ? new Date(selectedPayment.paidAt).toLocaleString() : null} />
+            </div>
+          </section>
+
+          <section className="grid gap-3">
+            {(selectedPayment.requiresReview || selectedPayment.finalAmount === 0 || selectedPayment.notes) ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm font-bold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">
+                <p className="text-xs font-black uppercase">Review reason / notes</p>
+                <p className="mt-2">{getPaymentReviewReason(selectedPayment)}</p>
+              </div>
+            ) : null}
+            {isProtected || selectedPayment.sourceType === "commercial_payroll" ? (
+              <div className="rounded-lg border border-slate-300 bg-slate-100 p-4 text-sm font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-100">{protectedCopy}</div>
+            ) : null}
+          </section>
+
+          <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+            {selectedPayment.payPeriodId ? <Button asChild variant="outline"><Link href={`/commercial/payroll/${selectedPayment.payPeriodId}`}>Open full detail</Link></Button> : <Button asChild variant="outline"><Link href="/payments?unit=commercial">Open payments</Link></Button>}
+            <Button disabled={!canMarkPaid} onClick={confirmMarkPaid}><CheckCircle2 className="size-4" /> Mark paid</Button>
+            <Button variant="outline" onClick={() => setSelectedPayment(null)}>Close</Button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
   function renderTaskDetail() {
     if (!selectedTask) return null;
     const taskComments = comments.filter((comment) => comment.task_id === selectedTask.id);
     const taskAttachments = attachments.filter((attachment) => attachment.task_id === selectedTask.id);
     const taskActivity = activity.filter((item) => item.task_id === selectedTask.id);
+    const isCompleted = selectedTask.normalizedStatus === "completed";
+    const recurrence = selectedTask.recurrence && selectedTask.recurrence !== "none"
+      ? selectedTask.recurrence === "custom" && selectedTask.custom_interval_days
+        ? `Every ${selectedTask.custom_interval_days} day(s)`
+        : statusLabel(selectedTask.recurrence)
+      : "None";
     return (
-      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-xl overflow-auto border-l border-border bg-card p-5 shadow-2xl">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap gap-2"><UnitBadge unit={selectedTask.unit} /><Badge variant="outline">{statusLabel(selectedTask.normalizedStatus)}</Badge></div>
-            <h2 className="mt-3 text-xl font-black">{selectedTask.title}</h2>
-            <p className="mt-2 text-sm font-semibold text-muted-foreground">{selectedTask.description || "No description yet."}</p>
+      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl overflow-auto border-l border-border bg-card shadow-2xl">
+        <div className="sticky top-0 z-10 border-b border-border bg-card/95 p-5 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase text-primary">Task summary</p>
+              <div className="mt-2 flex items-start gap-3">
+                <span className={cn("mt-1 grid size-8 shrink-0 place-items-center rounded-md border", isCompleted ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-border bg-background text-muted-foreground")}>
+                  {isCompleted ? <Check className="size-4" /> : <CheckSquare className="size-4" />}
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-2xl font-black leading-tight">{selectedTask.title}</h2>
+                  <p className="mt-1 text-sm font-semibold text-muted-foreground">{selectedTask.description || "No description yet."}</p>
+                </div>
+              </div>
+            </div>
+            <button type="button" className="grid size-9 place-items-center rounded-md border border-border bg-background" aria-label="Close task detail" onClick={() => setSelectedTask(null)}><X className="size-5" /></button>
           </div>
-          <button type="button" aria-label="Close task detail" onClick={() => setSelectedTask(null)}><X className="size-5" /></button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <UnitBadge unit={selectedTask.unit} />
+            <Badge variant="outline">{statusLabel(selectedTask.normalizedStatus)}</Badge>
+            <Badge variant="outline">{PRIORITY_LABELS[selectedTask.normalizedPriority]}</Badge>
+            <Badge variant="outline">{selectedTask.category}</Badge>
+          </div>
         </div>
-        <div className="mt-4 grid gap-2 rounded-lg border border-border bg-background/70 p-3 text-sm font-bold">
-          <span>Assigned to: {selectedTask.assignee || "Unassigned"}</span>
-          <span>Schedule: {displayDate(selectedTask.due_date)}</span>
-          <span>Category: {selectedTask.category}</span>
-          <span>Notify owner: {selectedTask.notifyOwnerOnCompleted ? "On" : "Off"}</span>
-          <span>Notify assignee: {selectedTask.notifyAssigneeOnAssigned ? "On" : "Off"}</span>
+
+        <div className="space-y-5 p-5">
+          <section>
+            <h3 className="mb-3 font-black">Task info</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <DetailField label="Task ID" value={selectedTask.id} />
+              <DetailField label="Business unit" value={businessUnitLabel(selectedTask.unit)} />
+              <DetailField label="Category" value={selectedTask.category} />
+              <DetailField label="Assigned to" value={selectedTask.assignee || "Unassigned"} />
+              <DetailField label="Created by" value={selectedTask.assigned_by ?? selectedTask.created_by} />
+              <DetailField label="Due date" value={displayDate(selectedTask.due_date)} />
+              <DetailField label="Schedule summary" value={selectedTask.due_date ? `Due ${displayDate(selectedTask.due_date)}` : "No due date"} />
+              <DetailField label="Recurrence" value={recurrence} />
+              <DetailField label="Notify owner when completed" value={selectedTask.notifyOwnerOnCompleted ? "On" : "Off"} />
+              <DetailField label="Notify assignee when assigned" value={selectedTask.notifyAssigneeOnAssigned ? "On" : "Off"} />
+              <DetailField label="Completed at" value={selectedTask.completed_at ? new Date(selectedTask.completed_at).toLocaleString() : null} />
+              <DetailField label="Account / property" value={selectedTask.account_name ?? selectedTask.property_address} />
+            </div>
+          </section>
+
+          <section className="grid gap-3">
+            <h3 className="font-black">Description / notes</h3>
+            <div className="rounded-lg border border-border bg-background/75 p-4 text-sm font-semibold text-muted-foreground">{selectedTask.description || "No description yet."}</div>
+            {selectedTask.completion_notes ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-4 text-sm font-bold text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100">
+                <p className="text-xs font-black uppercase">Completion notes</p>
+                <p className="mt-2">{selectedTask.completion_notes}</p>
+              </div>
+            ) : null}
+          </section>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricCard icon={MessageSquare} label="Comments" value={taskComments.length} />
+            <MetricCard icon={Paperclip} label="Attachments" value={taskAttachments.length} />
+            <MetricCard icon={Clock} label="Activity" value={taskActivity.length} />
+          </div>
+
+          <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+            <Button disabled={isCompleted} onClick={() => completeTask(selectedTask)}><Check className="size-4" /> Mark completed</Button>
+            <Button variant="outline" onClick={() => openTaskDraft(selectedTask)}>Edit</Button>
+            <Button variant="outline" onClick={() => openTaskDraft(selectedTask)}>Reassign</Button>
+            <Button asChild variant="outline"><Link href={`/tasks/${selectedTask.id}`}>Open full task detail</Link></Button>
+          </div>
+
+          <section>
+            <h3 className="font-black">Comments</h3>
+            <form className="mt-2 flex gap-2" onSubmit={addComment}>
+              <input className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm font-bold" value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} placeholder="Add an operational note" />
+              <Button type="submit">Post</Button>
+            </form>
+            <div className="mt-3 space-y-2">
+              {taskComments.length === 0 ? <p className="rounded-md border border-dashed border-border p-3 text-sm font-bold text-muted-foreground">No comments yet.</p> : null}
+              {taskComments.slice(0, 5).map((comment) => (
+                <div className="rounded-md border border-border bg-background/70 p-3 text-sm" key={comment.id}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong>{comment.author_name}</strong>
+                    <span className="text-xs font-bold text-muted-foreground">{new Date(comment.created_at).toLocaleString()}</span>
+                  </div>
+                  <p className="mt-1 text-muted-foreground">{comment.body}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="font-black">Attachments / evidence</h3>
+            <label className="mt-2 inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-black">
+              <Upload className="size-4" /> {uploading ? "Uploading..." : "Upload photo/evidence"}
+              <input className="hidden" type="file" accept="image/*,application/pdf" disabled={uploading} onChange={(event) => uploadAttachment(event.target.files?.[0] ?? null)} />
+            </label>
+            <div className="mt-3 space-y-2">
+              {taskAttachments.length === 0 ? <p className="rounded-md border border-dashed border-border p-3 text-sm font-bold text-muted-foreground">No evidence uploaded.</p> : null}
+              {taskAttachments.map((attachment) => <a className="flex items-center justify-between rounded-md border border-border bg-background/70 p-3 text-sm font-bold" href={attachment.file_url ?? "#"} target="_blank" rel="noreferrer" key={attachment.id}><span>{attachment.file_name}</span><Paperclip className="size-4" /></a>)}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="font-black">Activity log</h3>
+            <div className="mt-3 space-y-2">
+              {taskActivity.length === 0 ? <p className="rounded-md border border-dashed border-border p-3 text-sm font-bold text-muted-foreground">No activity yet.</p> : null}
+              {taskActivity.slice(0, 8).map((item) => <div className="rounded-md border border-border bg-background/70 p-3 text-sm" key={item.id}><strong>{statusLabel(item.action)}</strong><p className="mt-1 text-xs font-bold text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p></div>)}
+            </div>
+          </section>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button onClick={() => completeTask(selectedTask)}><Check className="size-4" /> Complete</Button>
-          <Button variant="outline" onClick={() => openTaskDraft(selectedTask)}>Edit</Button>
-        </div>
-        <section className="mt-5">
-          <h3 className="font-black">Comments</h3>
-          <form className="mt-2 flex gap-2" onSubmit={addComment}>
-            <input className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm font-bold" value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} placeholder="Add an operational note" />
-            <Button type="submit">Post</Button>
-          </form>
-          <div className="mt-3 space-y-2">
-            {taskComments.map((comment) => <div className="rounded-md border border-border bg-background/70 p-3 text-sm" key={comment.id}><strong>{comment.author_name}</strong><p className="mt-1 text-muted-foreground">{comment.body}</p></div>)}
-          </div>
-        </section>
-        <section className="mt-5">
-          <h3 className="font-black">Attachments</h3>
-          <label className="mt-2 inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-black">
-            <Upload className="size-4" /> {uploading ? "Uploading..." : "Upload evidence"}
-            <input className="hidden" type="file" accept="image/*,application/pdf" disabled={uploading} onChange={(event) => uploadAttachment(event.target.files?.[0] ?? null)} />
-          </label>
-          <div className="mt-3 space-y-2">
-            {taskAttachments.map((attachment) => <a className="flex items-center justify-between rounded-md border border-border bg-background/70 p-3 text-sm font-bold" href={attachment.file_url ?? "#"} target="_blank" rel="noreferrer" key={attachment.id}><span>{attachment.file_name}</span><Paperclip className="size-4" /></a>)}
-          </div>
-        </section>
-        <section className="mt-5">
-          <h3 className="font-black">Activity log</h3>
-          <div className="mt-3 space-y-2">
-            {taskActivity.length === 0 ? <p className="rounded-md border border-dashed border-border p-3 text-sm font-bold text-muted-foreground">No activity yet.</p> : null}
-            {taskActivity.slice(0, 8).map((item) => <div className="rounded-md border border-border bg-background/70 p-3 text-sm" key={item.id}><strong>{statusLabel(item.action)}</strong><p className="mt-1 text-xs font-bold text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p></div>)}
-          </div>
-        </section>
       </aside>
     );
   }
