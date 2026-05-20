@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -64,9 +64,10 @@ import { getStaffRoleDefinition } from "@/lib/staff-rules";
 import type { PayrollEntryRow, PayrollPeriodRow } from "@/lib/payroll/types";
 import { cn } from "@/lib/utils";
 import {
-  getCalendarEventColor,
   mapPaymentToCalendarEvent,
+  mapSopTemplateToCalendarEvents,
   mapTaskToCalendarEvent,
+  sopOccurrenceKey,
   type NormalizedCalendarEvent,
 } from "@/lib/calendar-events";
 
@@ -90,7 +91,9 @@ type ReportType =
   | "revenue_summary";
 
 type EnvStatus = {
+  appBaseUrl: boolean;
   gmailUser: boolean;
+  gmailPassword: boolean;
   ownerEmail: boolean;
   operationsManagerEmail: boolean;
   seoUserEmail: boolean;
@@ -147,8 +150,13 @@ type SopTemplateRow = {
   week_of_month: number | null;
   day_of_week: string | null;
   assigned_to: string;
+  assigned_role?: string | null;
   status: string;
   priority: string;
+  panel?: string | null;
+  business_unit?: string | null;
+  source?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type StaffRow = {
@@ -209,6 +217,36 @@ type ActivityRow = {
   action: string;
   details: Record<string, unknown>;
   created_at: string;
+};
+
+type SopOccurrence = {
+  id: string;
+  templateId: string;
+  naturalKey: string;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: Priority;
+  assignedTo: string;
+  assignedRole: string;
+  occurrenceDate: string;
+  scheduleSummary: string;
+  frequency: string;
+  weekScope: string;
+  weekOfMonth: number | null;
+  dayOfWeek: string | null;
+  source: "sop_template";
+  completionEmailEnabled: boolean;
+  assignmentEmailEnabled: boolean;
+};
+
+type TaskNotificationResult = {
+  ok?: boolean;
+  sent: boolean;
+  skipped?: boolean;
+  reason?: string;
+  code?: string;
+  messageId?: string;
 };
 
 type TaskDraft = {
@@ -401,6 +439,10 @@ function normalizePriority(value: string | null | undefined): Priority {
   return "normal";
 }
 
+function normalizePersonName(value: string | null | undefined) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
 function normalizeTaskStatus(status: string | null | undefined): TaskStatus {
   if (status === "backlog") return "backlog";
   if (status === "in_progress") return "in_progress";
@@ -431,6 +473,55 @@ function mapTask(row: OperationTaskRow, commentsCount = 0, attachmentsCount = 0)
     notifyOwnerOnCompleted: metadata.notify_owner_on_completed !== false,
     notifyAssigneeOnAssigned: metadata.notify_assignee_on_assignment !== false,
   };
+}
+
+function taskSopOccurrenceKey(task: OperationTaskRow) {
+  const metadata = task.metadata ?? {};
+  const templateId = typeof metadata.template_id === "string" ? metadata.template_id : null;
+  const occurrenceDate = typeof metadata.occurrence_date === "string" ? metadata.occurrence_date : task.due_date;
+  return templateId && occurrenceDate ? sopOccurrenceKey(templateId, occurrenceDate) : null;
+}
+
+function normalizedOccurrenceTitleKey(title: string | null | undefined, occurrenceDate: string | null | undefined, assignee: string | null | undefined) {
+  if (!title || !occurrenceDate) return null;
+  return [
+    "sop",
+    title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+    occurrenceDate,
+    normalizePersonName(assignee || "Unassigned").toLowerCase(),
+    "residential",
+  ].join(":");
+}
+
+function sourceLabelForTask(task: UnifiedTask) {
+  const metadata = task.metadata ?? {};
+  const source = typeof metadata.source === "string" ? metadata.source : null;
+  if (source === "recurring_instance") return "Recurring task";
+  if (source === "sop_template") return "SOP template";
+  return task.recurrence && task.recurrence !== "none" ? "Recurring task" : "Manual task";
+}
+
+function getActivityDetail(details: Record<string, unknown>, key: string) {
+  const value = details[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function activityTitle(item: ActivityRow) {
+  const reason = getActivityDetail(item.details, "reason");
+  const message = getActivityDetail(item.details, "message");
+  if (item.action === "notification_failed" && reason) return `Notification Failed - ${reason}`;
+  if (item.action === "notification_sent" && message) return `Notification Sent - ${message}`;
+  if (item.action === "notification_skipped" && reason) return `Notification Skipped - ${reason}`;
+  return statusLabel(item.action);
+}
+
+function activityMeta(item: ActivityRow) {
+  const parts = [
+    getActivityDetail(item.details, "notificationType"),
+    getActivityDetail(item.details, "recipient"),
+    getActivityDetail(item.details, "code"),
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 function paymentUnit(payment: UnifiedPayment): BusinessUnit {
@@ -933,8 +1024,12 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   const [taskView, setTaskView] = useState<TaskViewMode>("calendar");
   const [paymentView, setPaymentView] = useState<PaymentViewMode>("calendar");
   const [selectedTask, setSelectedTask] = useState<UnifiedTask | null>(null);
+  const [selectedSopOccurrence, setSelectedSopOccurrence] = useState<SopOccurrence | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<UnifiedPayment | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
+  const [taskModalError, setTaskModalError] = useState<string | null>(null);
+  const [savingTask, setSavingTask] = useState(false);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [uploading, setUploading] = useState(false);
   const [taskFilters, setTaskFilters] = useState<TaskFilters>({ status: "all", priority: "all", category: "all", assignee: "all", search: "" });
@@ -1142,11 +1237,16 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   const scopedSopTemplates = useMemo(() => unit === "commercial" ? [] : sopTemplates.filter((template) => template.status !== "inactive"), [sopTemplates, unit]);
 
   async function reloadTasks() {
-    const [taskResult, commentResult, attachmentResult] = await Promise.all([
+    const [taskResult, commentResult, attachmentResult, activityResult] = await Promise.all([
       supabase.from("operation_tasks").select("*").order("due_date", { ascending: true, nullsFirst: false }).limit(800),
       supabase.from("operation_task_comments").select("*").order("created_at", { ascending: false }).limit(1000),
       supabase.from("operation_task_attachments").select("*").order("created_at", { ascending: false }).limit(1000),
+      supabase.from("operation_task_audit_log").select("*").order("created_at", { ascending: false }).limit(1000),
     ]);
+    if (taskResult.error) {
+      setMessage(`Tasks could not be refreshed: ${taskResult.error.message}`);
+      return tasks;
+    }
     const commentRows = (commentResult.data ?? []) as CommentRow[];
     const attachmentRows = (attachmentResult.data ?? []) as AttachmentRow[];
     const commentCounts = new Map<string, number>();
@@ -1155,15 +1255,24 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     for (const row of attachmentRows) attachmentCounts.set(row.task_id, (attachmentCounts.get(row.task_id) ?? 0) + 1);
     setComments(commentRows);
     setAttachments(attachmentRows);
+    setActivity((activityResult.data ?? []) as ActivityRow[]);
     const mappedTasks = ((taskResult.data ?? []) as OperationTaskRow[]).map((row) => mapTask(row, commentCounts.get(row.id) ?? 0, attachmentCounts.get(row.id) ?? 0));
     setTasks(mappedTasks);
     setSelectedTask((current) => current ? mappedTasks.find((task) => task.id === current.id) ?? current : null);
+    return mappedTasks;
   }
 
   async function saveTaskDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!taskDraft || !userId || !taskDraft.title.trim()) return;
+    if (!taskDraft || !userId || savingTask) return;
+    setTaskModalError(null);
+    if (!taskDraft.title.trim()) {
+      setTaskModalError("Task could not be saved: title is required.");
+      return;
+    }
+    setSavingTask(true);
     const unitForTask = taskDraft.unit === "seo" ? "seo" : taskDraft.unit;
+    const normalizedAssignee = normalizePersonName(taskDraft.assignee);
     const payload = {
       user_id: userId,
       title: taskDraft.title.trim(),
@@ -1172,7 +1281,7 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
       status: dbStatusFromTaskStatus(taskDraft.status, unitForTask),
       category: taskDraft.category.trim() || "Operations",
       due_date: taskDraft.dueDate || null,
-      assignee: taskDraft.assignee.trim() || null,
+      assignee: normalizedAssignee || null,
       assigned_by: "Pristine Operations",
       panel: unitForTask === "seo" ? "SEO" : businessUnitLabel(unitForTask),
       business_unit: unitForTask,
@@ -1182,31 +1291,58 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
       },
       updated_at: new Date().toISOString(),
     };
-    const previousAssignee = taskDraft.id ? tasks.find((task) => task.id === taskDraft.id)?.assignee : null;
-    const result = taskDraft.id
-      ? await supabase.from("operation_tasks").update(payload).eq("id", taskDraft.id).select("*").single()
-      : await supabase.from("operation_tasks").insert({ ...payload, created_at: new Date().toISOString() }).select("*").single();
 
-    if (result.error) {
-      setMessage(result.error.message);
-      return;
+    try {
+      const previousAssignee = taskDraft.id ? normalizePersonName(tasks.find((task) => task.id === taskDraft.id)?.assignee) : null;
+      const result = taskDraft.id
+        ? await supabase.from("operation_tasks").update(payload).eq("id", taskDraft.id).select("*").single()
+        : await supabase.from("operation_tasks").insert({ ...payload, created_at: new Date().toISOString() }).select("*").single();
+
+      if (result.error) {
+        const reason = result.error.message || "database insert failed";
+        setTaskModalError(`Task could not be saved: ${reason}`);
+        setMessage(`Task could not be saved: ${reason}`);
+        return;
+      }
+
+      const savedTask = result.data as OperationTaskRow;
+      const assigneeChanged = previousAssignee !== normalizedAssignee;
+      let feedback = "Task saved.";
+
+      if (!taskDraft.notifyAssigneeOnAssigned) {
+        await notifyTask("task_assigned", savedTask, { enabled: false });
+        feedback = "Task saved. Assignment email skipped.";
+      } else if (assigneeChanged) {
+        const notification = await notifyTask("task_assigned", savedTask, { enabled: true });
+        feedback = notification.sent
+          ? `Task saved and assignment email sent to ${normalizedAssignee || "the assignee"}.`
+          : `Task saved, but assignment email was not sent: ${notification.reason ?? "unknown email error"}`;
+      }
+
+      setMessage(feedback);
+      setTaskDraft(null);
+      await reloadTasks();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "unexpected task save error";
+      setTaskModalError(`Task could not be saved: ${reason}`);
+      setMessage(`Task could not be saved: ${reason}`);
+    } finally {
+      setSavingTask(false);
     }
-
-    if (taskDraft.notifyAssigneeOnAssigned && previousAssignee !== taskDraft.assignee) {
-      await notifyTask("task_assigned", result.data as OperationTaskRow);
-    }
-
-    setTaskDraft(null);
-    await reloadTasks();
   }
 
-  async function notifyTask(event: "task_assigned" | "task_completed", task: OperationTaskRow) {
+  async function notifyTask(
+    event: "task_assigned" | "task_completed",
+    task: OperationTaskRow,
+    options: { enabled: boolean } = { enabled: true },
+  ): Promise<TaskNotificationResult> {
     try {
-      await fetch("/api/tasks/notifications", {
+      const response = await fetch("/api/tasks/notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event,
+          enabled: options.enabled,
           actorName: "Pristine Operations",
           task: {
             id: task.id,
@@ -1216,6 +1352,7 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
             dueDate: task.due_date,
             assignedBy: task.assigned_by,
             assignedTo: task.assignee,
+            createdBy: task.assigned_by ?? "Pristine Operations",
             accountOrProperty: task.account_name || task.property_address || "Operations task",
             panel: task.panel,
             description: task.description,
@@ -1223,16 +1360,27 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
             status: task.status,
             completedAt: new Date().toISOString(),
             completionNotes: task.completion_notes || task.description,
+            commentsCount: "commentsCount" in task && typeof task.commentsCount === "number" ? task.commentsCount : null,
+            attachmentsCount: "attachmentsCount" in task && typeof task.attachmentsCount === "number" ? task.attachmentsCount : null,
+            completionEmailEnabled: task.metadata?.notify_owner_on_completed !== false,
+            assignmentEmailEnabled: task.metadata?.notify_assignee_on_assignment !== false,
           },
         }),
       });
+      const data = await response.json().catch(() => null) as { notification?: TaskNotificationResult; error?: string } | null;
+      if (!response.ok) {
+        return { sent: false, reason: data?.error ?? `Notification request failed with HTTP ${response.status}` };
+      }
+      return data?.notification ?? { sent: false, reason: "Notification service returned no status." };
     } catch (error) {
       console.warn("Task notification request failed", error);
+      return { sent: false, reason: error instanceof Error ? error.message : "Notification request failed." };
     }
   }
 
   async function completeTask(task: UnifiedTask) {
     if (task.normalizedStatus === "completed") return;
+    setCompletingTaskId(task.id);
     const completedAt = new Date().toISOString();
     const nextStatus = task.unit === "seo" ? "completed" : "done";
     const { error } = await supabase
@@ -1240,11 +1388,22 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
       .update({ status: nextStatus, completed_at: completedAt, updated_at: completedAt })
       .eq("id", task.id);
     if (error) {
-      setMessage(error.message);
+      setMessage(`Task could not be completed: ${error.message}`);
+      setCompletingTaskId(null);
       return;
     }
-    if (task.notifyOwnerOnCompleted) await notifyTask("task_completed", { ...task, status: nextStatus, completed_at: completedAt });
+    const completedTask = { ...task, status: nextStatus, completed_at: completedAt };
+    if (task.notifyOwnerOnCompleted) {
+      const notification = await notifyTask("task_completed", completedTask);
+      setMessage(notification.sent
+        ? "Task completed and owner email sent."
+        : `Task completed, but owner email was not sent: ${notification.reason ?? "unknown email error"}`);
+    } else {
+      await notifyTask("task_completed", completedTask, { enabled: false });
+      setMessage("Task completed. Owner email skipped.");
+    }
     await reloadTasks();
+    setCompletingTaskId(null);
   }
 
   async function addComment(event: FormEvent<HTMLFormElement>) {
@@ -1323,6 +1482,7 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   }
 
   function openTaskDraft(task?: UnifiedTask) {
+    setTaskModalError(null);
     setTaskDraft(task ? {
       id: task.id,
       title: task.title,
@@ -1367,6 +1527,27 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     applyCalendarWindow(calendarView, today);
   }
 
+  const sopTemplateMatchesTaskFilters = useCallback((template: SopTemplateRow) => {
+    const priority = normalizePriority(template.priority);
+    if (taskFilters.status !== "all" && taskFilters.status !== "todo") return false;
+    if (taskFilters.priority !== "all" && priority !== taskFilters.priority) return false;
+    if (taskFilters.category !== "all" && template.category !== taskFilters.category) return false;
+    if (taskFilters.assignee !== "all" && (template.assigned_to || "Unassigned") !== taskFilters.assignee) return false;
+    const search = taskFilters.search.trim().toLowerCase();
+    if (search) {
+      const haystack = [
+        template.title,
+        template.description,
+        template.category,
+        template.assigned_to,
+        template.schedule_label,
+        template.frequency,
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  }, [taskFilters]);
+
   const paymentCalendarEvents = useMemo(() => visiblePayments
     .map((payment) => mapPaymentToCalendarEvent(payment, {
       amountLabel: money(payment.finalAmount),
@@ -1380,12 +1561,86 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     .map((task) => mapTaskToCalendarEvent(task))
     .filter((event) => event.start), [visibleTasks]);
 
+  const existingSopOccurrenceKeys = useMemo(() => new Set(tasks.map(taskSopOccurrenceKey).filter((key): key is string => Boolean(key))), [tasks]);
+  const existingSopTitleOccurrenceKeys = useMemo(() => new Set(tasks
+    .filter((task) => {
+      const metadata = task.metadata ?? {};
+      return metadata.source === "recurring_instance" || typeof metadata.template_id === "string";
+    })
+    .map((task) => normalizedOccurrenceTitleKey(task.title, task.due_date, task.assignee))
+    .filter((key): key is string => Boolean(key))), [tasks]);
+
+  const sopOccurrenceEvents = useMemo(() => {
+    const range = getCalendarRange(calendarView, calendarAnchor);
+    const generatedTitleKeys = new Set<string>();
+    return scopedSopTemplates
+      .filter(sopTemplateMatchesTaskFilters)
+      .flatMap((template) => mapSopTemplateToCalendarEvents(template, {
+        start: range.start,
+        end: range.end,
+        excludedOccurrenceKeys: existingSopOccurrenceKeys,
+      }))
+      .filter((event) => {
+        const titleKey = normalizedOccurrenceTitleKey(event.title, event.start, String(event.meta.assignee ?? ""));
+        if (!titleKey) return true;
+        if (existingSopTitleOccurrenceKeys.has(titleKey) || generatedTitleKeys.has(titleKey)) return false;
+        generatedTitleKeys.add(titleKey);
+        return true;
+      });
+  }, [calendarAnchor, calendarView, existingSopOccurrenceKeys, existingSopTitleOccurrenceKeys, scopedSopTemplates, sopTemplateMatchesTaskFilters]);
+
+  function sopOccurrenceFromEvent(event: NormalizedCalendarEvent): SopOccurrence | null {
+    const template = sopTemplates.find((item) => item.id === event.sourceId);
+    if (!template || !event.start) return null;
+    return {
+      id: event.id,
+      templateId: template.id,
+      naturalKey: template.natural_key,
+      title: template.title,
+      description: template.description,
+      category: template.category,
+      priority: normalizePriority(template.priority),
+      assignedTo: template.assigned_to,
+      assignedRole: template.assigned_role ?? "Operations Manager",
+      occurrenceDate: event.start,
+      scheduleSummary: template.schedule_label,
+      frequency: template.frequency,
+      weekScope: template.week_scope,
+      weekOfMonth: template.week_of_month,
+      dayOfWeek: template.day_of_week,
+      source: "sop_template",
+      completionEmailEnabled: template.metadata?.notify_owner_on_completed !== false,
+      assignmentEmailEnabled: false,
+    };
+  }
+
+  function findExistingSopOccurrenceTask(occurrence: SopOccurrence) {
+    const key = sopOccurrenceKey(occurrence.templateId, occurrence.occurrenceDate);
+    return tasks.find((task) => taskSopOccurrenceKey(task) === key);
+  }
+
   function openCalendarEventDetail(event: NormalizedCalendarEvent) {
     if (event.type === "task") {
       const task = tasks.find((item) => item.id === event.sourceId);
       if (task) {
         setSelectedPayment(null);
+        setSelectedSopOccurrence(null);
         setSelectedTask(task);
+      }
+      return;
+    }
+
+    if (event.type === "sop") {
+      const occurrence = sopOccurrenceFromEvent(event);
+      if (!occurrence) return;
+      const existingTask = findExistingSopOccurrenceTask(occurrence);
+      setSelectedPayment(null);
+      if (existingTask) {
+        setSelectedSopOccurrence(null);
+        setSelectedTask(existingTask);
+      } else {
+        setSelectedTask(null);
+        setSelectedSopOccurrence(occurrence);
       }
       return;
     }
@@ -1395,12 +1650,114 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
       const payment = payments.find((item) => item.id === event.sourceId && item.sourceType === sourceType);
       if (payment) {
         setSelectedTask(null);
+        setSelectedSopOccurrence(null);
         setSelectedPayment(payment);
       }
       return;
     }
+  }
 
-    setMessage("SOP templates are shown for rhythm context. Create or open a task instance to manage completion.");
+  async function ensureSopOccurrenceTask(occurrence: SopOccurrence) {
+    if (!userId) {
+      setMessage("Task could not be created from SOP occurrence: missing signed-in user.");
+      return null;
+    }
+
+    const existing = findExistingSopOccurrenceTask(occurrence);
+    if (existing) return existing;
+
+    const existingResult = await supabase
+      .from("operation_tasks")
+      .select("*")
+      .eq("due_date", occurrence.occurrenceDate)
+      .contains("metadata", { template_id: occurrence.templateId, occurrence_date: occurrence.occurrenceDate })
+      .limit(1);
+
+    if (existingResult.error) {
+      setMessage(`SOP occurrence could not be checked: ${existingResult.error.message}`);
+      return null;
+    }
+
+    const existingRow = (existingResult.data?.[0] ?? null) as OperationTaskRow | null;
+    if (existingRow) {
+      const mapped = mapTask(existingRow);
+      setTasks((current) => current.some((task) => task.id === mapped.id) ? current : [...current, mapped]);
+      return mapped;
+    }
+
+    const now = new Date().toISOString();
+    const insertResult = await supabase.from("operation_tasks").insert({
+      user_id: userId,
+      title: occurrence.title,
+      description: occurrence.description,
+      priority: occurrence.priority,
+      status: "todo",
+      category: occurrence.category,
+      due_date: occurrence.occurrenceDate,
+      assignee: occurrence.assignedTo || null,
+      assigned_by: "Monthly SOP template",
+      panel: "Residential",
+      business_unit: "residential",
+      recurrence: "none",
+      metadata: {
+        source: "recurring_instance",
+        template_id: occurrence.templateId,
+        template_natural_key: occurrence.naturalKey,
+        occurrence_date: occurrence.occurrenceDate,
+        schedule_label: occurrence.scheduleSummary,
+        notify_owner_on_completed: occurrence.completionEmailEnabled,
+        notify_assignee_on_assignment: false,
+      },
+      created_at: now,
+      updated_at: now,
+    }).select("*").single();
+
+    if (insertResult.error) {
+      setMessage(`SOP occurrence could not be created: ${insertResult.error.message}`);
+      return null;
+    }
+
+    await supabase.from("operation_task_audit_log").insert({
+      task_id: insertResult.data.id,
+      action: "task_created_from_sop_template",
+      details: {
+        templateId: occurrence.templateId,
+        naturalKey: occurrence.naturalKey,
+        occurrenceDate: occurrence.occurrenceDate,
+        scheduleSummary: occurrence.scheduleSummary,
+      },
+    });
+
+    const reloaded = await reloadTasks();
+    return reloaded.find((task) => task.id === insertResult.data.id) ?? mapTask(insertResult.data as OperationTaskRow);
+  }
+
+  async function completeSopOccurrence(occurrence: SopOccurrence) {
+    setCompletingTaskId(occurrence.id);
+    const task = await ensureSopOccurrenceTask(occurrence);
+    if (!task) {
+      setCompletingTaskId(null);
+      return;
+    }
+    setSelectedSopOccurrence(null);
+    setSelectedTask(task);
+    await completeTask(task);
+    setCompletingTaskId(null);
+  }
+
+  async function editSopOccurrence(occurrence: SopOccurrence) {
+    const task = await ensureSopOccurrenceTask(occurrence);
+    if (!task) return;
+    setSelectedSopOccurrence(null);
+    openTaskDraft(task);
+  }
+
+  async function openSopOccurrenceTask(occurrence: SopOccurrence) {
+    const task = await ensureSopOccurrenceTask(occurrence);
+    if (!task) return;
+    setSelectedSopOccurrence(null);
+    setSelectedTask(task);
+    router.replace(`/tasks?task=${encodeURIComponent(task.id)}&unit=residential`);
   }
 
   const canCreateForCurrentUnit = unit === "both"
@@ -1445,6 +1802,7 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
 
       {taskDraft ? renderTaskModal() : null}
       {selectedTask ? renderTaskDetail() : null}
+      {selectedSopOccurrence ? renderSopOccurrenceDetail() : null}
       {selectedPayment ? renderPaymentDetail() : null}
     </DashboardShell>
   );
@@ -1518,8 +1876,8 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   }
 
   function renderTasks() {
-    const categories = Array.from(new Set(scopedTasks.map((task) => task.category).filter(Boolean))).sort();
-    const assigneeOptions = Array.from(new Set(scopedTasks.map((task) => task.assignee ?? "Unassigned"))).sort();
+    const categories = Array.from(new Set([...scopedTasks.map((task) => task.category), ...scopedSopTemplates.map((template) => template.category)].filter(Boolean))).sort();
+    const assigneeOptions = Array.from(new Set([...scopedTasks.map((task) => task.assignee ?? "Unassigned"), ...scopedSopTemplates.map((template) => template.assigned_to || "Unassigned")])).sort();
     const scheduledTaskCount = visibleTasks.filter((task) => task.due_date).length;
     return (
       <div className="space-y-4">
@@ -1578,7 +1936,7 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
         {taskView === "calendar" ? (
           <div className="space-y-3">
             <CalendarToolbar viewMode={calendarView} anchor={calendarAnchor} onViewModeChange={changeCalendarView} onNavigate={navigateCalendar} onToday={jumpCalendarToday} />
-            <OperationsCalendar events={taskCalendarEvents} viewMode={calendarView} anchor={calendarAnchor} emptyMessage="No scheduled tasks match these filters." onEventSelect={openCalendarEventDetail} />
+            <OperationsCalendar events={[...taskCalendarEvents, ...sopOccurrenceEvents]} viewMode={calendarView} anchor={calendarAnchor} emptyMessage="No scheduled tasks match these filters." onEventSelect={openCalendarEventDetail} />
           </div>
         ) : null}
 
@@ -1667,33 +2025,49 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   }
 
   function calendarEvents() {
-    const sopEvents: NormalizedCalendarEvent[] = scopedSopTemplates.map((template) => ({
-      id: `sop-${template.id}`,
-      sourceId: template.id,
-      type: "sop",
-      title: template.title,
-      start: "",
-      status: template.frequency,
-      businessUnit: "residential",
-      color: getCalendarEventColor("sop", template.frequency, "residential"),
-      summary: `${template.assigned_to} · ${template.schedule_label}`,
-      meta: {
-        category: template.category,
-        schedule: template.schedule_label,
-      },
-    }));
-    return [...taskCalendarEvents, ...paymentCalendarEvents, ...sopEvents.filter((event) => calendarView === "agenda" || Boolean(event.start))];
+    return [...taskCalendarEvents, ...paymentCalendarEvents, ...sopOccurrenceEvents];
   }
 
   function renderCalendar() {
     const events = calendarEvents();
+    const categories = Array.from(new Set([...scopedTasks.map((task) => task.category), ...scopedSopTemplates.map((template) => template.category)].filter(Boolean))).sort();
+    const assigneeOptions = Array.from(new Set([...scopedTasks.map((task) => task.assignee ?? "Unassigned"), ...scopedSopTemplates.map((template) => template.assigned_to || "Unassigned")])).sort();
     return (
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-4">
           <MetricCard icon={CalendarDays} label="Calendar items" value={events.length} />
           <MetricCard icon={CheckSquare} label="Tasks" value={taskCalendarEvents.length} />
           <MetricCard icon={WalletCards} label="Payments" value={paymentCalendarEvents.length} />
-          <MetricCard icon={ClipboardCheck} label="SOP context" value={scopedSopTemplates.length} />
+          <MetricCard icon={ClipboardCheck} label="SOP occurrences" value={sopOccurrenceEvents.length} />
+        </div>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
+          <div className="relative min-w-60 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              className="h-9 w-full rounded-md border bg-background px-9 text-sm font-bold"
+              value={taskFilters.search}
+              onChange={(event) => setTaskFilters((current) => ({ ...current, search: event.target.value }))}
+              placeholder="Search tasks and SOP"
+              aria-label="Search calendar tasks and SOP"
+            />
+          </div>
+          <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={taskFilters.status} onChange={(event) => setTaskFilters((current) => ({ ...current, status: event.target.value }))} aria-label="Calendar task status filter">
+            <option value="all">All statuses</option>
+            {COLUMNS.map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}
+          </select>
+          <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={taskFilters.priority} onChange={(event) => setTaskFilters((current) => ({ ...current, priority: event.target.value }))} aria-label="Calendar priority filter">
+            <option value="all">All priorities</option>
+            {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={taskFilters.category} onChange={(event) => setTaskFilters((current) => ({ ...current, category: event.target.value }))} aria-label="Calendar category filter">
+            <option value="all">All categories</option>
+            {categories.map((category) => <option key={category}>{category}</option>)}
+          </select>
+          <select className="h-9 rounded-md border bg-background px-2 text-sm font-bold" value={taskFilters.assignee} onChange={(event) => setTaskFilters((current) => ({ ...current, assignee: event.target.value }))} aria-label="Calendar assignee filter">
+            <option value="all">All assignees</option>
+            {assigneeOptions.map((assignee) => <option key={assignee}>{assignee}</option>)}
+          </select>
+          <Button variant="outline" onClick={() => setTaskFilters({ status: "all", priority: "all", category: "all", assignee: "all", search: "" })}><RotateCcw className="size-4" /> Clear filters</Button>
         </div>
         <CalendarToolbar viewMode={calendarView} anchor={calendarAnchor} onViewModeChange={changeCalendarView} onNavigate={navigateCalendar} onToday={jumpCalendarToday} />
         <OperationsCalendar events={events} viewMode={calendarView} anchor={calendarAnchor} emptyMessage="No calendar items match this period." onEventSelect={openCalendarEventDetail} />
@@ -2045,7 +2419,9 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
 
   function renderSettings() {
     const envRows = [
+      { label: "APP_BASE_URL", configured: Boolean(envStatus?.appBaseUrl) },
       { label: "GMAIL_USER", configured: Boolean(envStatus?.gmailUser) },
+      { label: "GMAIL_APP_PASSWORD", configured: Boolean(envStatus?.gmailPassword) },
       { label: "OWNER_EMAIL", configured: Boolean(envStatus?.ownerEmail) },
       { label: "OPERATIONS_MANAGER_EMAIL", configured: Boolean(envStatus?.operationsManagerEmail) },
       { label: "SEO_USER_EMAIL", configured: Boolean(envStatus?.seoUserEmail) },
@@ -2108,12 +2484,13 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
   function renderTaskModal() {
     if (!taskDraft) return null;
     return (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm" onClick={() => setTaskDraft(null)}>
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm" onClick={() => savingTask ? undefined : setTaskDraft(null)}>
         <form className="grid w-full max-w-2xl gap-3 rounded-lg border border-border bg-card p-5 shadow-2xl" onSubmit={saveTaskDraft} onClick={(event) => event.stopPropagation()}>
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-black">{taskDraft.id ? "Edit task" : "Create task"}</h2>
-            <button type="button" aria-label="Close task modal" onClick={() => setTaskDraft(null)}><X className="size-5" /></button>
+            <button type="button" aria-label="Close task modal" disabled={savingTask} onClick={() => setTaskDraft(null)}><X className="size-5" /></button>
           </div>
+          {taskModalError ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-900 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-100">{taskModalError}</div> : null}
           <label className="grid gap-1 text-sm font-bold">Title<input className="h-10 rounded-md border bg-background px-3" value={taskDraft.title} onChange={(event) => setTaskDraft({ ...taskDraft, title: event.target.value })} /></label>
           <label className="grid gap-1 text-sm font-bold">Description<textarea className="min-h-24 rounded-md border bg-background p-3" value={taskDraft.description} onChange={(event) => setTaskDraft({ ...taskDraft, description: event.target.value })} /></label>
           <div className="grid gap-3 md:grid-cols-3">
@@ -2132,8 +2509,8 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
             <label className="flex items-center gap-2"><input type="checkbox" checked={taskDraft.notifyAssigneeOnAssigned} onChange={(event) => setTaskDraft({ ...taskDraft, notifyAssigneeOnAssigned: event.target.checked })} /> Notify assignee when assigned</label>
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setTaskDraft(null)}>Cancel</Button>
-            <Button type="submit"><Check className="size-4" /> Save task</Button>
+            <Button type="button" variant="outline" disabled={savingTask} onClick={() => setTaskDraft(null)}>Cancel</Button>
+            <Button type="submit" disabled={savingTask}><Check className="size-4" /> {savingTask ? "Saving..." : "Save task"}</Button>
           </div>
         </form>
       </div>
@@ -2244,6 +2621,78 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
     );
   }
 
+  function renderSopOccurrenceDetail() {
+    if (!selectedSopOccurrence) return null;
+    const isCompleting = completingTaskId === selectedSopOccurrence.id;
+    return (
+      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl overflow-auto border-l border-border bg-card shadow-2xl">
+        <div className="sticky top-0 z-10 border-b border-border bg-card/95 p-5 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase text-primary">Task summary</p>
+              <div className="mt-2 flex items-start gap-3">
+                <span className="mt-1 grid size-8 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground">
+                  <ClipboardCheck className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-2xl font-black leading-tight">{selectedSopOccurrence.title}</h2>
+                  <p className="mt-1 text-sm font-semibold text-muted-foreground">{selectedSopOccurrence.description || "No description yet."}</p>
+                </div>
+              </div>
+            </div>
+            <button type="button" className="grid size-9 place-items-center rounded-md border border-border bg-background" aria-label="Close SOP occurrence detail" onClick={() => setSelectedSopOccurrence(null)}><X className="size-5" /></button>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <UnitBadge unit="residential" />
+            <Badge variant="outline">To Do</Badge>
+            <Badge variant="outline">{PRIORITY_LABELS[selectedSopOccurrence.priority]}</Badge>
+            <Badge variant="outline">{selectedSopOccurrence.category}</Badge>
+          </div>
+        </div>
+
+        <div className="space-y-5 p-5">
+          <section>
+            <h3 className="mb-3 font-black">Task info</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <DetailField label="Template ID" value={selectedSopOccurrence.templateId} />
+              <DetailField label="Business unit" value="Residential" />
+              <DetailField label="Category" value={selectedSopOccurrence.category} />
+              <DetailField label="Assigned to" value={selectedSopOccurrence.assignedTo || "Unassigned"} />
+              <DetailField label="Due date / occurrence date" value={displayDate(selectedSopOccurrence.occurrenceDate)} />
+              <DetailField label="Schedule summary" value={selectedSopOccurrence.scheduleSummary} />
+              <DetailField label="Source" value="SOP template occurrence" />
+              <DetailField label="Frequency" value={statusLabel(selectedSopOccurrence.frequency)} />
+              <DetailField label="Notify owner when completed" value={selectedSopOccurrence.completionEmailEnabled ? "On" : "Off"} />
+              <DetailField label="Notify assignee when assigned" value="Off" />
+              <DetailField label="Comments count" value={0} />
+              <DetailField label="Attachments count" value={0} />
+            </div>
+          </section>
+
+          <section className="grid gap-3">
+            <h3 className="font-black">Description / notes</h3>
+            <div className="rounded-lg border border-border bg-background/75 p-4 text-sm font-semibold text-muted-foreground">{selectedSopOccurrence.description || "No description yet."}</div>
+          </section>
+
+          <section>
+            <h3 className="font-black">Activity log</h3>
+            <div className="mt-3 rounded-md border border-border bg-background/70 p-3 text-sm">
+              <strong>Template Occurrence</strong>
+              <p className="mt-1 text-xs font-bold text-muted-foreground">{selectedSopOccurrence.scheduleSummary} · {displayDate(selectedSopOccurrence.occurrenceDate)}</p>
+            </div>
+          </section>
+
+          <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+            <Button disabled={isCompleting} onClick={() => completeSopOccurrence(selectedSopOccurrence)}><Check className="size-4" /> {isCompleting ? "Completing..." : "Mark completed"}</Button>
+            <Button variant="outline" onClick={() => editSopOccurrence(selectedSopOccurrence)}>Edit</Button>
+            <Button variant="outline" onClick={() => openSopOccurrenceTask(selectedSopOccurrence)}>Open full task detail</Button>
+            <Button variant="outline" onClick={() => setSelectedSopOccurrence(null)}>Close</Button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
   function renderTaskDetail() {
     if (!selectedTask) return null;
     const taskComments = comments.filter((comment) => comment.task_id === selectedTask.id);
@@ -2255,6 +2704,9 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
         ? `Every ${selectedTask.custom_interval_days} day(s)`
         : statusLabel(selectedTask.recurrence)
       : "None";
+    const metadata = selectedTask.metadata ?? {};
+    const occurrenceDate = typeof metadata.occurrence_date === "string" ? metadata.occurrence_date : null;
+    const scheduleSummary = typeof metadata.schedule_label === "string" ? metadata.schedule_label : selectedTask.due_date ? `Due ${displayDate(selectedTask.due_date)}` : "No due date";
     return (
       <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl overflow-auto border-l border-border bg-card shadow-2xl">
         <div className="sticky top-0 z-10 border-b border-border bg-card/95 p-5 backdrop-blur">
@@ -2291,7 +2743,9 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
               <DetailField label="Assigned to" value={selectedTask.assignee || "Unassigned"} />
               <DetailField label="Created by" value={selectedTask.assigned_by ?? selectedTask.created_by} />
               <DetailField label="Due date" value={displayDate(selectedTask.due_date)} />
-              <DetailField label="Schedule summary" value={selectedTask.due_date ? `Due ${displayDate(selectedTask.due_date)}` : "No due date"} />
+              <DetailField label="Occurrence date" value={occurrenceDate ? displayDate(occurrenceDate) : null} />
+              <DetailField label="Schedule summary" value={scheduleSummary} />
+              <DetailField label="Source" value={sourceLabelForTask(selectedTask)} />
               <DetailField label="Recurrence" value={recurrence} />
               <DetailField label="Notify owner when completed" value={selectedTask.notifyOwnerOnCompleted ? "On" : "Off"} />
               <DetailField label="Notify assignee when assigned" value={selectedTask.notifyAssigneeOnAssigned ? "On" : "Off"} />
@@ -2318,10 +2772,11 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
           </div>
 
           <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-            <Button disabled={isCompleted} onClick={() => completeTask(selectedTask)}><Check className="size-4" /> Mark completed</Button>
+            <Button disabled={isCompleted || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-4" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark completed"}</Button>
             <Button variant="outline" onClick={() => openTaskDraft(selectedTask)}>Edit</Button>
             <Button variant="outline" onClick={() => openTaskDraft(selectedTask)}>Reassign</Button>
             <Button asChild variant="outline"><Link href={`/tasks/${selectedTask.id}`}>Open full task detail</Link></Button>
+            <Button variant="outline" onClick={() => setSelectedTask(null)}>Close</Button>
           </div>
 
           <section>
@@ -2360,7 +2815,16 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
             <h3 className="font-black">Activity log</h3>
             <div className="mt-3 space-y-2">
               {taskActivity.length === 0 ? <p className="rounded-md border border-dashed border-border p-3 text-sm font-bold text-muted-foreground">No activity yet.</p> : null}
-              {taskActivity.slice(0, 8).map((item) => <div className="rounded-md border border-border bg-background/70 p-3 text-sm" key={item.id}><strong>{statusLabel(item.action)}</strong><p className="mt-1 text-xs font-bold text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p></div>)}
+              {taskActivity.slice(0, 8).map((item) => {
+                const meta = activityMeta(item);
+                return (
+                  <div className="rounded-md border border-border bg-background/70 p-3 text-sm" key={item.id}>
+                    <strong>{activityTitle(item)}</strong>
+                    {meta ? <p className="mt-1 text-xs font-bold text-muted-foreground">{meta}</p> : null}
+                    <p className="mt-1 text-xs font-bold text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p>
+                  </div>
+                );
+              })}
             </div>
           </section>
         </div>

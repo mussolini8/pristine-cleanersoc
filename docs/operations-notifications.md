@@ -34,7 +34,7 @@ Use a Gmail app password for `GMAIL_APP_PASSWORD`; do not use a normal Gmail pas
 
 ## Missing Email Configuration
 
-Task creation and completion must continue even when email configuration is incomplete. In development, the app logs the rendered notification summary to the console. In production, the API records `notification_failed` in `operation_task_audit_log` and returns success for the task flow.
+Task creation and completion must continue even when email configuration is incomplete. The API records `notification_failed` in `operation_task_audit_log` with a sanitized reason and returns success for the task flow. In development, the server logs only safe configuration booleans, never passwords, tokens, or rendered email bodies.
 
 ## Supabase Auth Setup
 

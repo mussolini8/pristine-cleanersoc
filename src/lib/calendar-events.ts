@@ -39,6 +39,7 @@ type CalendarTaskLike = {
   panel?: string | null;
   account_name?: string | null;
   property_address?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type BookingLike = {
@@ -55,12 +56,126 @@ type BookingLike = {
   amount?: number | null;
 };
 
+type SopTemplateLike = {
+  id: string;
+  natural_key?: string | null;
+  title: string;
+  description?: string | null;
+  category: string;
+  frequency: string;
+  schedule_label: string;
+  preferred_due_timing?: string | null;
+  week_scope?: string | null;
+  week_of_month?: number | null;
+  day_of_week?: string | null;
+  assigned_to: string;
+  assigned_role?: string | null;
+  panel?: string | null;
+  business_unit?: string | null;
+  priority?: string | null;
+  status?: string | null;
+  source?: string | null;
+};
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
 export function normalizeCalendarDateKey(value: string | null | undefined) {
   if (!value) return "";
   const [datePart] = value.split("T");
   if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
   if (/^\d{4}-\d{2}$/.test(datePart)) return `${datePart}-01`;
   return "";
+}
+
+function parseDateKey(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function formatDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function weekdayIndex(day: string | null | undefined) {
+  const normalized = String(day ?? "").trim().toLowerCase();
+  return WEEKDAY_INDEX[normalized] ?? null;
+}
+
+function nthWeekdayOfMonth(year: number, monthIndex: number, weekday: number, weekNumber: number) {
+  const first = new Date(year, monthIndex, 1);
+  const offset = (weekday - first.getDay() + 7) % 7;
+  const date = new Date(year, monthIndex, 1 + offset + (weekNumber - 1) * 7);
+  return date.getMonth() === monthIndex ? date : null;
+}
+
+function lastWeekdayOfMonth(year: number, monthIndex: number, weekday: number) {
+  const last = new Date(year, monthIndex + 1, 0);
+  const offset = (last.getDay() - weekday + 7) % 7;
+  return new Date(year, monthIndex, last.getDate() - offset);
+}
+
+function everyWeekdayOfMonth(year: number, monthIndex: number, weekday: number) {
+  const first = nthWeekdayOfMonth(year, monthIndex, weekday, 1);
+  if (!first) return [];
+  const dates: Date[] = [];
+  for (let date = new Date(first); date.getMonth() === monthIndex; date.setDate(date.getDate() + 7)) {
+    dates.push(new Date(date));
+  }
+  return dates;
+}
+
+function isLastWeekSchedule(template: SopTemplateLike) {
+  const label = `${template.schedule_label} ${template.preferred_due_timing ?? ""} ${template.week_scope ?? ""} ${template.natural_key ?? ""}`.toLowerCase();
+  return label.includes("last week") || label.includes("last friday") || label.includes("last_");
+}
+
+function isFirstWeekSchedule(template: SopTemplateLike) {
+  const label = `${template.schedule_label} ${template.preferred_due_timing ?? ""} ${template.week_scope ?? ""}`.toLowerCase();
+  return label.includes("first week") || label.includes("week_1");
+}
+
+export function sopOccurrenceKey(templateId: string, occurrenceDate: string) {
+  return `${templateId}:${occurrenceDate}`;
+}
+
+export function getSopOccurrenceDatesForRange(template: SopTemplateLike, startKey: string, endKey: string) {
+  const start = parseDateKey(startKey);
+  const end = parseDateKey(endKey);
+  const day = weekdayIndex(template.day_of_week) ?? WEEKDAY_INDEX.friday;
+  if (!start || !end || start > end) return [];
+
+  const dates = new Set<string>();
+  for (let cursor = new Date(start.getFullYear(), start.getMonth(), 1); cursor <= end; cursor = addMonths(cursor, 1)) {
+    const year = cursor.getFullYear();
+    const monthIndex = cursor.getMonth();
+    const frequency = String(template.frequency ?? "").toLowerCase();
+    const label = String(template.schedule_label ?? "").toLowerCase();
+    const monthDates = frequency === "weekly" || label.includes("every ")
+      ? everyWeekdayOfMonth(year, monthIndex, day)
+      : isLastWeekSchedule(template)
+        ? [lastWeekdayOfMonth(year, monthIndex, day)]
+        : [nthWeekdayOfMonth(year, monthIndex, day, template.week_of_month ?? (isFirstWeekSchedule(template) ? 1 : 1))].filter((date): date is Date => Boolean(date));
+
+    for (const date of monthDates) {
+      const key = formatDateKey(date);
+      if (key >= startKey && key <= endKey) dates.add(key);
+    }
+  }
+
+  return Array.from(dates).sort();
 }
 
 export function getCalendarEventColor(type: CalendarEventType, status: string, businessUnit?: BusinessUnit | "seo"): CalendarEventColor {
@@ -172,6 +287,10 @@ export function mapTaskToCalendarEvent(task: CalendarTaskLike): NormalizedCalend
   const businessUnit = task.unit ?? (String(task.panel ?? task.business_unit).toLowerCase().includes("seo") ? "seo" : String(task.panel ?? task.business_unit).toLowerCase().includes("commercial") ? "commercial" : "residential");
   const status = task.normalizedStatus ?? task.status ?? "todo";
   const priority = task.normalizedPriority ?? task.priority ?? "normal";
+  const metadata = task.metadata ?? {};
+  const source = typeof metadata.source === "string" ? metadata.source : "manual_task";
+  const templateId = typeof metadata.template_id === "string" ? metadata.template_id : null;
+  const occurrenceDate = typeof metadata.occurrence_date === "string" ? metadata.occurrence_date : null;
 
   return {
     id: `task-${task.id}`,
@@ -189,8 +308,59 @@ export function mapTaskToCalendarEvent(task: CalendarTaskLike): NormalizedCalend
       assignee: task.assignee,
       accountName: task.account_name,
       propertyAddress: task.property_address,
+      source,
+      templateId,
+      occurrenceDate,
+      completionEmailEnabled: metadata.notify_owner_on_completed !== false,
+      assignmentEmailEnabled: metadata.notify_assignee_on_assignment !== false,
     },
   };
+}
+
+export function mapSopTemplateToCalendarEvents(
+  template: SopTemplateLike,
+  options: {
+    start: string;
+    end: string;
+    excludedOccurrenceKeys?: Set<string>;
+  },
+): NormalizedCalendarEvent[] {
+  return getSopOccurrenceDatesForRange(template, options.start, options.end)
+    .filter((occurrenceDate) => !options.excludedOccurrenceKeys?.has(sopOccurrenceKey(template.id, occurrenceDate)))
+    .map((occurrenceDate) => {
+      const priority = template.priority ?? "normal";
+
+      return {
+        id: `sop-${template.id}-${occurrenceDate}`,
+        sourceId: template.id,
+        type: "sop",
+        title: template.title || "SOP task",
+        start: occurrenceDate,
+        status: "todo",
+        businessUnit: "residential",
+        color: getCalendarEventColor("task", priority === "urgent" ? "urgent" : "todo", "residential"),
+        summary: `${template.assigned_to || "Unassigned"} · ${template.schedule_label}`,
+        meta: {
+          source: "sop_template",
+          templateId: template.id,
+          naturalKey: template.natural_key,
+          occurrenceDate,
+          scheduleSummary: template.schedule_label,
+          preferredDueTiming: template.preferred_due_timing,
+          category: template.category,
+          priority,
+          assignee: template.assigned_to,
+          assignedRole: template.assigned_role,
+          frequency: template.frequency,
+          weekScope: template.week_scope,
+          weekOfMonth: template.week_of_month,
+          dayOfWeek: template.day_of_week,
+          sourceType: template.source ?? "monthly_sop",
+          completionEmailEnabled: true,
+          assignmentEmailEnabled: false,
+        },
+      };
+    });
 }
 
 export function mapBookingToCalendarEvent(booking: BookingLike): NormalizedCalendarEvent {

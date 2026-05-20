@@ -1,5 +1,4 @@
 import nodemailer from "nodemailer";
-import { getServerEnv } from "@/lib/env";
 
 export type TaskNotificationPerson = {
   name: string;
@@ -24,14 +23,30 @@ export type TaskNotificationPayload = {
   completionNotes?: string | null;
   commentsCount?: number | null;
   attachmentsCount?: number | null;
+  createdBy?: string | null;
+  completedBy?: string | null;
+  completionEmailEnabled?: boolean | null;
+  assignmentEmailEnabled?: boolean | null;
+};
+
+export type EmailSendResult = {
+  ok: boolean;
+  sent: boolean;
+  reason: string;
+  code?: string;
+  command?: string;
+  responseCode?: number;
+  messageId?: string;
 };
 
 type SendEmailInput = {
   to?: string | null;
+  recipientEnvName?: string;
   subject: string;
   html: string;
   text: string;
   event: string;
+  recipientType: string;
 };
 
 const textColor = "#111827";
@@ -53,19 +68,21 @@ function formatDateTime(date = new Date()) {
   }).format(date);
 }
 
+function formatBoolean(value: boolean | null | undefined) {
+  return value ? "On" : "Off";
+}
+
 function formatValue(value: string | null | undefined) {
   return value && value.trim() ? value : "Not set";
 }
 
 function taskUrl(taskId: string) {
-  const env = getServerEnv();
-  const baseUrl = env.APP_BASE_URL ?? env.NEXT_PUBLIC_APP_URL;
+  const baseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   return `${baseUrl.replace(/\/$/, "")}/dashboard?task=${encodeURIComponent(taskId)}`;
 }
 
 function seoTaskUrl(taskId: string) {
-  const env = getServerEnv();
-  const baseUrl = env.APP_BASE_URL ?? env.NEXT_PUBLIC_APP_URL;
+  const baseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   return `${baseUrl.replace(/\/$/, "")}/seo/tasks/${encodeURIComponent(taskId)}`;
 }
 
@@ -123,42 +140,162 @@ function plainRows(rows: Record<string, string | null | undefined>) {
   return Object.entries(rows).map(([key, value]) => `${key}: ${formatValue(value)}`).join("\n");
 }
 
-async function sendEmail({ to, subject, html, text, event }: SendEmailInput) {
-  const env = getServerEnv();
-  const missing = [
-    !env.GMAIL_USER ? "GMAIL_USER" : null,
-    !env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
-    !to ? "recipient" : null,
-  ].filter(Boolean);
+function safeEnvStatus(recipientConfigured: boolean) {
+  return {
+    gmailUserConfigured: Boolean(process.env.GMAIL_USER),
+    gmailPasswordConfigured: Boolean(process.env.GMAIL_APP_PASSWORD),
+    appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL),
+    recipientConfigured,
+  };
+}
 
-  if (missing.length > 0) {
-    const message = `${event} notification skipped: missing ${missing.join(", ")}`;
-    if (process.env.NODE_ENV !== "production") {
-      console.info(message, { to, subject, text });
-      return { sent: false, reason: message };
-    }
-    return { sent: false, reason: message };
+export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_EMAIL" | "OWNER_EMAIL" | "SEO_USER_EMAIL") {
+  const missing = [
+    !process.env.GMAIL_USER ? "GMAIL_USER" : null,
+    !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
+    !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
+    requiredRecipientEnv && !process.env[requiredRecipientEnv] ? requiredRecipientEnv : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    configured: missing.length === 0,
+    missing,
+    safeStatus: {
+      gmailUserConfigured: Boolean(process.env.GMAIL_USER),
+      gmailPasswordConfigured: Boolean(process.env.GMAIL_APP_PASSWORD),
+      appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL),
+      operationsManagerEmailConfigured: Boolean(process.env.OPERATIONS_MANAGER_EMAIL),
+      ownerEmailConfigured: Boolean(process.env.OWNER_EMAIL),
+      seoUserEmailConfigured: Boolean(process.env.SEO_USER_EMAIL),
+    },
+  };
+}
+
+function sanitizeMailerMessage(message: string) {
+  let sanitized = message;
+  for (const secret of [process.env.GMAIL_APP_PASSWORD, process.env.GMAIL_USER, process.env.OPERATIONS_MANAGER_EMAIL, process.env.OWNER_EMAIL, process.env.SEO_USER_EMAIL]) {
+    if (secret) sanitized = sanitized.replaceAll(secret, "[redacted]");
+  }
+  return sanitized.replace(/AUTH\s+\S+/gi, "AUTH [redacted]").slice(0, 220);
+}
+
+function classifyMailerError(error: unknown): EmailSendResult {
+  const mailerError = error as {
+    code?: string;
+    command?: string;
+    responseCode?: number;
+    response?: string;
+    message?: string;
+  };
+  const code = mailerError.code;
+  const command = mailerError.command;
+  const responseCode = mailerError.responseCode;
+  const message = sanitizeMailerMessage(mailerError.message ?? mailerError.response ?? "Unknown email error");
+  const lower = message.toLowerCase();
+
+  if (responseCode === 535 || code === "EAUTH" || lower.includes("invalid login") || lower.includes("authentication failed")) {
+    return {
+      ok: false,
+      sent: false,
+      reason: "Gmail authentication failed. Check GMAIL_USER and GMAIL_APP_PASSWORD.",
+      code: code ?? "EAUTH",
+      command,
+      responseCode,
+    };
   }
 
+  if (code === "ECONNECTION" || code === "ETIMEDOUT" || code === "ESOCKET" || lower.includes("timeout")) {
+    return {
+      ok: false,
+      sent: false,
+      reason: "Could not connect to Gmail SMTP.",
+      code,
+      command,
+      responseCode,
+    };
+  }
+
+  if (lower.includes("no recipients") || lower.includes("recipient")) {
+    return {
+      ok: false,
+      sent: false,
+      reason: "Missing email recipient.",
+      code,
+      command,
+      responseCode,
+    };
+  }
+
+  return {
+    ok: false,
+    sent: false,
+    reason: message ? `Email send failed: ${message}` : "Email send failed.",
+    code,
+    command,
+    responseCode,
+  };
+}
+
+async function sendEmail({ to, recipientEnvName, subject, html, text, event, recipientType }: SendEmailInput): Promise<EmailSendResult> {
+  const missing = [
+    !process.env.GMAIL_USER ? "GMAIL_USER" : null,
+    !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
+    !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
+    !to && recipientEnvName ? recipientEnvName : null,
+  ].filter((item): item is string => Boolean(item));
+
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[email] task assignment notification", {
+      event,
+      enabled: true,
+      recipientType,
+      ...safeEnvStatus(Boolean(to)),
+    });
+  }
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      sent: false,
+      reason: `Missing required env vars: ${missing.join(", ")}`,
+      code: "EMAIL_CONFIG_MISSING",
+    };
+  }
+
+  if (!to) {
+    return {
+      ok: false,
+      sent: false,
+      reason: "Missing email recipient.",
+      code: "MISSING_RECIPIENT",
+    };
+  }
+
+  const gmailUser = process.env.GMAIL_USER ?? "";
+  const gmailPassword = process.env.GMAIL_APP_PASSWORD ?? "";
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
     secure: true,
     auth: {
-      user: env.GMAIL_USER,
-      pass: env.GMAIL_APP_PASSWORD,
+      user: gmailUser,
+      pass: gmailPassword,
     },
   });
 
-  await transporter.sendMail({
-    from: `"Pristine Operations" <${env.GMAIL_USER}>`,
-    to: to ?? undefined,
-    subject,
-    html,
-    text,
-  });
+  try {
+    const info = await transporter.sendMail({
+      from: `"Pristine Operations" <${gmailUser}>`,
+      to: to ?? undefined,
+      subject,
+      html,
+      text,
+    }) as { messageId?: string };
 
-  return { sent: true, reason: "sent" };
+    return { ok: true, sent: true, reason: "sent", messageId: info.messageId };
+  } catch (error) {
+    return classifyMailerError(error);
+  }
 }
 
 export async function sendTaskAssignedEmail(task: TaskNotificationPayload, assignee: TaskNotificationPerson) {
@@ -172,14 +309,16 @@ export async function sendTaskAssignedEmail(task: TaskNotificationPayload, assig
       row("Assigned by", task.assignedBy),
       row("Priority", task.priority),
       row("Due date", task.dueDate),
+      row("Notify owner when completed", formatBoolean(task.completionEmailEnabled)),
     ].join("")),
     section("Task Details", [
       row("Title", task.title),
+      row("Description", task.description ?? task.notes),
+      row("Unit / business unit", task.panel),
       row("Category", task.category),
       row("Property / Account", task.accountOrProperty),
-      row("Panel", task.panel),
       row("Status", task.status),
-      row("Notes", task.notes ?? task.description),
+      row("Created by", task.createdBy ?? task.assignedBy),
     ].join("")),
   ].join("");
   const html = layout("Pristine: new task assigned", `Assigned to ${assignee.name} · ${dateTime}`, body, "Open task", link, "This notification was generated by Pristine Operations.");
@@ -193,23 +332,33 @@ export async function sendTaskAssignedEmail(task: TaskNotificationPayload, assig
       "Assigned by": task.assignedBy,
       Priority: task.priority,
       "Due date": task.dueDate,
+      "Notify owner when completed": formatBoolean(task.completionEmailEnabled),
       Title: task.title,
+      Description: task.description ?? task.notes,
+      "Unit / business unit": task.panel,
       Category: task.category,
       "Property / Account": task.accountOrProperty,
-      Panel: task.panel,
       Status: task.status,
-      Notes: task.notes ?? task.description,
+      "Created by": task.createdBy ?? task.assignedBy,
       Link: link,
     }),
   ].join("\n");
 
-  return sendEmail({ to: assignee.email, subject, html, text, event: "task_assigned" });
+  return sendEmail({
+    to: assignee.email,
+    recipientEnvName: assignee.name === "Carlos Lopez" ? "OPERATIONS_MANAGER_EMAIL" : undefined,
+    subject,
+    html,
+    text,
+    event: "task_assigned",
+    recipientType: "assignee",
+  });
 }
 
 export async function sendTaskCompletedEmail(task: TaskNotificationPayload, completedBy: TaskNotificationPerson, owner: TaskNotificationPerson) {
   const completedAt = task.completedAt ?? formatDateTime();
   const link = taskUrl(task.id);
-  const subject = `Task completed by ${completedBy.name}: ${task.title}`;
+  const subject = `Task completed: ${task.title}`;
   const body = [
     section("Completion Summary", [
       row("Completed by", completedBy.name),
@@ -217,14 +366,18 @@ export async function sendTaskCompletedEmail(task: TaskNotificationPayload, comp
       row("Completed at", completedAt),
       row("Original assignee", task.assignedTo),
       row("Priority", task.priority),
+      row("Due date", task.dueDate),
     ].join("")),
     section("Task Details", [
       row("Title", task.title),
+      row("Description", task.description ?? task.notes),
+      row("Unit / business unit", task.panel),
       row("Category", task.category),
       row("Property / Account", task.accountOrProperty),
-      row("Panel", task.panel),
       row("Final status", "Completed"),
       row("Completion notes", task.completionNotes ?? task.notes ?? task.description),
+      row("Comments count", String(task.commentsCount ?? 0)),
+      row("Attachments count", String(task.attachmentsCount ?? 0)),
     ].join("")),
   ].join("");
   const html = layout("Pristine: task completed", `Completed by ${completedBy.name} · ${completedAt}`, body, "Review completed task", link, "Owner notification generated by Pristine Operations.");
@@ -238,17 +391,29 @@ export async function sendTaskCompletedEmail(task: TaskNotificationPayload, comp
       "Completed at": completedAt,
       "Original assignee": task.assignedTo,
       Priority: task.priority,
+      "Due date": task.dueDate,
       Title: task.title,
+      Description: task.description ?? task.notes,
+      "Unit / business unit": task.panel,
       Category: task.category,
       "Property / Account": task.accountOrProperty,
-      Panel: task.panel,
       "Final status": "Completed",
       "Completion notes": task.completionNotes ?? task.notes ?? task.description,
+      "Comments count": String(task.commentsCount ?? 0),
+      "Attachments count": String(task.attachmentsCount ?? 0),
       Link: link,
     }),
   ].join("\n");
 
-  return sendEmail({ to: owner.email, subject, html, text, event: "task_completed" });
+  return sendEmail({
+    to: owner.email,
+    recipientEnvName: "OWNER_EMAIL",
+    subject,
+    html,
+    text,
+    event: "task_completed",
+    recipientType: "owner",
+  });
 }
 
 export async function sendSeoTaskAssignedEmail(task: TaskNotificationPayload, assignee: TaskNotificationPerson) {
@@ -287,7 +452,15 @@ export async function sendSeoTaskAssignedEmail(task: TaskNotificationPayload, as
     }),
   ].join("\n");
 
-  return sendEmail({ to: assignee.email, subject, html, text, event: "seo_task_assigned" });
+  return sendEmail({
+    to: assignee.email,
+    recipientEnvName: "SEO_USER_EMAIL",
+    subject,
+    html,
+    text,
+    event: "seo_task_assigned",
+    recipientType: "seo_assignee",
+  });
 }
 
 export async function sendSeoTaskCompletedEmail(task: TaskNotificationPayload, completedBy: TaskNotificationPerson, owner: TaskNotificationPerson) {
@@ -327,5 +500,13 @@ export async function sendSeoTaskCompletedEmail(task: TaskNotificationPayload, c
     }),
   ].join("\n");
 
-  return sendEmail({ to: owner.email, subject, html, text, event: "seo_task_completed" });
+  return sendEmail({
+    to: owner.email,
+    recipientEnvName: "OWNER_EMAIL",
+    subject,
+    html,
+    text,
+    event: "seo_task_completed",
+    recipientType: "owner",
+  });
 }
