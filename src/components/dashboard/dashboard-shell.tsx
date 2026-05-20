@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, Home, LineChart, LogOut, Search, Settings, Users, Wallet } from "lucide-react";
+import { BarChart3, CalendarDays, CheckSquare, Home, LineChart, LogOut, Search, Settings, Users, Wallet } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
@@ -12,13 +12,14 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { label: "Residential", href: "/dashboard", icon: Home, area: "residential" as AccessArea },
-  { label: "Residential Payments", href: "/payments", icon: Wallet, area: "residential" as AccessArea },
-  { label: "Commercial", href: "/commercial", icon: Building2, area: "commercial" as AccessArea },
-  { label: "SEO", href: "/seo", icon: LineChart, area: "seo" as AccessArea },
+  { label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
+  { label: "Tasks", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
+  { label: "Calendar", href: "/calendar", icon: CalendarDays, area: "workspace" as AccessArea },
+  { label: "Payments", href: "/payments", icon: Wallet, area: "workspace" as AccessArea },
   { label: "Staff", href: "/staff", icon: Users, area: "operations" as AccessArea },
   { label: "Reports", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
   { label: "Settings", href: "/settings", icon: Settings, area: "operations" as AccessArea },
+  { label: "SEO", href: "/seo", icon: LineChart, area: "seo" as AccessArea },
 ];
 
 export function DashboardShell({

@@ -1,5 +1,5 @@
 export type AppRole = "residential" | "commercial" | "admin" | "owner" | "operations_manager" | "seo";
-export type AccessArea = "residential" | "commercial" | "seo" | "operations";
+export type AccessArea = "residential" | "commercial" | "seo" | "operations" | "workspace" | "tasks";
 
 export const USERNAME_AUTH_EMAILS: Record<string, string> = {
   pristinecleaners: "pristinecleaners@pristine.local",
@@ -17,9 +17,11 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 };
 
 export const PROTECTED_ROUTE_ACCESS: { prefix: string; area: AccessArea }[] = [
-  { prefix: "/dashboard", area: "residential" },
+  { prefix: "/dashboard", area: "workspace" },
+  { prefix: "/tasks", area: "tasks" },
+  { prefix: "/calendar", area: "workspace" },
   { prefix: "/residential", area: "residential" },
-  { prefix: "/payments", area: "residential" },
+  { prefix: "/payments", area: "workspace" },
   { prefix: "/commercial", area: "commercial" },
   { prefix: "/seo", area: "seo" },
   { prefix: "/staff", area: "operations" },
@@ -48,12 +50,14 @@ export function normalizeAppRole(value: string | null | undefined): AppRole {
 export function canAccessArea(role: AppRole, area: AccessArea) {
   if (elevatedRoles.includes(role)) return true;
   if (role === "operations_manager") return true;
+  if (area === "tasks") return role === "residential" || role === "commercial" || role === "seo";
+  if (area === "workspace") return role === "residential" || role === "commercial";
   if (area === "operations") return role !== "seo";
   return role === area;
 }
 
 export function getDefaultPathForRole(role: AppRole) {
-  if (role === "commercial") return "/commercial";
+  if (role === "commercial") return "/dashboard";
   if (role === "seo") return "/seo";
   return "/dashboard";
 }

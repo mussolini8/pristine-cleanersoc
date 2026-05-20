@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function LegacyCommercialPayrollRoute() {
-  redirect("/commercial/payroll");
+  redirect("/payments?unit=commercial");
 }

@@ -8,9 +8,18 @@ export async function updateSession(request: NextRequest) {
   const env = getServerEnv();
   const access = getRouteAccess(request.nextUrl.pathname);
 
-  if (request.nextUrl.pathname === "/residential") {
+  const legacyRedirects: Record<string, { pathname: string; unit?: string }> = {
+    "/residential": { pathname: "/dashboard", unit: "residential" },
+    "/commercial": { pathname: "/dashboard", unit: "commercial" },
+    "/commercial/payroll": { pathname: "/payments", unit: "commercial" },
+    "/payments/commercial-payroll": { pathname: "/payments", unit: "commercial" },
+  };
+  const legacyRedirect = legacyRedirects[request.nextUrl.pathname];
+
+  if (legacyRedirect) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = legacyRedirect.pathname;
+    if (legacyRedirect.unit) url.searchParams.set("unit", legacyRedirect.unit);
     return NextResponse.redirect(url);
   }
 

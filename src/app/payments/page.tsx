@@ -1,7 +1,7 @@
-import PaymentsClient from "./payments-client";
+import { UnifiedOperationsClient } from "@/components/operations/unified-operations-client";
 import { requireAreaAccess } from "@/lib/server-access";
 
 export default async function PaymentsPage() {
-  await requireAreaAccess("residential");
-  return <PaymentsClient />;
+  await requireAreaAccess("workspace");
+  return <UnifiedOperationsClient view="payments" />;
 }

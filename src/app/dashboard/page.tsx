@@ -1,7 +1,7 @@
-import DashboardClient from "./dashboard-client";
+import { UnifiedOperationsClient } from "@/components/operations/unified-operations-client";
 import { requireAreaAccess } from "@/lib/server-access";
 
 export default async function DashboardPage() {
-  await requireAreaAccess("residential");
-  return <DashboardClient />;
+  await requireAreaAccess("workspace");
+  return <UnifiedOperationsClient view="dashboard" />;
 }

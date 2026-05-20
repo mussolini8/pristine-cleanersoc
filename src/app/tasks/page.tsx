@@ -1,7 +1,7 @@
 import { UnifiedOperationsClient } from "@/components/operations/unified-operations-client";
 import { requireAreaAccess } from "@/lib/server-access";
 
-export default async function ReportsPage() {
-  await requireAreaAccess("operations");
-  return <UnifiedOperationsClient view="reports" />;
+export default async function TasksPage() {
+  await requireAreaAccess("tasks");
+  return <UnifiedOperationsClient view="tasks" />;
 }
