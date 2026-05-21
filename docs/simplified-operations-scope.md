@@ -44,7 +44,8 @@ Tracks:
 - Scheduled hours and frequency
 - Approximate weekly, biweekly, and monthly hours
 - Work logs by account and team
-- Weekly payment calculations by team
+- Weekly payment rows by cleaner/team
+- Juan Romero mixed pay as a simple Residential + Commercial add-on inside weekly payments
 
 ### Staff / Teams
 
@@ -114,6 +115,7 @@ This simplification is non-destructive:
 - New residential tables are additive.
 - Task and residential deletes use `deleted_at` soft deletion.
 - Existing paid/locked commercial data is not recalculated or modified.
+- Juan Romero's commercial add-on does not reactivate commercial payroll or commercial accounts.
 
 ## Hour Calculations
 

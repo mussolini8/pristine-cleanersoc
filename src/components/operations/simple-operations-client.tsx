@@ -64,6 +64,7 @@ type TaskTab = "pending" | "completed" | "overdue" | "all";
 type ReportKind = "tasks" | "hours" | "weekly_payments";
 type WorkLogStatus = "pending" | "approved" | "paid";
 type WeeklyPaymentStatus = "pending" | "paid";
+type PaymentMode = "residential_only" | "mixed";
 type MessageTone = "success" | "error" | "info";
 
 type EnvStatus = {
@@ -159,6 +160,26 @@ type ResidentialWeeklyPaymentRow = {
   updated_at?: string | null;
 };
 
+type ResidentialWeeklyPaymentLineRow = {
+  id: string;
+  user_id?: string | null;
+  cleaner_id: string | null;
+  cleaner_name: string;
+  work_date: string;
+  city: string | null;
+  payment_amount: number | string | null;
+  residential_amount: number | string | null;
+  commercial_amount: number | string | null;
+  payment_type: "residential" | "commercial" | "mixed" | string | null;
+  week_start: string;
+  week_end: string;
+  status: WeeklyPaymentStatus | string | null;
+  notes: string | null;
+  deleted_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 type StaffMemberRow = {
   id: string;
   user_id?: string | null;
@@ -167,6 +188,7 @@ type StaffMemberRow = {
   role: string | null;
   status: string | null;
   hourly_rate?: number | string | null;
+  payment_mode?: PaymentMode | string | null;
   active?: boolean | null;
   deleted_at?: string | null;
   created_at?: string | null;
@@ -214,11 +236,19 @@ type StaffDraft = {
   email: string;
   role: string;
   hourlyRate: string;
+  paymentMode: PaymentMode;
   active: boolean;
 };
 
-type PaymentDraft = {
-  hourlyRate: string;
+type PaymentRowDraft = {
+  id?: string;
+  cleanerId: string;
+  cleanerName: string;
+  workDate: string;
+  city: string;
+  paymentAmount: string;
+  residentialAmount: string;
+  commercialAmount: string;
   notes: string;
 };
 
@@ -260,7 +290,19 @@ const EMPTY_STAFF_DRAFT: StaffDraft = {
   email: "",
   role: "Residential Cleaner / Team",
   hourlyRate: "",
+  paymentMode: "residential_only",
   active: true,
+};
+
+const EMPTY_PAYMENT_ROW_DRAFT: PaymentRowDraft = {
+  cleanerId: "",
+  cleanerName: "",
+  workDate: todayKey(),
+  city: "",
+  paymentAmount: "",
+  residentialAmount: "",
+  commercialAmount: "",
+  notes: "",
 };
 
 function normalizeTaskStatus(status: string | null | undefined): "pending" | "completed" {
@@ -304,6 +346,23 @@ function staffIsActive(person: StaffMemberRow) {
   return person.active !== false && person.status !== "Inactive" && !person.deleted_at;
 }
 
+function isJuanRomero(name: string | null | undefined) {
+  return String(name ?? "").trim().toLowerCase() === "juan romero";
+}
+
+function normalizePaymentMode(value: string | null | undefined, name: string | null | undefined): PaymentMode {
+  if (value === "mixed" || isJuanRomero(name)) return "mixed";
+  return "residential_only";
+}
+
+function isMixedPayCleaner(person: StaffMemberRow | null | undefined) {
+  return normalizePaymentMode(person?.payment_mode, person?.name) === "mixed";
+}
+
+function isMixedPaySummary(summary: { team?: StaffMemberRow; teamName: string }) {
+  return normalizePaymentMode(summary.team?.payment_mode, summary.teamName) === "mixed";
+}
+
 function teamKey(teamId: string | null | undefined, teamName: string) {
   return teamId || teamName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
@@ -331,6 +390,10 @@ function actionLabel(action: string) {
 
 function dateRangeLabel(start: string, end: string) {
   return `${displayDate(start)} - ${displayDate(end)}`;
+}
+
+function paymentLineTotal(row: Pick<ResidentialWeeklyPaymentLineRow, "payment_amount" | "residential_amount" | "commercial_amount">) {
+  return toNumber(row.payment_amount) + toNumber(row.residential_amount) + toNumber(row.commercial_amount);
 }
 
 function MetricCard({
@@ -407,6 +470,7 @@ export function SimpleOperationsClient({
   const [accounts, setAccounts] = useState<ResidentialAccountRow[]>([]);
   const [workLogs, setWorkLogs] = useState<ResidentialWorkLogRow[]>([]);
   const [weeklyPayments, setWeeklyPayments] = useState<ResidentialWeeklyPaymentRow[]>([]);
+  const [weeklyPaymentRows, setWeeklyPaymentRows] = useState<ResidentialWeeklyPaymentLineRow[]>([]);
   const [staff, setStaff] = useState<StaffMemberRow[]>([]);
   const [taskTab, setTaskTab] = useState<TaskTab>("pending");
   const [taskSearch, setTaskSearch] = useState("");
@@ -425,8 +489,10 @@ export function SimpleOperationsClient({
   const [periodMode, setPeriodMode] = useState<PeriodMode>("week");
   const periodAnchor = todayKey();
   const [paymentWeekStart, setPaymentWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
-  const [paymentDrafts, setPaymentDrafts] = useState<Record<string, PaymentDraft>>({});
+  const [paymentRowDrafts, setPaymentRowDrafts] = useState<Record<string, PaymentRowDraft>>({});
+  const [editingPaymentRowId, setEditingPaymentRowId] = useState<string | null>(null);
   const [savingPaymentKey, setSavingPaymentKey] = useState<string | null>(null);
+  const [deletingPaymentRowId, setDeletingPaymentRowId] = useState<string | null>(null);
   const [reportKind, setReportKind] = useState<ReportKind>("tasks");
 
   const loadData = useCallback(async () => {
@@ -444,12 +510,13 @@ export function SimpleOperationsClient({
     setUserId(user.id);
     setUserEmail(user.email ?? null);
 
-    const [taskResult, activityResult, accountResult, workLogResult, weeklyPaymentResult, staffResult] = await Promise.all([
+    const [taskResult, activityResult, accountResult, workLogResult, weeklyPaymentResult, weeklyPaymentRowResult, staffResult] = await Promise.all([
       supabase.from("operation_tasks").select("*").order("due_date", { ascending: true, nullsFirst: false }).limit(1000),
       supabase.from("operation_task_audit_log").select("*").order("created_at", { ascending: false }).limit(1200),
       supabase.from("residential_recurring_cleaning_accounts").select("*").order("account_name").limit(1000),
       supabase.from("residential_work_logs").select("*").order("work_date", { ascending: false }).limit(1500),
       supabase.from("residential_weekly_payments").select("*").order("week_start", { ascending: false }).limit(800),
+      supabase.from("residential_weekly_payment_rows").select("*").order("work_date", { ascending: true }).order("created_at", { ascending: true }).limit(2000),
       supabase.from("staff_members").select("*").order("name").limit(700),
     ]);
 
@@ -459,6 +526,7 @@ export function SimpleOperationsClient({
       accountResult.error?.message,
       workLogResult.error?.message,
       weeklyPaymentResult.error?.message,
+      weeklyPaymentRowResult.error?.message,
       staffResult.error?.message,
     ].filter(Boolean);
 
@@ -474,6 +542,7 @@ export function SimpleOperationsClient({
     setAccounts(((accountResult.data ?? []) as ResidentialAccountRow[]).filter((account) => !account.deleted_at));
     setWorkLogs(((workLogResult.data ?? []) as ResidentialWorkLogRow[]).filter((log) => !log.deleted_at));
     setWeeklyPayments(((weeklyPaymentResult.data ?? []) as ResidentialWeeklyPaymentRow[]).filter((payment) => !payment.deleted_at));
+    setWeeklyPaymentRows(((weeklyPaymentRowResult.data ?? []) as ResidentialWeeklyPaymentLineRow[]).filter((row) => !row.deleted_at));
     setStaff((staffResult.data ?? []) as StaffMemberRow[]);
     setLoading(false);
   }, [supabase]);
@@ -489,6 +558,14 @@ export function SimpleOperationsClient({
   const periodRange = getPeriodRange(periodMode, periodAnchor);
   const activeAccounts = useMemo(() => accounts.filter((account) => account.active !== false), [accounts]);
   const activeTeams = useMemo(() => staff.filter((person) => staffIsActive(person) && !["owner", "operations manager"].includes(String(person.role ?? "").toLowerCase()) && !["jake ivan-pal", "carlos lopez"].includes(person.name.toLowerCase())), [staff]);
+  const teamByKey = useMemo(() => {
+    const map = new Map<string, StaffMemberRow>();
+    for (const team of activeTeams) {
+      map.set(teamKey(team.id, team.name), team);
+      map.set(team.name.toLowerCase(), team);
+    }
+    return map;
+  }, [activeTeams]);
   const operationsLeads = useMemo(() => {
     const known = new Map<string, StaffMemberRow>();
     for (const person of staff) {
@@ -544,6 +621,7 @@ export function SimpleOperationsClient({
   const logsInPeriod = useMemo(() => workLogs.filter((log) => isDateInRange(log.work_date, periodRange.start, periodRange.end)), [periodRange.end, periodRange.start, workLogs]);
   const weekRange = weekRangeFromStart(paymentWeekStart);
   const logsInPaymentWeek = useMemo(() => workLogs.filter((log) => isDateInRange(log.work_date, weekRange.start, weekRange.end)), [weekRange.end, weekRange.start, workLogs]);
+  const paymentRowsInWeek = useMemo(() => weeklyPaymentRows.filter((row) => row.week_start === weekRange.start && row.week_end === weekRange.end), [weekRange.end, weekRange.start, weeklyPaymentRows]);
 
   const teamHours = useMemo(() => {
     const map = new Map<string, {
@@ -582,51 +660,66 @@ export function SimpleOperationsClient({
       totalHours: number;
       accounts: Set<string>;
       logs: ResidentialWorkLogRow[];
+      rows: ResidentialWeeklyPaymentLineRow[];
+      residentialTotal: number;
+      commercialTotal: number;
+      paymentTotal: number;
       payment?: ResidentialWeeklyPaymentRow;
       team?: StaffMemberRow;
     }>();
 
-    for (const log of logsInPaymentWeek) {
-      const key = teamKey(log.team_id, log.team_name);
+    function ensureSummary(teamId: string | null, teamName: string) {
+      const key = teamKey(teamId, teamName);
+      const team = activeTeams.find((item) => item.id === teamId || item.name === teamName) ?? teamByKey.get(key) ?? teamByKey.get(teamName.toLowerCase());
       const current = map.get(key) ?? {
         key,
-        teamId: log.team_id,
-        teamName: log.team_name,
+        teamId,
+        teamName,
         totalHours: 0,
         accounts: new Set<string>(),
         logs: [],
-        team: activeTeams.find((team) => team.id === log.team_id || team.name === log.team_name),
+        rows: [],
+        residentialTotal: 0,
+        commercialTotal: 0,
+        paymentTotal: 0,
+        team,
       };
+      map.set(key, current);
+      return current;
+    }
+
+    for (const team of activeTeams) {
+      ensureSummary(team.id, team.name);
+    }
+
+    for (const log of logsInPaymentWeek) {
+      const current = ensureSummary(log.team_id, log.team_name);
       current.totalHours = roundHours(current.totalHours + toNumber(log.hours_worked));
       current.accounts.add(log.account_name);
       current.logs.push(log);
-      map.set(key, current);
+    }
+
+    for (const row of paymentRowsInWeek) {
+      const current = ensureSummary(row.cleaner_id, row.cleaner_name);
+      current.rows.push(row);
+      current.residentialTotal = roundHours(current.residentialTotal + toNumber(row.residential_amount) + toNumber(row.payment_amount));
+      current.commercialTotal = roundHours(current.commercialTotal + toNumber(row.commercial_amount));
+      current.paymentTotal = roundHours(current.paymentTotal + paymentLineTotal(row));
     }
 
     for (const payment of weeklyPayments.filter((item) => item.week_start === weekRange.start)) {
-      const key = teamKey(payment.team_id, payment.team_name);
-      const current = map.get(key) ?? {
-        key,
-        teamId: payment.team_id,
-        teamName: payment.team_name,
-        totalHours: toNumber(payment.total_hours),
-        accounts: new Set<string>(),
-        logs: [],
-        team: activeTeams.find((team) => team.id === payment.team_id || team.name === payment.team_name),
-      };
+      const current = ensureSummary(payment.team_id, payment.team_name);
+      if (!current.totalHours) current.totalHours = toNumber(payment.total_hours);
       current.payment = payment;
-      map.set(key, current);
     }
 
     return Array.from(map.values()).sort((a, b) => a.teamName.localeCompare(b.teamName));
-  }, [activeTeams, logsInPaymentWeek, weekRange.start, weeklyPayments]);
+  }, [activeTeams, logsInPaymentWeek, paymentRowsInWeek, teamByKey, weekRange.start, weeklyPayments]);
 
   const pendingPaymentTotal = useMemo(() => weeklyPaymentSummaries.reduce((sum, item) => {
-    if (item.payment) return sum;
-    const key = item.key;
-    const rate = toNumber(paymentDrafts[key]?.hourlyRate || item.team?.hourly_rate);
-    return sum + item.totalHours * rate;
-  }, 0), [paymentDrafts, weeklyPaymentSummaries]);
+    const isPaid = item.payment?.status === "paid" || item.rows.every((row) => row.status === "paid");
+    return isPaid ? sum : sum + item.paymentTotal;
+  }, 0), [weeklyPaymentSummaries]);
 
   async function writeTaskAudit(taskId: string, action: string, details: Record<string, unknown>) {
     const { error } = await supabase.from("operation_task_audit_log").insert({
@@ -956,6 +1049,7 @@ export function SimpleOperationsClient({
       email: person.email ?? "",
       role: person.role ?? "Residential Cleaner / Team",
       hourlyRate: String(person.hourly_rate ?? ""),
+      paymentMode: normalizePaymentMode(person.payment_mode, person.name),
       active: staffIsActive(person),
     });
   }
@@ -976,6 +1070,7 @@ export function SimpleOperationsClient({
       display_role: staffDraft.role.trim() || "Residential Cleaner / Team",
       team_scope: "residential",
       hourly_rate: Number(staffDraft.hourlyRate) || null,
+      payment_mode: isJuanRomero(staffDraft.name) ? "mixed" : staffDraft.paymentMode,
       active: staffDraft.active,
       status: staffDraft.active ? "Active" : "Inactive",
       commercial_payroll_eligible: false,
@@ -1000,9 +1095,7 @@ export function SimpleOperationsClient({
   async function saveWeeklyPayment(summary: (typeof weeklyPaymentSummaries)[number], status: WeeklyPaymentStatus) {
     if (!userId || savingPaymentKey) return;
     const key = summary.key;
-    const draft = paymentDrafts[key];
-    const rate = toNumber(draft?.hourlyRate || summary.payment?.hourly_rate || summary.team?.hourly_rate);
-    const total = roundHours(summary.totalHours * rate);
+    const total = roundHours(summary.paymentTotal);
     const now = new Date().toISOString();
     setSavingPaymentKey(key);
 
@@ -1014,11 +1107,11 @@ export function SimpleOperationsClient({
         week_start: weekRange.start,
         week_end: weekRange.end,
         total_hours: summary.totalHours,
-        hourly_rate: rate,
+        hourly_rate: toNumber(summary.team?.hourly_rate),
         total_payment: total,
         status,
         paid_at: status === "paid" ? now : null,
-        notes: draft?.notes.trim() || summary.payment?.notes || null,
+        notes: summary.payment?.notes || null,
         updated_at: now,
       };
       const result = summary.payment
@@ -1029,6 +1122,9 @@ export function SimpleOperationsClient({
       if (summary.logs.length) {
         await supabase.from("residential_work_logs").update({ status, updated_at: now }).in("id", summary.logs.map((log) => log.id));
       }
+      if (summary.rows.length) {
+        await supabase.from("residential_weekly_payment_rows").update({ status, updated_at: now }).in("id", summary.rows.map((row) => row.id));
+      }
 
       setMessage({ tone: "success", text: status === "paid" ? "Weekly payment marked as paid." : "Weekly payment marked as pending." });
       await loadData();
@@ -1036,6 +1132,120 @@ export function SimpleOperationsClient({
       setMessage({ tone: "error", text: `Weekly payment could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
     } finally {
       setSavingPaymentKey(null);
+    }
+  }
+
+  function paymentDraftForSummary(summary: (typeof weeklyPaymentSummaries)[number]) {
+    return paymentRowDrafts[summary.key] ?? {
+      ...EMPTY_PAYMENT_ROW_DRAFT,
+      cleanerId: summary.teamId ?? "",
+      cleanerName: summary.teamName,
+      workDate: weekRange.start,
+    };
+  }
+
+  function setPaymentDraftForSummary(summary: (typeof weeklyPaymentSummaries)[number], draft: PaymentRowDraft) {
+    setPaymentRowDrafts((current) => ({ ...current, [summary.key]: draft }));
+  }
+
+  function editPaymentRow(row: ResidentialWeeklyPaymentLineRow) {
+    const key = teamKey(row.cleaner_id, row.cleaner_name);
+    setEditingPaymentRowId(row.id);
+    setPaymentRowDrafts((current) => ({
+      ...current,
+      [key]: {
+        id: row.id,
+        cleanerId: row.cleaner_id ?? "",
+        cleanerName: row.cleaner_name,
+        workDate: row.work_date,
+        city: row.city ?? "",
+        paymentAmount: row.payment_amount ? String(row.payment_amount) : "",
+        residentialAmount: row.residential_amount ? String(row.residential_amount) : "",
+        commercialAmount: row.commercial_amount ? String(row.commercial_amount) : "",
+        notes: row.notes ?? "",
+      },
+    }));
+  }
+
+  async function savePaymentRow(summary: (typeof weeklyPaymentSummaries)[number]) {
+    if (!userId || savingPaymentKey) return;
+    const draft = paymentDraftForSummary(summary);
+    const cleaner = summary.team ?? teamByKey.get(summary.key) ?? null;
+    const mixed = normalizePaymentMode(cleaner?.payment_mode, summary.teamName) === "mixed";
+    const paymentAmount = toNumber(draft.paymentAmount);
+    const residentialAmount = toNumber(draft.residentialAmount);
+    const commercialAmount = toNumber(draft.commercialAmount);
+
+    if (!draft.workDate) {
+      setMessage({ tone: "error", text: "Payment row could not be saved: date is required." });
+      return;
+    }
+    if (!draft.city.trim()) {
+      setMessage({ tone: "error", text: "Payment row could not be saved: city is required." });
+      return;
+    }
+    if (paymentAmount < 0 || residentialAmount < 0 || commercialAmount < 0) {
+      setMessage({ tone: "error", text: "Payment row could not be saved: amounts cannot be negative." });
+      return;
+    }
+    if (!mixed && paymentAmount < 0) {
+      setMessage({ tone: "error", text: "Payment row could not be saved: payment cannot be negative." });
+      return;
+    }
+    if (mixed && residentialAmount === 0 && commercialAmount === 0) {
+      setMessage({ tone: "error", text: "Juan's mixed pay row needs a residential or commercial amount." });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    setSavingPaymentKey(summary.key);
+    try {
+      const payload = {
+        user_id: userId,
+        cleaner_id: summary.teamId,
+        cleaner_name: summary.teamName,
+        work_date: draft.workDate,
+        city: draft.city.trim(),
+        payment_amount: mixed ? 0 : paymentAmount,
+        residential_amount: mixed ? residentialAmount : 0,
+        commercial_amount: mixed ? commercialAmount : 0,
+        payment_type: mixed ? "mixed" : "residential",
+        week_start: weekRange.start,
+        week_end: weekRange.end,
+        status: "pending",
+        notes: draft.notes.trim() || null,
+        updated_at: now,
+      };
+      const result = draft.id
+        ? await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", draft.id)
+        : await supabase.from("residential_weekly_payment_rows").insert({ ...payload, created_at: now });
+      if (result.error) throw new Error(result.error.message);
+      setPaymentRowDrafts((current) => ({ ...current, [summary.key]: { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start } }));
+      setEditingPaymentRowId(null);
+      setMessage({ tone: "success", text: "Payment row saved." });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Payment row could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+    } finally {
+      setSavingPaymentKey(null);
+    }
+  }
+
+  async function deletePaymentRow(row: ResidentialWeeklyPaymentLineRow) {
+    if (deletingPaymentRowId) return;
+    if (!window.confirm("Are you sure you want to delete this payment row?")) return;
+    const now = new Date().toISOString();
+    setDeletingPaymentRowId(row.id);
+    try {
+      const { error } = await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).eq("id", row.id);
+      if (error) throw new Error(error.message);
+      setWeeklyPaymentRows((current) => current.filter((item) => item.id !== row.id));
+      setMessage({ tone: "success", text: "Payment row deleted." });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Payment row could not be deleted: ${error instanceof Error ? error.message : "unexpected error"}` });
+    } finally {
+      setDeletingPaymentRowId(null);
     }
   }
 
@@ -1052,20 +1262,34 @@ export function SimpleOperationsClient({
   }
 
   async function exportWeeklyPayments() {
-    const rows = weeklyPaymentSummaries.map((summary) => {
-      const draft = paymentDrafts[summary.key];
-      const rate = toNumber(draft?.hourlyRate || summary.payment?.hourly_rate || summary.team?.hourly_rate);
-      return {
-        team: summary.teamName,
-        week_start: weekRange.start,
-        week_end: weekRange.end,
-        hours: summary.totalHours,
-        hourly_rate: rate,
-        total: roundHours(summary.totalHours * rate),
-        status: summary.payment?.status ?? "pending",
-      };
+    const rows = weeklyPaymentSummaries.flatMap((summary) => {
+      const mixed = isMixedPaySummary(summary);
+      if (summary.rows.length === 0) {
+        return [{
+          cleaner: summary.teamName,
+          date: "",
+          city: "",
+          payment_mode: mixed ? "mixed pay" : "residential pay",
+          payment: 0,
+          residential: 0,
+          commercial: 0,
+          total: 0,
+          status: summary.payment?.status ?? "pending",
+        }];
+      }
+      return summary.rows.map((row) => ({
+        cleaner: summary.teamName,
+        date: row.work_date,
+        city: row.city,
+        payment_mode: mixed ? "mixed pay" : "residential pay",
+        payment: mixed ? "" : toNumber(row.payment_amount),
+        residential: mixed ? toNumber(row.residential_amount) : "",
+        commercial: mixed ? toNumber(row.commercial_amount) : "",
+        total: paymentLineTotal(row),
+        status: row.status ?? summary.payment?.status ?? "pending",
+      }));
     });
-    await exportRows(`pristine-weekly-residential-payments-${weekRange.start}.xlsx`, rows);
+    await exportRows(`weekly-residential-payments-${weekRange.start}.xlsx`, rows);
   }
 
   function getReportRows() {
@@ -1097,18 +1321,18 @@ export function SimpleOperationsClient({
       }));
     }
 
-    return weeklyPaymentSummaries.map((summary) => {
-      const draft = paymentDrafts[summary.key];
-      const rate = toNumber(draft?.hourlyRate || summary.payment?.hourly_rate || summary.team?.hourly_rate);
-      return {
-        team: summary.teamName,
-        week_start: weekRange.start,
-        week_end: weekRange.end,
-        hours: summary.totalHours,
-        rate,
-        total: roundHours(summary.totalHours * rate),
-        status: summary.payment?.status ?? "pending",
-      };
+    return weeklyPaymentSummaries.flatMap((summary) => {
+      const mixed = isMixedPaySummary(summary);
+      return summary.rows.map((row) => ({
+        cleaner: summary.teamName,
+        date: row.work_date,
+        city: row.city,
+        payment: mixed ? "" : toNumber(row.payment_amount),
+        residential: mixed ? toNumber(row.residential_amount) : "",
+        commercial: mixed ? toNumber(row.commercial_amount) : "",
+        total: paymentLineTotal(row),
+        status: row.status ?? summary.payment?.status ?? "pending",
+      }));
     });
   }
 
@@ -1171,7 +1395,6 @@ export function SimpleOperationsClient({
     const workedThisWeek = workLogs
       .filter((log) => isDateInRange(log.work_date, currentWeek.start, currentWeek.end))
       .reduce((sum, log) => sum + toNumber(log.hours_worked), 0);
-    const pendingPayments = weeklyPayments.filter((payment) => payment.status !== "paid");
     const recentCompleted = taskStats.completed
       .slice()
       .sort((a, b) => String(b.completed_at ?? b.updated_at).localeCompare(String(a.completed_at ?? a.updated_at)))
@@ -1187,7 +1410,7 @@ export function SimpleOperationsClient({
           <MetricCard icon={CalendarDays} label="Weekly scheduled hours" value={formatHours(accountTotals.weekly)} note="Approximate recurring hours" />
           <MetricCard icon={CalendarDays} label="Monthly scheduled hours" value={formatHours(accountTotals.monthly)} note="Uses 4.33 weeks/month" />
           <MetricCard icon={Users} label="This week worked hours" value={formatHours(workedThisWeek)} note={dateRangeLabel(currentWeek.start, currentWeek.end)} />
-          <MetricCard icon={WalletCards} label="Pending residential payments" value={formatMoney(pendingPayments.reduce((sum, payment) => sum + toNumber(payment.total_payment), 0) + pendingPaymentTotal)} note="Open weekly payments" tone={pendingPayments.length || pendingPaymentTotal ? "warn" : "good"} />
+          <MetricCard icon={WalletCards} label="Pending residential payments" value={formatMoney(pendingPaymentTotal)} note="Open weekly payments" tone={pendingPaymentTotal ? "warn" : "good"} />
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
@@ -1226,16 +1449,15 @@ export function SimpleOperationsClient({
               <CardTitle>Pending payments</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {weeklyPaymentSummaries.filter((summary) => summary.payment?.status !== "paid").length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">No pending residential payments for the selected week.</div> : null}
-              {weeklyPaymentSummaries.filter((summary) => summary.payment?.status !== "paid").slice(0, 5).map((summary) => {
-                const rate = toNumber(paymentDrafts[summary.key]?.hourlyRate || summary.payment?.hourly_rate || summary.team?.hourly_rate);
+              {weeklyPaymentSummaries.filter((summary) => summary.paymentTotal > 0 && summary.payment?.status !== "paid").length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">No pending residential payments for the selected week.</div> : null}
+              {weeklyPaymentSummaries.filter((summary) => summary.paymentTotal > 0 && summary.payment?.status !== "paid").slice(0, 5).map((summary) => {
                 return (
                   <div className="flex items-center justify-between rounded-lg border border-border bg-background/70 p-3" key={summary.key}>
                     <div>
                       <p className="font-black">{summary.teamName}</p>
-                      <p className="text-xs font-bold text-muted-foreground">{formatHours(summary.totalHours)} hours x {formatMoney(rate)}</p>
+                      <p className="text-xs font-bold text-muted-foreground">{summary.rows.length} payment rows</p>
                     </div>
-                    <p className="font-black text-primary">{formatMoney(summary.totalHours * rate)}</p>
+                    <p className="font-black text-primary">{formatMoney(summary.paymentTotal)}</p>
                   </div>
                 );
               })}
@@ -1576,10 +1798,20 @@ export function SimpleOperationsClient({
 
   function renderWeeklyPayments() {
     const weekStartDate = parseDateKey(paymentWeekStart) ?? startOfWeek(new Date());
-    const weekTotal = weeklyPaymentSummaries.reduce((sum, summary) => {
-      const rate = toNumber(paymentDrafts[summary.key]?.hourlyRate || summary.payment?.hourly_rate || summary.team?.hourly_rate);
-      return sum + summary.totalHours * rate;
-    }, 0);
+    const residentialOnlyTotal = weeklyPaymentSummaries
+      .filter((summary) => !isMixedPaySummary(summary))
+      .reduce((sum, summary) => sum + summary.paymentTotal, 0);
+    const juanResidentialTotal = weeklyPaymentSummaries
+      .filter((summary) => isMixedPaySummary(summary))
+      .reduce((sum, summary) => sum + summary.residentialTotal, 0);
+    const juanCommercialTotal = weeklyPaymentSummaries
+      .filter((summary) => isMixedPaySummary(summary))
+      .reduce((sum, summary) => sum + summary.commercialTotal, 0);
+    const weekTotal = residentialOnlyTotal + juanResidentialTotal + juanCommercialTotal;
+    const paidTotal = weeklyPaymentSummaries
+      .filter((summary) => summary.payment?.status === "paid" || (summary.rows.length > 0 && summary.rows.every((row) => row.status === "paid")))
+      .reduce((sum, summary) => sum + summary.paymentTotal, 0);
+    const pendingTotal = weekTotal - paidTotal;
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
@@ -1592,44 +1824,135 @@ export function SimpleOperationsClient({
           <Button variant="outline" onClick={exportWeeklyPayments}><FileSpreadsheet className="size-4" /> Export weekly payments</Button>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-4">
-          <MetricCard icon={Users} label="Teams" value={weeklyPaymentSummaries.length} />
-          <MetricCard icon={Clock} label="Hours worked" value={formatHours(weeklyPaymentSummaries.reduce((sum, item) => sum + item.totalHours, 0))} />
-          <MetricCard icon={WalletCards} label="Week total" value={formatMoney(weekTotal)} />
-          <MetricCard icon={CheckCircle2} label="Paid teams" value={weeklyPaymentSummaries.filter((summary) => summary.payment?.status === "paid").length} tone="good" />
+        <div className="grid gap-3 md:grid-cols-5">
+          <MetricCard icon={WalletCards} label="Residential payments" value={formatMoney(residentialOnlyTotal + juanResidentialTotal)} note="Normal cleaners plus Juan residential" />
+          <MetricCard icon={WalletCards} label="Juan commercial add-on" value={formatMoney(juanCommercialTotal)} note="Simple mixed pay only" />
+          <MetricCard icon={BadgeCheck} label="Grand total weekly payments" value={formatMoney(weekTotal)} />
+          <MetricCard icon={Clock} label="Pending total" value={formatMoney(pendingTotal)} tone={pendingTotal ? "warn" : "good"} />
+          <MetricCard icon={CheckCircle2} label="Paid total" value={formatMoney(paidTotal)} tone="good" />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          {weeklyPaymentSummaries.length === 0 ? <Card><CardContent className="p-8 text-center text-sm font-bold text-muted-foreground">No residential hours logged for this week.</CardContent></Card> : null}
+        <div className="grid gap-4">
           {weeklyPaymentSummaries.map((summary) => {
-            const draft = paymentDrafts[summary.key];
-            const rateValue = draft?.hourlyRate ?? String(summary.payment?.hourly_rate ?? summary.team?.hourly_rate ?? "");
-            const rate = toNumber(rateValue);
-            const amount = roundHours(summary.totalHours * rate);
-            const isPaid = summary.payment?.status === "paid";
+            const draft = paymentDraftForSummary(summary);
+            const mixed = isMixedPaySummary(summary);
+            const isPaid = summary.rows.length > 0 ? summary.rows.every((row) => row.status === "paid") : summary.payment?.status === "paid";
             return (
-              <Card key={summary.key}>
-                <CardHeader className="flex-row items-start justify-between space-y-0">
-                  <div>
-                    <CardTitle>{summary.teamName}</CardTitle>
-                    <p className="mt-1 text-sm font-semibold text-muted-foreground">{summary.accounts.size} accounts · {formatHours(summary.totalHours)} hours</p>
+              <Card className={mixed ? "border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/15" : ""} key={summary.key}>
+                <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+                  <div className="flex min-w-0 items-stretch gap-4">
+                    <div className="grid min-h-28 w-28 shrink-0 place-items-center rounded-md border border-border bg-background text-center">
+                      <span className="[writing-mode:vertical-rl] rotate-180 text-2xl font-black tracking-normal">{summary.teamName}</span>
+                    </div>
+                    <div>
+                      <CardTitle>{summary.teamName}</CardTitle>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge className={mixed ? "border-amber-200 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Mixed pay: Residential + Commercial" : "Residential pay"}</Badge>
+                        <Badge variant="outline">{isPaid ? "paid" : "pending"}</Badge>
+                        {summary.totalHours ? <Badge variant="outline">{formatHours(summary.totalHours)} logged hours</Badge> : null}
+                      </div>
+                    </div>
                   </div>
-                  <Badge className={isPaid ? "border-emerald-200 bg-emerald-50 text-emerald-800" : ""} variant="outline">{isPaid ? "paid" : "pending"}</Badge>
+                  <div className="text-right">
+                    <p className="text-xs font-black uppercase text-muted-foreground">Total</p>
+                    <p className="mt-1 text-2xl font-black text-primary">{formatMoney(summary.paymentTotal)}</p>
+                  </div>
                 </CardHeader>
-                <CardContent className="grid gap-3">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <label className="grid gap-1 text-sm font-bold">Hourly rate<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={rateValue} onChange={(event) => setPaymentDrafts((current) => ({ ...current, [summary.key]: { hourlyRate: event.target.value, notes: current[summary.key]?.notes ?? summary.payment?.notes ?? "" } }))} /></label>
-                    <div className="rounded-md border border-border bg-background/70 p-3">
-                      <p className="text-[11px] font-black uppercase text-muted-foreground">Total hours</p>
-                      <p className="mt-1 text-lg font-black">{formatHours(summary.totalHours)}</p>
-                    </div>
-                    <div className="rounded-md border border-border bg-background/70 p-3">
-                      <p className="text-[11px] font-black uppercase text-muted-foreground">Total payment</p>
-                      <p className="mt-1 text-lg font-black text-primary">{formatMoney(amount)}</p>
-                    </div>
+                <CardContent className="grid gap-4">
+                  <div className="overflow-auto">
+                    <table className={cn("w-full text-sm", mixed ? "min-w-[860px]" : "min-w-[720px]")}>
+                      <thead>
+                        <tr className="border-y border-border bg-background text-left text-base font-black">
+                          <th className="px-3 py-2">Date</th>
+                          <th>City</th>
+                          {mixed ? (
+                            <>
+                              <th className="text-right">Residential</th>
+                              <th className="text-right">Commercial</th>
+                            </>
+                          ) : (
+                            <th className="text-right">Payment</th>
+                          )}
+                          <th>Notes</th>
+                          <th className="text-right pr-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.rows.length === 0 ? <tr><td className="px-3 py-6 text-center font-bold text-muted-foreground" colSpan={mixed ? 6 : 5}>No payment rows yet.</td></tr> : null}
+                        {summary.rows.map((row) => (
+                          <tr className="border-b border-border/80" key={row.id}>
+                            <td className="px-3 py-2">{displayDate(row.work_date)}</td>
+                            <td className="font-bold">{row.city}</td>
+                            {mixed ? (
+                              <>
+                                <td className="text-right font-black">{formatMoney(toNumber(row.residential_amount))}</td>
+                                <td className="text-right font-black">{formatMoney(toNumber(row.commercial_amount))}</td>
+                              </>
+                            ) : (
+                              <td className="text-right font-black">{formatMoney(toNumber(row.payment_amount))}</td>
+                            )}
+                            <td className="max-w-64 truncate text-muted-foreground">{row.notes}</td>
+                            <td className="pr-3">
+                              <div className="flex justify-end gap-2">
+                                <Button size="icon" variant="outline" aria-label="Edit payment row" onClick={() => editPaymentRow(row)}><Edit3 className="size-4" /></Button>
+                                <Button size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        {mixed ? (
+                          <>
+                            <tr className="border-t-2 border-border bg-yellow-100 text-sm font-black text-yellow-950">
+                              <td className="px-3 py-2">TOTAL</td>
+                              <td>{summary.rows.length}</td>
+                              <td className="text-right">{formatMoney(summary.residentialTotal)}</td>
+                              <td className="text-right">{formatMoney(summary.commercialTotal)}</td>
+                              <td className="text-right pr-3" colSpan={2}>Grand Total: {formatMoney(summary.paymentTotal)}</td>
+                            </tr>
+                          </>
+                        ) : (
+                          <tr className="border-t-2 border-border bg-yellow-100 text-sm font-black text-yellow-950">
+                            <td className="px-3 py-2">TOTAL</td>
+                            <td>{summary.rows.length}</td>
+                            <td className="text-right">{formatMoney(summary.paymentTotal)}</td>
+                            <td className="pr-3" colSpan={2} />
+                          </tr>
+                        )}
+                      </tfoot>
+                    </table>
                   </div>
-                  <label className="grid gap-1 text-sm font-bold">Notes<input className="h-10 rounded-md border bg-background px-3" value={draft?.notes ?? summary.payment?.notes ?? ""} onChange={(event) => setPaymentDrafts((current) => ({ ...current, [summary.key]: { hourlyRate: current[summary.key]?.hourlyRate ?? rateValue, notes: event.target.value } }))} /></label>
-                  <div className="flex flex-wrap gap-2">
+
+                  <div className={cn("grid gap-3 rounded-lg border border-border bg-background/70 p-3", mixed ? "md:grid-cols-[1fr_1fr_1fr_1fr_auto]" : "md:grid-cols-[1fr_1fr_1fr_1fr_auto]")}>
+                    <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
+                    <label className="grid gap-1 text-sm font-bold">City<input className="h-10 rounded-md border bg-background px-3" value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value })} /></label>
+                    {mixed ? (
+                      <>
+                        <label className="grid gap-1 text-sm font-bold">Residential amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label>
+                        <label className="grid gap-1 text-sm font-bold">Commercial amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={draft.commercialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, commercialAmount: event.target.value })} /></label>
+                      </>
+                    ) : (
+                      <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>
+                    )}
+                    <div className="flex items-end gap-2">
+                      <Button className="w-full" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {editingPaymentRowId ? "Update" : "Add row"}</Button>
+                    </div>
+                    <label className={cn("grid gap-1 text-sm font-bold", mixed ? "md:col-span-4" : "md:col-span-3")}>Notes<input className="h-10 rounded-md border bg-background px-3" value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
+                    {editingPaymentRowId ? <Button className="self-end" variant="outline" onClick={() => { setEditingPaymentRowId(null); setPaymentDraftForSummary(summary, { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start }); }}>Cancel edit</Button> : null}
+                  </div>
+
+                  {mixed ? (
+                    <div className="grid gap-2 rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm font-black text-amber-950 md:grid-cols-3">
+                      <span>Total Residential: {formatMoney(summary.residentialTotal)}</span>
+                      <span>Total Commercial: {formatMoney(summary.commercialTotal)}</span>
+                      <span>Grand Total: {formatMoney(summary.paymentTotal)}</span>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border bg-background/70 p-3 text-sm font-black">Total: {formatMoney(summary.paymentTotal)}</div>
+                  )}
+
+                  <div className="flex flex-wrap justify-end gap-2">
                     <Button disabled={savingPaymentKey === summary.key} onClick={() => saveWeeklyPayment(summary, "paid")}><CheckCircle2 className="size-4" /> Mark paid</Button>
                     <Button disabled={savingPaymentKey === summary.key} variant="outline" onClick={() => saveWeeklyPayment(summary, "pending")}>Mark pending</Button>
                   </div>
@@ -1680,7 +2003,7 @@ export function SimpleOperationsClient({
             {activeTeams.length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground md:col-span-2 xl:col-span-3">No residential teams yet.</div> : null}
             {activeTeams.map((team) => {
               const hours = workLogs.filter((log) => log.team_id === team.id || log.team_name === team.name).reduce((sum, log) => sum + toNumber(log.hours_worked), 0);
-              const paid = weeklyPayments.filter((payment) => (payment.team_id === team.id || payment.team_name === team.name) && payment.status === "paid").reduce((sum, payment) => sum + toNumber(payment.total_payment), 0);
+              const paid = weeklyPaymentRows.filter((payment) => (payment.cleaner_id === team.id || payment.cleaner_name === team.name) && payment.status === "paid").reduce((sum, payment) => sum + paymentLineTotal(payment), 0);
               return (
                 <article className="rounded-lg border border-border bg-background/70 p-4" key={team.id}>
                   <div className="flex items-start justify-between gap-3">
@@ -1694,7 +2017,7 @@ export function SimpleOperationsClient({
                     <span>{formatMoney(toNumber(team.hourly_rate))}/hr</span>
                     <span>{formatHours(hours)} hours</span>
                     <span>{formatMoney(paid)} paid</span>
-                    <span>{staffIsActive(team) ? "Active" : "Inactive"}</span>
+                    <span>{isMixedPayCleaner(team) ? "Mixed pay" : "Residential only"}</span>
                   </div>
                   <div className="mt-3 flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => openStaffDraft(team)}><Edit3 className="size-4" /> Edit</Button>
@@ -1796,6 +2119,7 @@ export function SimpleOperationsClient({
                 "Hours calculation: weekly, biweekly, monthly approximation",
                 "Soft-delete/archive behavior: enabled for tasks, accounts, logs, and payments",
                 "Default hourly rate: managed per team in Staff / Teams",
+                "Payment mode: Residential only by default; Juan Romero is mixed pay",
               ].map((row) => <div className="rounded-md border border-border bg-background/70 px-3 py-2 text-sm font-bold text-muted-foreground" key={row}>{row}</div>)}
             </CardContent>
           </Card>
@@ -1958,6 +2282,11 @@ export function SimpleOperationsClient({
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm font-bold">Role<input className="h-10 rounded-md border bg-background px-3" value={staffDraft.role} onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value })} /></label>
             <label className="grid gap-1 text-sm font-bold">Hourly rate<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={staffDraft.hourlyRate} onChange={(event) => setStaffDraft({ ...staffDraft, hourlyRate: event.target.value })} /></label>
+            <label className="grid gap-1 text-sm font-bold">Payment mode<select className="h-10 rounded-md border bg-background px-3" value={staffDraft.paymentMode} disabled={isJuanRomero(staffDraft.name)} onChange={(event) => setStaffDraft({ ...staffDraft, paymentMode: event.target.value as PaymentMode })}>
+              <option value="residential_only">Residential only</option>
+              <option value="mixed">Mixed pay</option>
+            </select></label>
+            {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">Juan Romero is always mixed pay.</div> : null}
           </div>
           <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={staffDraft.active} onChange={(event) => setStaffDraft({ ...staffDraft, active: event.target.checked })} /> Active</label>
           <div className="flex justify-end gap-2">

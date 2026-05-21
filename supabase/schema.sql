@@ -57,6 +57,7 @@ alter table public.staff_members
   add column if not exists team_scope text,
   add column if not exists commercial_payroll_eligible boolean not null default true,
   add column if not exists hourly_rate numeric(10,2),
+  add column if not exists payment_mode text not null default 'residential_only',
   add column if not exists active boolean not null default true,
   add column if not exists deleted_at timestamptz;
 
@@ -593,6 +594,61 @@ create unique index if not exists residential_weekly_payments_team_week_uidx
 
 create index if not exists residential_weekly_payments_status_idx
   on public.residential_weekly_payments(week_start, week_end, status);
+
+create table if not exists public.residential_weekly_payment_rows (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  cleaner_id uuid references public.staff_members(id) on delete set null,
+  cleaner_name text not null,
+  work_date date not null,
+  city text,
+  payment_amount numeric(12,2) not null default 0,
+  residential_amount numeric(12,2) not null default 0,
+  commercial_amount numeric(12,2) not null default 0,
+  payment_type text not null default 'residential',
+  week_start date not null,
+  week_end date not null,
+  status text not null default 'pending',
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+alter table public.residential_weekly_payment_rows enable row level security;
+
+drop policy if exists "Residential weekly payment rows are readable by signed in users" on public.residential_weekly_payment_rows;
+create policy "Residential weekly payment rows are readable by signed in users"
+  on public.residential_weekly_payment_rows for select
+  using (auth.uid() is not null and deleted_at is null);
+
+drop policy if exists "Residential weekly payment rows are editable by owners" on public.residential_weekly_payment_rows;
+create policy "Residential weekly payment rows are editable by owners"
+  on public.residential_weekly_payment_rows for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+create index if not exists residential_weekly_payment_rows_cleaner_week_idx
+  on public.residential_weekly_payment_rows(cleaner_id, cleaner_name, week_start, week_end, status)
+  where deleted_at is null;
+
+create index if not exists residential_weekly_payment_rows_work_date_idx
+  on public.residential_weekly_payment_rows(work_date, city)
+  where deleted_at is null;
+
+update public.staff_members
+set payment_mode = 'mixed',
+    team_scope = coalesce(team_scope, 'residential'),
+    active = true,
+    updated_at = now()
+where lower(name) = 'juan romero';
+
+update public.staff_members
+set payment_mode = 'residential_only',
+    active = coalesce(active, true),
+    updated_at = now()
+where lower(name) <> 'juan romero'
+  and payment_mode is distinct from 'residential_only';
 
 
 -- Unified payments progressive migration 2026-05-14
