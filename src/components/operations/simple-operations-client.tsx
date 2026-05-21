@@ -62,6 +62,7 @@ import { cn } from "@/lib/utils";
 
 export type SimpleOperationsView = "dashboard" | "tasks" | "residential" | "staff" | "reports" | "settings";
 type TaskTab = "pending" | "completed" | "overdue" | "all";
+type TaskViewMode = "month" | "day" | "list";
 type ReportKind = "tasks" | "hours" | "weekly_payments";
 type WorkLogStatus = "pending" | "approved" | "paid";
 type WeeklyPaymentStatus = "pending" | "verified" | "needs_review" | "paid" | "no_jobs";
@@ -111,6 +112,7 @@ const ORANGE_COUNTY_CITIES = [
 ] as const;
 
 const OUTSIDE_OC_CITY = "Other / Outside Orange County";
+const JUAN_ROMERO_NAME = "Juan Romero";
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 
 type EnvStatus = {
@@ -509,11 +511,13 @@ function staffIsActive(person: StaffMemberRow) {
 }
 
 function isJuanRomero(name: string | null | undefined) {
-  return String(name ?? "").trim().toLowerCase() === "juan romero";
+  const normalized = String(name ?? "").trim().toLowerCase();
+  return normalized === "juan romero" || normalized === "juan";
 }
 
 function normalizePaymentMode(value: string | null | undefined, name: string | null | undefined): PaymentMode {
-  if (value === "mixed" || isJuanRomero(name)) return "mixed";
+  void value;
+  if (isJuanRomero(name)) return "mixed";
   return "residential_only";
 }
 
@@ -522,10 +526,12 @@ function isMixedPayCleaner(person: StaffMemberRow | null | undefined) {
 }
 
 function isMixedPaySummary(summary: { team?: StaffMemberRow; teamName: string }) {
-  return normalizePaymentMode(summary.team?.payment_mode, summary.teamName) === "mixed";
+  void summary.team;
+  return isJuanRomero(summary.teamName);
 }
 
 function teamKey(teamId: string | null | undefined, teamName: string) {
+  if (isJuanRomero(teamName)) return "juan-romero";
   return teamId || teamName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
 
@@ -716,6 +722,8 @@ export function SimpleOperationsClient({
   const [staff, setStaff] = useState<StaffMemberRow[]>([]);
   const [taskTab, setTaskTab] = useState<TaskTab>("pending");
   const [taskSearch, setTaskSearch] = useState("");
+  const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>("month");
+  const [taskSelectedDay, setTaskSelectedDay] = useState(todayKey());
   const [taskCalendarAnchor, setTaskCalendarAnchor] = useState(() => formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
@@ -940,10 +948,11 @@ export function SimpleOperationsClient({
     function ensureSummary(teamId: string | null, teamName: string) {
       const key = teamKey(teamId, teamName);
       const team = activeTeams.find((item) => item.id === teamId || item.name === teamName) ?? teamByKey.get(key) ?? teamByKey.get(teamName.toLowerCase());
+      const displayName = isJuanRomero(teamName) ? JUAN_ROMERO_NAME : teamName;
       const current = map.get(key) ?? {
         key,
         teamId,
-        teamName,
+        teamName: displayName,
         totalHours: 0,
         accounts: new Set<string>(),
         logs: [],
@@ -953,6 +962,11 @@ export function SimpleOperationsClient({
         paymentTotal: 0,
         team,
       };
+      if (isJuanRomero(teamName)) {
+        current.teamId = current.teamId ?? teamId ?? team?.id ?? null;
+        current.teamName = JUAN_ROMERO_NAME;
+        current.team = current.team ?? team;
+      }
       map.set(key, current);
       return current;
     }
@@ -960,6 +974,9 @@ export function SimpleOperationsClient({
     for (const team of activeTeams) {
       ensureSummary(team.id, team.name);
     }
+
+    const juanTeam = activeTeams.find((team) => isJuanRomero(team.name)) ?? staff.find((person) => isJuanRomero(person.name));
+    ensureSummary(juanTeam?.id ?? null, JUAN_ROMERO_NAME);
 
     for (const log of logsInPaymentWeek) {
       const current = ensureSummary(log.team_id, log.team_name);
@@ -983,7 +1000,7 @@ export function SimpleOperationsClient({
     }
 
     return Array.from(map.values()).sort((a, b) => a.teamName.localeCompare(b.teamName));
-  }, [activeTeams, logsInPaymentWeek, paymentRowsInWeek, teamByKey, weekRange.start, weeklyPayments]);
+  }, [activeTeams, logsInPaymentWeek, paymentRowsInWeek, staff, teamByKey, weekRange.start, weeklyPayments]);
 
   const pendingPaymentTotal = useMemo(() => weeklyPaymentSummaries.reduce((sum, item) => {
     return paymentSummaryStatus(item) === "paid" ? sum : sum + item.paymentTotal;
@@ -1466,6 +1483,15 @@ export function SimpleOperationsClient({
     if (row) editPaymentRow(row);
   }
 
+  function openJuanPaymentModal(row?: ResidentialWeeklyPaymentLineRow) {
+    const juanSummary = weeklyPaymentSummaries.find((summary) => isJuanRomero(summary.teamName));
+    if (!juanSummary) {
+      setMessage({ tone: "error", text: "Juan Romero profile is not available yet. Add Juan Romero in Staff / Teams first." });
+      return;
+    }
+    openPaymentModal(juanSummary, "juan", row);
+  }
+
   function closePaymentModal() {
     setPaymentModalMode(null);
     setActivePaymentSummaryKey(null);
@@ -1494,8 +1520,7 @@ export function SimpleOperationsClient({
   async function savePaymentRow(summary: (typeof weeklyPaymentSummaries)[number]) {
     if (!userId || savingPaymentKey) return;
     const draft = paymentDraftForSummary(summary);
-    const cleaner = summary.team ?? teamByKey.get(summary.key) ?? null;
-    const mixed = normalizePaymentMode(cleaner?.payment_mode, summary.teamName) === "mixed";
+    const mixed = isJuanRomero(summary.teamName);
     const paymentAmount = toNumber(draft.paymentAmount);
     const residentialAmount = toNumber(draft.residentialAmount);
     const commercialAmount = toNumber(draft.commercialAmount);
@@ -1518,7 +1543,7 @@ export function SimpleOperationsClient({
       return;
     }
     if (mixed && residentialAmount === 0 && commercialAmount === 0) {
-      setMessage({ tone: "error", text: "Juan's mixed pay row needs a residential or commercial amount." });
+      setMessage({ tone: "error", text: "Juan Romero's payment row needs a residential or commercial amount." });
       return;
     }
     if (dateOutsideRange(draft.workDate, weekRange.start, weekRange.end) && !window.confirm("This date is outside the selected pay period. Save it anyway?")) {
@@ -2125,6 +2150,35 @@ export function SimpleOperationsClient({
       tasksByDay.set(key, current);
     }
     const unscheduledTasks = filteredTasks.filter((task) => !dateKeyFromValue(task.due_date));
+    const selectedDayTasks = (tasksByDay.get(taskSelectedDay) ?? []).slice().sort((a, b) => String(a.due_date ?? "").localeCompare(String(b.due_date ?? "")));
+    const listTasks = filteredTasks.slice().sort((a, b) => String(a.due_date ?? "9999-99-99").localeCompare(String(b.due_date ?? "9999-99-99")));
+
+    function renderTaskList(rows: OperationTaskRow[], emptyText: string) {
+      return (
+        <div className="grid gap-2">
+          {rows.length === 0 ? <div className="rounded-md border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">{emptyText}</div> : null}
+          {rows.map((task) => {
+            const status = normalizeTaskStatus(task.status);
+            const dueKey = dateKeyFromValue(task.due_date);
+            const overdue = status === "pending" && Boolean(dueKey && dueKey < today);
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background/70 p-3" key={task.id}>
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedTask(task)}>
+                  <p className="truncate font-black">{task.title}</p>
+                  <p className="mt-1 text-xs font-bold text-muted-foreground">{task.assignee ?? "Unassigned"} · {displayDate(task.due_date)} · {TASK_FREQUENCY_LABELS[frequencyFromRecurrence(task.recurrence)]}</p>
+                </button>
+                <Badge className={overdue ? "border-amber-200 bg-amber-50 text-amber-900" : status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : ""} variant="outline">{overdue ? "overdue" : status}</Badge>
+                <div className="flex gap-1">
+                  <Button className="h-8 px-2 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-3.5" /> Done</Button>
+                  <Button className="size-8" size="icon" variant="outline" aria-label="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-3.5" /></Button>
+                  <Button className="size-8 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-3.5" /></Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-4">
@@ -2136,37 +2190,67 @@ export function SimpleOperationsClient({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
-          <div className="inline-flex rounded-md border border-border bg-background/80 p-1">
-            {(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => (
-              <button
-                type="button"
-                className={cn("rounded px-3 py-1.5 text-xs font-black text-muted-foreground hover:bg-accent hover:text-foreground", taskTab === tab && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
-                key={tab}
-                onClick={() => setTaskTab(tab)}
-              >
-                {tab.replace("_", " ")} ({tabCounts[tab]})
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-2">
+            <div className="inline-flex rounded-md border border-border bg-background/80 p-1">
+              {(["month", "day", "list"] as TaskViewMode[]).map((mode) => (
+                <button
+                  type="button"
+                  className={cn("rounded px-3 py-1.5 text-xs font-black text-muted-foreground hover:bg-accent hover:text-foreground", taskViewMode === mode && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
+                  key={mode}
+                  onClick={() => setTaskViewMode(mode)}
+                >
+                  {mode === "month" ? "Month" : mode === "day" ? "Day" : "List"}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex rounded-md border border-border bg-background/80 p-1">
+              {(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => (
+                <button
+                  type="button"
+                  className={cn("rounded px-3 py-1.5 text-xs font-black text-muted-foreground hover:bg-accent hover:text-foreground", taskTab === tab && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
+                  key={tab}
+                  onClick={() => setTaskTab(tab)}
+                >
+                  {tab.replace("_", " ")} ({tabCounts[tab]})
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex min-w-64 flex-1 justify-end gap-2">
             <input className="h-10 w-full max-w-md rounded-md border bg-background px-3 text-sm font-bold" placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
-            <Button variant="outline" onClick={() => { setTaskSearch(""); setTaskTab("pending"); }}><RotateCcw className="size-4" /> Clear</Button>
+            {taskViewMode === "day" ? <input className="h-10 rounded-md border bg-background px-3 text-sm font-bold" type="date" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
+            <Button variant="outline" onClick={() => { setTaskSearch(""); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw className="size-4" /> Clear</Button>
           </div>
         </div>
 
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <div>
-              <CardTitle>Task calendar</CardTitle>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">{monthLabel(taskCalendarAnchor)}</p>
+              <CardTitle>{taskViewMode === "list" ? "Task list" : taskViewMode === "day" ? "Tasks by day" : "Task calendar"}</CardTitle>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">{taskViewMode === "day" ? displayDate(taskSelectedDay) : taskViewMode === "list" ? `${listTasks.length} reminders` : monthLabel(taskCalendarAnchor)}</p>
             </div>
             <div className="flex gap-2">
-              <Button size="icon" variant="outline" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></Button>
-              <Button variant="outline" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</Button>
-              <Button size="icon" variant="outline" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></Button>
+              {taskViewMode === "month" ? (
+                <>
+                  <Button size="icon" variant="outline" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></Button>
+                  <Button variant="outline" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</Button>
+                  <Button size="icon" variant="outline" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></Button>
+                </>
+              ) : null}
+              {taskViewMode === "day" ? (
+                <>
+                  <Button size="icon" variant="outline" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-4" /></Button>
+                  <Button variant="outline" onClick={() => setTaskSelectedDay(todayKey())}>Today</Button>
+                  <Button size="icon" variant="outline" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-4" /></Button>
+                </>
+              ) : null}
             </div>
           </CardHeader>
           <CardContent className="p-0">
+            {taskViewMode === "list" ? <div className="p-3">{renderTaskList(listTasks, "No reminders match this list.")}</div> : null}
+            {taskViewMode === "day" ? <div className="p-3">{renderTaskList(selectedDayTasks, "No reminders for this day.")}</div> : null}
+            {taskViewMode === "month" ? (
+              <>
             <div className="grid grid-cols-7 border-y border-border bg-muted/35 text-center text-xs font-black uppercase text-muted-foreground">
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border py-2 last:border-r-0" key={day}>{day}</div>)}
             </div>
@@ -2196,8 +2280,9 @@ export function SimpleOperationsClient({
                           </button>
                         );
                       })}
-                      {dayTasks.length > 3 ? <button type="button" className="text-left text-[11px] font-black text-primary" onClick={() => setTaskTab("all")}>+{dayTasks.length - 3} more</button> : null}
+                      {dayTasks.length > 3 ? <button type="button" className="text-left text-[11px] font-black text-primary" onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>+{dayTasks.length - 3} more</button> : null}
                     </div>
+                    <button type="button" className="mt-2 text-[11px] font-black text-muted-foreground hover:text-primary" onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>View day</button>
                   </section>
                 );
               })}
@@ -2209,6 +2294,8 @@ export function SimpleOperationsClient({
                   {unscheduledTasks.slice(0, 6).map((task) => renderCompactTaskRow(task))}
                 </div>
               </div>
+            ) : null}
+              </>
             ) : null}
           </CardContent>
         </Card>
@@ -2428,10 +2515,7 @@ export function SimpleOperationsClient({
                 const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary));
                 if (first) openPaymentModal(first, "residential");
               }}><Plus className="size-4" /> Add residential payment</Button>
-              <Button variant="outline" onClick={() => {
-                const juanSummary = weeklyPaymentSummaries.find((summary) => isMixedPaySummary(summary));
-                if (juanSummary) openPaymentModal(juanSummary, "juan");
-              }}><Plus className="size-4" /> Add Juan mixed row</Button>
+              <Button variant="outline" onClick={() => openJuanPaymentModal()}><Plus className="size-4" /> Add Juan payment row</Button>
               <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
               <Button variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
             </div>
@@ -2463,7 +2547,7 @@ export function SimpleOperationsClient({
             <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)}>
               <option value="all">All cleaners</option>
               <option value="residential">Residential cleaners</option>
-              <option value="mixed">Juan mixed rows</option>
+              <option value="mixed">Juan Romero format</option>
             </select>
             <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)}>
               <option value="all">All statuses</option>
@@ -2506,11 +2590,11 @@ export function SimpleOperationsClient({
             <div className="min-w-0">
               <CardTitle className="truncate text-base font-black tracking-normal">{summary.teamName}</CardTitle>
               <div className="mt-1 flex flex-wrap gap-1">
-                <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Juan mixed pay" : "Residential"}</Badge>
+                <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Juan Romero" : "Residential"}</Badge>
                 <Badge className={statusBadgeClass(paymentSummaryStatus(summary))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
               </div>
             </div>
-            <Button className="h-9 px-3" size="sm" variant="outline" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential")}><Plus className="size-4" /> Row</Button>
+            <Button className="h-9 px-3" size="sm" variant="outline" onClick={() => mixed ? openJuanPaymentModal() : openPaymentModal(summary, "residential")}><Plus className="size-4" /> Row</Button>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -2533,7 +2617,7 @@ export function SimpleOperationsClient({
                       <span className="block truncate" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
                       <Badge className={cn("mt-1 max-w-full truncate", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
                       <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[11px] font-black">
-                        <button type="button" className="text-primary hover:underline" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential", row)}>Edit</button>
+                        <button type="button" className="text-primary hover:underline" onClick={() => mixed ? openJuanPaymentModal(row) : openPaymentModal(summary, "residential", row)}>Edit</button>
                         <button type="button" className="text-muted-foreground hover:text-foreground hover:underline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}>Pending</button>
                         <button type="button" className="text-emerald-700 hover:underline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}>Paid</button>
                         <button type="button" className="text-rose-700 hover:underline" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}>Delete</button>
@@ -2650,7 +2734,7 @@ export function SimpleOperationsClient({
       <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
         <div className="w-full max-w-3xl rounded-md border border-border bg-card shadow-xl">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <h2 className="text-lg font-black">{mixed ? "Add Juan mixed row" : "Add residential payment"}</h2>
+            <h2 className="text-lg font-black">{mixed ? "Add Juan payment row" : "Add residential payment"}</h2>
             <button type="button" className="grid size-9 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-4" /></button>
           </div>
           <div className="grid gap-3 p-4 md:grid-cols-2">
@@ -2658,7 +2742,7 @@ export function SimpleOperationsClient({
               const next = weeklyPaymentSummaries.find((item) => item.key === event.target.value);
               if (next) setActivePaymentSummaryKey(next.key);
             }}>
-              {weeklyPaymentSummaries.filter((item) => paymentModalMode === "juan" ? isMixedPaySummary(item) : !isMixedPaySummary(item)).map((item) => <option key={item.key} value={item.key}>{item.teamName}</option>)}
+              {weeklyPaymentSummaries.filter((item) => paymentModalMode === "juan" ? isJuanRomero(item.teamName) : !isMixedPaySummary(item)).map((item) => <option key={item.key} value={item.key}>{item.teamName}</option>)}
             </select></label>
             <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
             <label className="grid gap-1 text-sm font-bold">City<select className="h-10 rounded-md border bg-background px-3" value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? draft.customCity : "" })}>
