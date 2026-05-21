@@ -8,10 +8,12 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+drop policy if exists "Profiles are readable by owners" on public.profiles;
 create policy "Profiles are readable by owners"
   on public.profiles for select
   using (auth.uid() = id);
 
+drop policy if exists "Profiles are editable by owners" on public.profiles;
 create policy "Profiles are editable by owners"
   on public.profiles for update
   using (auth.uid() = id)
@@ -61,10 +63,12 @@ alter table public.staff_members
   add column if not exists active boolean not null default true,
   add column if not exists deleted_at timestamptz;
 
+drop policy if exists "Staff members are readable by owners" on public.staff_members;
 create policy "Staff members are readable by owners"
   on public.staff_members for select
   using (auth.uid() = user_id);
 
+drop policy if exists "Staff members are editable by owners" on public.staff_members;
 create policy "Staff members are editable by owners"
   on public.staff_members for all
   using (auth.uid() = user_id)
@@ -89,6 +93,7 @@ create table if not exists public.operation_tasks (
 
 alter table public.operation_tasks enable row level security;
 
+drop policy if exists "Tasks are editable by owners" on public.operation_tasks;
 create policy "Tasks are editable by owners"
   on public.operation_tasks for all
   using (auth.uid() = user_id)
@@ -113,6 +118,7 @@ create table if not exists public.payment_entries (
 
 alter table public.payment_entries enable row level security;
 
+drop policy if exists "Payment entries are editable by owners" on public.payment_entries;
 create policy "Payment entries are editable by owners"
   on public.payment_entries for all
   using (auth.uid() = user_id)
@@ -132,6 +138,7 @@ create table if not exists public.payment_extras (
 
 alter table public.payment_extras enable row level security;
 
+drop policy if exists "Payment extras are editable by owners" on public.payment_extras;
 create policy "Payment extras are editable by owners"
   on public.payment_extras for all
   using (auth.uid() = user_id)
@@ -172,10 +179,12 @@ alter table public.commercial_accounts
 
 alter table public.commercial_accounts enable row level security;
 
+drop policy if exists "Commercial accounts are readable by signed in users" on public.commercial_accounts;
 create policy "Commercial accounts are readable by signed in users"
   on public.commercial_accounts for select
   using (auth.uid() is not null);
 
+drop policy if exists "Commercial accounts are editable by signed in users" on public.commercial_accounts;
 create policy "Commercial accounts are editable by signed in users"
   on public.commercial_accounts for all
   using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
@@ -204,10 +213,12 @@ create table if not exists public.commercial_pay_periods (
 
 alter table public.commercial_pay_periods enable row level security;
 
+drop policy if exists "Pay periods are readable by signed in users" on public.commercial_pay_periods;
 create policy "Pay periods are readable by signed in users"
   on public.commercial_pay_periods for select
   using (auth.uid() is not null);
 
+drop policy if exists "Pay periods are editable by owners" on public.commercial_pay_periods;
 create policy "Pay periods are editable by owners"
   on public.commercial_pay_periods for all
   using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
@@ -241,10 +252,12 @@ create table if not exists public.commercial_payroll_entries (
 
 alter table public.commercial_payroll_entries enable row level security;
 
+drop policy if exists "Payroll entries are readable by signed in users" on public.commercial_payroll_entries;
 create policy "Payroll entries are readable by signed in users"
   on public.commercial_payroll_entries for select
   using (auth.uid() is not null);
 
+drop policy if exists "Payroll entries are editable by owners" on public.commercial_payroll_entries;
 create policy "Payroll entries are editable by owners"
   on public.commercial_payroll_entries for all
   using (auth.uid() is not null)
