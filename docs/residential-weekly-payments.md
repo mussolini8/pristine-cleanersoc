@@ -4,6 +4,14 @@
 
 Weekly Payments stays a simple residential operations module. It is not the old commercial payroll system, and it does not reopen Commercial Accounts, SEO, schedule rules, or commercial account editing.
 
+## Database Setup
+
+If the app shows a Supabase schema cache warning for residential tables, run:
+
+`supabase/simplified-residential-operations.sql`
+
+in the Supabase SQL Editor. It is additive and ends with a PostgREST schema reload notification.
+
 ## Normal Cleaner Format
 
 Every cleaner/team uses the residential-only format unless their staff `payment_mode` is `mixed`.

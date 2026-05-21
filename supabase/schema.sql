@@ -650,6 +650,8 @@ set payment_mode = 'residential_only',
 where lower(name) <> 'juan romero'
   and payment_mode is distinct from 'residential_only';
 
+notify pgrst, 'reload schema';
+
 
 -- Unified payments progressive migration 2026-05-14
 alter table public.payment_entries

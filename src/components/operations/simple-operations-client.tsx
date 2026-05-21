@@ -396,6 +396,11 @@ function paymentLineTotal(row: Pick<ResidentialWeeklyPaymentLineRow, "payment_am
   return toNumber(row.payment_amount) + toNumber(row.residential_amount) + toNumber(row.commercial_amount);
 }
 
+function isMissingSchemaTableError(error: { message?: string; code?: string } | null | undefined) {
+  const message = String(error?.message ?? "").toLowerCase();
+  return error?.code === "PGRST205" || (message.includes("schema cache") && message.includes("could not find the table"));
+}
+
 function MetricCard({
   icon: Icon,
   label,
@@ -520,29 +525,30 @@ export function SimpleOperationsClient({
       supabase.from("staff_members").select("*").order("name").limit(700),
     ]);
 
-    const errors = [
-      taskResult.error?.message,
-      activityResult.error?.message,
-      accountResult.error?.message,
-      workLogResult.error?.message,
-      weeklyPaymentResult.error?.message,
-      weeklyPaymentRowResult.error?.message,
-      staffResult.error?.message,
-    ].filter(Boolean);
+    const requiredErrors = [taskResult.error, activityResult.error, staffResult.error].filter(Boolean);
+    const residentialTableErrors = [accountResult.error, workLogResult.error, weeklyPaymentResult.error, weeklyPaymentRowResult.error].filter(Boolean);
+    const nonSetupResidentialErrors = residentialTableErrors.filter((error) => !isMissingSchemaTableError(error));
+    const errors = [...requiredErrors, ...nonSetupResidentialErrors].map((error) => error?.message).filter(Boolean);
+    const setupPending = residentialTableErrors.some(isMissingSchemaTableError);
 
     if (errors.length) {
       setMessage({
         tone: "error",
         text: `Some operations data could not load: ${errors.join(" | ")}`,
       });
+    } else if (setupPending) {
+      setMessage({
+        tone: "info",
+        text: "Residential payments database setup is pending. Apply the additive Supabase schema for residential accounts, work logs, weekly payments, and payment rows.",
+      });
     }
 
     setTasks(((taskResult.data ?? []) as OperationTaskRow[]).filter(taskIsOperationsReminder));
     setActivity((activityResult.data ?? []) as ActivityRow[]);
-    setAccounts(((accountResult.data ?? []) as ResidentialAccountRow[]).filter((account) => !account.deleted_at));
-    setWorkLogs(((workLogResult.data ?? []) as ResidentialWorkLogRow[]).filter((log) => !log.deleted_at));
-    setWeeklyPayments(((weeklyPaymentResult.data ?? []) as ResidentialWeeklyPaymentRow[]).filter((payment) => !payment.deleted_at));
-    setWeeklyPaymentRows(((weeklyPaymentRowResult.data ?? []) as ResidentialWeeklyPaymentLineRow[]).filter((row) => !row.deleted_at));
+    setAccounts(isMissingSchemaTableError(accountResult.error) ? [] : ((accountResult.data ?? []) as ResidentialAccountRow[]).filter((account) => !account.deleted_at));
+    setWorkLogs(isMissingSchemaTableError(workLogResult.error) ? [] : ((workLogResult.data ?? []) as ResidentialWorkLogRow[]).filter((log) => !log.deleted_at));
+    setWeeklyPayments(isMissingSchemaTableError(weeklyPaymentResult.error) ? [] : ((weeklyPaymentResult.data ?? []) as ResidentialWeeklyPaymentRow[]).filter((payment) => !payment.deleted_at));
+    setWeeklyPaymentRows(isMissingSchemaTableError(weeklyPaymentRowResult.error) ? [] : ((weeklyPaymentRowResult.data ?? []) as ResidentialWeeklyPaymentLineRow[]).filter((row) => !row.deleted_at));
     setStaff((staffResult.data ?? []) as StaffMemberRow[]);
     setLoading(false);
   }, [supabase]);
