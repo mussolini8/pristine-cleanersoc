@@ -171,6 +171,7 @@ type ResidentialWeeklyPaymentLineRow = {
   residential_amount: number | string | null;
   commercial_amount: number | string | null;
   payment_type: "residential" | "commercial" | "mixed" | string | null;
+  payment_mode?: PaymentMode | string | null;
   week_start: string;
   week_end: string;
   status: WeeklyPaymentStatus | string | null;
@@ -396,6 +397,11 @@ function paymentLineTotal(row: Pick<ResidentialWeeklyPaymentLineRow, "payment_am
   return toNumber(row.payment_amount) + toNumber(row.residential_amount) + toNumber(row.commercial_amount);
 }
 
+function paymentSummaryStatus(summary: { rows: ResidentialWeeklyPaymentLineRow[]; payment?: ResidentialWeeklyPaymentRow }) {
+  if (summary.rows.length > 0) return summary.rows.every((row) => row.status === "paid") ? "paid" : "pending";
+  return summary.payment?.status === "paid" ? "paid" : "pending";
+}
+
 function isMissingSchemaTableError(error: { message?: string; code?: string } | null | undefined) {
   const message = String(error?.message ?? "").toLowerCase();
   return error?.code === "PGRST205" || (message.includes("schema cache") && message.includes("could not find the table"));
@@ -495,9 +501,9 @@ export function SimpleOperationsClient({
   const periodAnchor = todayKey();
   const [paymentWeekStart, setPaymentWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
   const [paymentRowDrafts, setPaymentRowDrafts] = useState<Record<string, PaymentRowDraft>>({});
-  const [editingPaymentRowId, setEditingPaymentRowId] = useState<string | null>(null);
   const [savingPaymentKey, setSavingPaymentKey] = useState<string | null>(null);
   const [deletingPaymentRowId, setDeletingPaymentRowId] = useState<string | null>(null);
+  const [showAllPaymentCleaners, setShowAllPaymentCleaners] = useState(true);
   const [reportKind, setReportKind] = useState<ReportKind>("tasks");
 
   const loadData = useCallback(async () => {
@@ -723,8 +729,7 @@ export function SimpleOperationsClient({
   }, [activeTeams, logsInPaymentWeek, paymentRowsInWeek, teamByKey, weekRange.start, weeklyPayments]);
 
   const pendingPaymentTotal = useMemo(() => weeklyPaymentSummaries.reduce((sum, item) => {
-    const isPaid = item.payment?.status === "paid" || item.rows.every((row) => row.status === "paid");
-    return isPaid ? sum : sum + item.paymentTotal;
+    return paymentSummaryStatus(item) === "paid" ? sum : sum + item.paymentTotal;
   }, 0), [weeklyPaymentSummaries]);
 
   async function writeTaskAudit(taskId: string, action: string, details: Record<string, unknown>) {
@@ -1156,7 +1161,6 @@ export function SimpleOperationsClient({
 
   function editPaymentRow(row: ResidentialWeeklyPaymentLineRow) {
     const key = teamKey(row.cleaner_id, row.cleaner_name);
-    setEditingPaymentRowId(row.id);
     setPaymentRowDrafts((current) => ({
       ...current,
       [key]: {
@@ -1216,18 +1220,25 @@ export function SimpleOperationsClient({
         residential_amount: mixed ? residentialAmount : 0,
         commercial_amount: mixed ? commercialAmount : 0,
         payment_type: mixed ? "mixed" : "residential",
+        payment_mode: mixed ? "mixed" : "residential_only",
         week_start: weekRange.start,
         week_end: weekRange.end,
         status: "pending",
         notes: draft.notes.trim() || null,
         updated_at: now,
       };
-      const result = draft.id
+      let result = draft.id
         ? await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", draft.id)
         : await supabase.from("residential_weekly_payment_rows").insert({ ...payload, created_at: now });
+      if (result.error && result.error.message.toLowerCase().includes("payment_mode")) {
+        const { payment_mode: paymentModeSnapshot, ...fallbackPayload } = payload;
+        void paymentModeSnapshot;
+        result = draft.id
+          ? await supabase.from("residential_weekly_payment_rows").update(fallbackPayload).eq("id", draft.id)
+          : await supabase.from("residential_weekly_payment_rows").insert({ ...fallbackPayload, created_at: now });
+      }
       if (result.error) throw new Error(result.error.message);
       setPaymentRowDrafts((current) => ({ ...current, [summary.key]: { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start } }));
-      setEditingPaymentRowId(null);
       setMessage({ tone: "success", text: "Payment row saved." });
       await loadData();
     } catch (error) {
@@ -1263,39 +1274,68 @@ export function SimpleOperationsClient({
     XLSX.writeFile(workbook, filename);
   }
 
+  async function exportWorkbook(filename: string, sheets: { name: string; rows: Record<string, string | number | null | undefined>[] }[]) {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.utils.book_new();
+    for (const sheet of sheets) {
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sheet.rows), sheet.name);
+    }
+    XLSX.writeFile(workbook, filename);
+  }
+
   async function exportCurrentReport() {
     await exportRows(`pristine-${reportKind}-${todayKey()}.xlsx`, getReportRows());
   }
 
   async function exportWeeklyPayments() {
-    const rows = weeklyPaymentSummaries.flatMap((summary) => {
+    const residentialPaymentsTotal = weeklyPaymentSummaries.reduce((sum, summary) => {
+      return sum + (isMixedPaySummary(summary) ? summary.residentialTotal : summary.paymentTotal);
+    }, 0);
+    const juanCommercialAddOn = weeklyPaymentSummaries.reduce((sum, summary) => {
+      return isMixedPaySummary(summary) ? sum + summary.commercialTotal : sum;
+    }, 0);
+    const grandTotal = residentialPaymentsTotal + juanCommercialAddOn;
+    const paidTotal = weeklyPaymentSummaries
+      .filter((summary) => paymentSummaryStatus(summary) === "paid")
+      .reduce((sum, summary) => sum + summary.paymentTotal, 0);
+    const pendingTotal = grandTotal - paidTotal;
+    const summaryRows = [
+      { metric: "Week range", value: dateRangeLabel(weekRange.start, weekRange.end) },
+      { metric: "Residential payments total", value: residentialPaymentsTotal },
+      { metric: "Juan commercial add-on", value: juanCommercialAddOn },
+      { metric: "Grand total", value: grandTotal },
+      { metric: "Pending total", value: pendingTotal },
+      { metric: "Paid total", value: paidTotal },
+    ];
+    const paymentRows = weeklyPaymentSummaries.flatMap((summary) => {
       const mixed = isMixedPaySummary(summary);
       if (summary.rows.length === 0) {
         return [{
-          cleaner: summary.teamName,
-          date: "",
-          city: "",
-          payment_mode: mixed ? "mixed pay" : "residential pay",
-          payment: 0,
-          residential: 0,
-          commercial: 0,
-          total: 0,
-          status: summary.payment?.status ?? "pending",
+          Cleaner: summary.teamName,
+          Date: "",
+          City: "",
+          Payment: mixed ? "" : 0,
+          Residential: mixed ? 0 : "",
+          Commercial: mixed ? 0 : "",
+          Total: 0,
+          Status: summary.payment?.status ?? "pending",
         }];
       }
       return summary.rows.map((row) => ({
-        cleaner: summary.teamName,
-        date: row.work_date,
-        city: row.city,
-        payment_mode: mixed ? "mixed pay" : "residential pay",
-        payment: mixed ? "" : toNumber(row.payment_amount),
-        residential: mixed ? toNumber(row.residential_amount) : "",
-        commercial: mixed ? toNumber(row.commercial_amount) : "",
-        total: paymentLineTotal(row),
-        status: row.status ?? summary.payment?.status ?? "pending",
+        Cleaner: summary.teamName,
+        Date: row.work_date,
+        City: row.city,
+        Payment: mixed ? "" : toNumber(row.payment_amount),
+        Residential: mixed ? toNumber(row.residential_amount) : "",
+        Commercial: mixed ? toNumber(row.commercial_amount) : "",
+        Total: paymentLineTotal(row),
+        Status: row.status ?? summary.payment?.status ?? "pending",
       }));
     });
-    await exportRows(`weekly-residential-payments-${weekRange.start}.xlsx`, rows);
+    await exportWorkbook(`weekly-residential-payments-${weekRange.start}.xlsx`, [
+      { name: "Weekly Summary", rows: summaryRows },
+      { name: "Payments by Cleaner", rows: paymentRows },
+    ]);
   }
 
   function getReportRows() {
@@ -1815,22 +1855,29 @@ export function SimpleOperationsClient({
       .reduce((sum, summary) => sum + summary.commercialTotal, 0);
     const weekTotal = residentialOnlyTotal + juanResidentialTotal + juanCommercialTotal;
     const paidTotal = weeklyPaymentSummaries
-      .filter((summary) => summary.payment?.status === "paid" || (summary.rows.length > 0 && summary.rows.every((row) => row.status === "paid")))
+      .filter((summary) => paymentSummaryStatus(summary) === "paid")
       .reduce((sum, summary) => sum + summary.paymentTotal, 0);
     const pendingTotal = weekTotal - paidTotal;
+    const displayedSummaries = showAllPaymentCleaners ? weeklyPaymentSummaries : weeklyPaymentSummaries.filter((summary) => summary.rows.length > 0);
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
-          <div className="flex items-center gap-2">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-black tracking-normal">Weekly payments</h2>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</p>
+            </div>
+            <Button variant="outline" onClick={exportWeeklyPayments}><FileSpreadsheet className="size-4" /> Export weekly payments</Button>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <Button size="icon" variant="outline" aria-label="Previous week" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -7)))}><ChevronLeft className="size-4" /></Button>
             <div className="min-w-64 text-center text-sm font-black">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
             <Button size="icon" variant="outline" aria-label="Next week" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, 7)))}><ChevronRight className="size-4" /></Button>
             <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
           </div>
-          <Button variant="outline" onClick={exportWeeklyPayments}><FileSpreadsheet className="size-4" /> Export weekly payments</Button>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-2 md:grid-cols-5">
           <MetricCard icon={WalletCards} label="Residential payments" value={formatMoney(residentialOnlyTotal + juanResidentialTotal)} note="Normal cleaners plus Juan residential" />
           <MetricCard icon={WalletCards} label="Juan commercial add-on" value={formatMoney(juanCommercialTotal)} note="Simple mixed pay only" />
           <MetricCard icon={BadgeCheck} label="Grand total weekly payments" value={formatMoney(weekTotal)} />
@@ -1839,66 +1886,81 @@ export function SimpleOperationsClient({
         </div>
 
         <div className="grid gap-4">
-          {weeklyPaymentSummaries.map((summary) => {
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
+            <div>
+              <h3 className="text-xl font-black tracking-normal">Payment sheets by cleaner</h3>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">Each cleaner has a weekly spreadsheet. Only Juan Romero has Residential and Commercial columns.</p>
+            </div>
+            <label className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-black">
+              <input type="checkbox" checked={showAllPaymentCleaners} onChange={(event) => setShowAllPaymentCleaners(event.target.checked)} />
+              Show all cleaners
+            </label>
+          </div>
+          {displayedSummaries.map((summary) => {
             const draft = paymentDraftForSummary(summary);
             const mixed = isMixedPaySummary(summary);
-            const isPaid = summary.rows.length > 0 ? summary.rows.every((row) => row.status === "paid") : summary.payment?.status === "paid";
+            const isPaid = paymentSummaryStatus(summary) === "paid";
             return (
-              <Card className={mixed ? "border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/15" : ""} key={summary.key}>
-                <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-                  <div className="flex min-w-0 items-stretch gap-4">
-                    <div className="grid min-h-28 w-28 shrink-0 place-items-center rounded-md border border-border bg-background text-center">
-                      <span className="[writing-mode:vertical-rl] rotate-180 text-2xl font-black tracking-normal">{summary.teamName}</span>
-                    </div>
-                    <div>
-                      <CardTitle>{summary.teamName}</CardTitle>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Badge className={mixed ? "border-amber-200 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Mixed pay: Residential + Commercial" : "Residential pay"}</Badge>
-                        <Badge variant="outline">{isPaid ? "paid" : "pending"}</Badge>
-                        {summary.totalHours ? <Badge variant="outline">{formatHours(summary.totalHours)} logged hours</Badge> : null}
+              <Card className={cn("overflow-hidden rounded-md", mixed ? "border-amber-300 bg-amber-50/35 dark:border-amber-900 dark:bg-amber-950/15" : "border-border")} key={summary.key}>
+                <CardHeader className="border-b border-border bg-background/80">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-stretch gap-4">
+                      <div className={cn("grid min-h-32 w-28 shrink-0 place-items-center border text-center", mixed ? "border-amber-300 bg-amber-100 text-amber-950" : "border-border bg-card")}>
+                        <span className="[writing-mode:vertical-rl] rotate-180 text-2xl font-black tracking-normal">{summary.teamName}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <CardTitle className="text-3xl tracking-normal">{summary.teamName}</CardTitle>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Mixed pay: Residential + Commercial" : "Residential pay"}</Badge>
+                          <Badge variant="outline">{isPaid ? "paid" : "pending"}</Badge>
+                          <Badge variant="outline">{summary.rows.length} jobs</Badge>
+                          {summary.totalHours ? <Badge variant="outline">{formatHours(summary.totalHours)} logged hours</Badge> : null}
+                        </div>
+                        {mixed ? <p className="mt-3 text-sm font-black text-amber-950 dark:text-amber-100">Juan Romero = Mixed pay: Residential + Commercial</p> : null}
                       </div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-black uppercase text-muted-foreground">Total</p>
-                    <p className="mt-1 text-2xl font-black text-primary">{formatMoney(summary.paymentTotal)}</p>
+                    <div className="text-right">
+                      <p className="text-xs font-black uppercase text-muted-foreground">Sheet total</p>
+                      <p className="mt-1 text-3xl font-black text-primary">{formatMoney(summary.paymentTotal)}</p>
+                    </div>
                   </div>
                 </CardHeader>
-                <CardContent className="grid gap-4">
+                <CardContent className="grid gap-4 p-0">
                   <div className="overflow-auto">
-                    <table className={cn("w-full text-sm", mixed ? "min-w-[860px]" : "min-w-[720px]")}>
+                    <table className={cn("w-full border-collapse text-sm", mixed ? "min-w-[840px]" : "min-w-[680px]")}>
                       <thead>
-                        <tr className="border-y border-border bg-background text-left text-base font-black">
-                          <th className="px-3 py-2">Date</th>
-                          <th>City</th>
+                        <tr className="border-b border-border bg-muted/45 text-left text-xs font-black uppercase text-muted-foreground">
+                          <th className="border-r border-border px-4 py-3">Date</th>
+                          <th className="border-r border-border px-4 py-3">City</th>
                           {mixed ? (
                             <>
-                              <th className="text-right">Residential</th>
-                              <th className="text-right">Commercial</th>
+                              <th className="border-r border-border px-4 py-3 text-right">Residential</th>
+                              <th className="border-r border-border px-4 py-3 text-right">Commercial</th>
                             </>
                           ) : (
-                            <th className="text-right">Payment</th>
+                            <th className="border-r border-border px-4 py-3 text-right">Payment</th>
                           )}
-                          <th>Notes</th>
-                          <th className="text-right pr-3">Actions</th>
+                          <th className="w-32 px-4 py-3 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {summary.rows.length === 0 ? <tr><td className="px-3 py-6 text-center font-bold text-muted-foreground" colSpan={mixed ? 6 : 5}>No payment rows yet.</td></tr> : null}
+                        {summary.rows.length === 0 ? <tr><td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={mixed ? 5 : 4}>No payments yet for this week.</td></tr> : null}
                         {summary.rows.map((row) => (
                           <tr className="border-b border-border/80" key={row.id}>
-                            <td className="px-3 py-2">{displayDate(row.work_date)}</td>
-                            <td className="font-bold">{row.city}</td>
+                            <td className="border-r border-border/70 px-4 py-3 font-bold">{displayDate(row.work_date)}</td>
+                            <td className="border-r border-border/70 px-4 py-3">
+                              <p className="font-bold">{row.city}</p>
+                              {row.notes ? <p className="mt-1 max-w-80 truncate text-xs font-semibold text-muted-foreground">{row.notes}</p> : null}
+                            </td>
                             {mixed ? (
                               <>
-                                <td className="text-right font-black">{formatMoney(toNumber(row.residential_amount))}</td>
-                                <td className="text-right font-black">{formatMoney(toNumber(row.commercial_amount))}</td>
+                                <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatMoney(toNumber(row.residential_amount))}</td>
+                                <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatMoney(toNumber(row.commercial_amount))}</td>
                               </>
                             ) : (
-                              <td className="text-right font-black">{formatMoney(toNumber(row.payment_amount))}</td>
+                              <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatMoney(toNumber(row.payment_amount))}</td>
                             )}
-                            <td className="max-w-64 truncate text-muted-foreground">{row.notes}</td>
-                            <td className="pr-3">
+                            <td className="px-4 py-3">
                               <div className="flex justify-end gap-2">
                                 <Button size="icon" variant="outline" aria-label="Edit payment row" onClick={() => editPaymentRow(row)}><Edit3 className="size-4" /></Button>
                                 <Button size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></Button>
@@ -1910,55 +1972,55 @@ export function SimpleOperationsClient({
                       <tfoot>
                         {mixed ? (
                           <>
-                            <tr className="border-t-2 border-border bg-yellow-100 text-sm font-black text-yellow-950">
-                              <td className="px-3 py-2">TOTAL</td>
-                              <td>{summary.rows.length}</td>
-                              <td className="text-right">{formatMoney(summary.residentialTotal)}</td>
-                              <td className="text-right">{formatMoney(summary.commercialTotal)}</td>
-                              <td className="text-right pr-3" colSpan={2}>Grand Total: {formatMoney(summary.paymentTotal)}</td>
+                            <tr className="border-t-2 border-border bg-yellow-100 text-base font-black text-yellow-950">
+                              <td className="border-r border-yellow-300 px-4 py-3">TOTAL</td>
+                              <td className="border-r border-yellow-300 px-4 py-3">{summary.rows.length} jobs</td>
+                              <td className="border-r border-yellow-300 px-4 py-3 text-right">{formatMoney(summary.residentialTotal)}</td>
+                              <td className="border-r border-yellow-300 px-4 py-3 text-right">{formatMoney(summary.commercialTotal)}</td>
+                              <td className="px-4 py-3 text-right">{formatMoney(summary.paymentTotal)}</td>
                             </tr>
                           </>
                         ) : (
-                          <tr className="border-t-2 border-border bg-yellow-100 text-sm font-black text-yellow-950">
-                            <td className="px-3 py-2">TOTAL</td>
-                            <td>{summary.rows.length}</td>
-                            <td className="text-right">{formatMoney(summary.paymentTotal)}</td>
-                            <td className="pr-3" colSpan={2} />
+                          <tr className="border-t-2 border-border bg-yellow-100 text-base font-black text-yellow-950">
+                            <td className="border-r border-yellow-300 px-4 py-3">TOTAL</td>
+                            <td className="border-r border-yellow-300 px-4 py-3">{summary.rows.length} jobs</td>
+                            <td className="border-r border-yellow-300 px-4 py-3 text-right">{formatMoney(summary.paymentTotal)}</td>
+                            <td className="px-4 py-3" />
                           </tr>
                         )}
                       </tfoot>
                     </table>
                   </div>
 
-                  <div className={cn("grid gap-3 rounded-lg border border-border bg-background/70 p-3", mixed ? "md:grid-cols-[1fr_1fr_1fr_1fr_auto]" : "md:grid-cols-[1fr_1fr_1fr_1fr_auto]")}>
+                  <div className={cn("mx-4 grid gap-3 rounded-md border border-border bg-background/70 p-3", mixed ? "md:grid-cols-[1fr_1fr_1fr_1fr_auto]" : "md:grid-cols-[1fr_1fr_1fr_1fr_auto]")}>
                     <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
                     <label className="grid gap-1 text-sm font-bold">City<input className="h-10 rounded-md border bg-background px-3" value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value })} /></label>
                     {mixed ? (
                       <>
-                        <label className="grid gap-1 text-sm font-bold">Residential amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label>
-                        <label className="grid gap-1 text-sm font-bold">Commercial amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={draft.commercialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, commercialAmount: event.target.value })} /></label>
+                        <label className="grid gap-1 text-sm font-bold">Residential<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label>
+                        <label className="grid gap-1 text-sm font-bold">Commercial<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.commercialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, commercialAmount: event.target.value })} /></label>
                       </>
                     ) : (
-                      <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>
+                      <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>
                     )}
                     <div className="flex items-end gap-2">
-                      <Button className="w-full" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {editingPaymentRowId ? "Update" : "Add row"}</Button>
+                      <Button className="w-full" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Add payment row"}</Button>
                     </div>
                     <label className={cn("grid gap-1 text-sm font-bold", mixed ? "md:col-span-4" : "md:col-span-3")}>Notes<input className="h-10 rounded-md border bg-background px-3" value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
-                    {editingPaymentRowId ? <Button className="self-end" variant="outline" onClick={() => { setEditingPaymentRowId(null); setPaymentDraftForSummary(summary, { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start }); }}>Cancel edit</Button> : null}
+                    {draft.id ? <Button className="self-end" variant="outline" onClick={() => setPaymentDraftForSummary(summary, { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start })}>Cancel edit</Button> : null}
                   </div>
 
                   {mixed ? (
-                    <div className="grid gap-2 rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm font-black text-amber-950 md:grid-cols-3">
+                    <div className="mx-4 grid gap-2 rounded-md border border-amber-200 bg-amber-50/80 p-3 text-sm font-black text-amber-950 md:grid-cols-3">
                       <span>Total Residential: {formatMoney(summary.residentialTotal)}</span>
                       <span>Total Commercial: {formatMoney(summary.commercialTotal)}</span>
                       <span>Grand Total: {formatMoney(summary.paymentTotal)}</span>
                     </div>
                   ) : (
-                    <div className="rounded-lg border border-border bg-background/70 p-3 text-sm font-black">Total: {formatMoney(summary.paymentTotal)}</div>
+                    <div className="mx-4 rounded-md border border-border bg-background/70 p-3 text-sm font-black">Total: {formatMoney(summary.paymentTotal)}</div>
                   )}
 
-                  <div className="flex flex-wrap justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2 px-4 pb-4">
                     <Button disabled={savingPaymentKey === summary.key} onClick={() => saveWeeklyPayment(summary, "paid")}><CheckCircle2 className="size-4" /> Mark paid</Button>
                     <Button disabled={savingPaymentKey === summary.key} variant="outline" onClick={() => saveWeeklyPayment(summary, "pending")}>Mark pending</Button>
                   </div>

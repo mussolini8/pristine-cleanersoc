@@ -716,6 +716,9 @@ create index if not exists payment_entries_category_idx
 create index if not exists payment_extras_source_idx
   on public.payment_extras(source_type, source_id);
 
+alter table public.residential_weekly_payment_rows
+  add column if not exists payment_mode text;
+
 -- Commercial operations separation hardening 2026-05-15 (additive, non-destructive)
 -- Schedule multi-day selection is stored as one row per day so existing payroll logic remains compatible.
 create unique index if not exists payment_entries_commercial_payroll_source_uidx

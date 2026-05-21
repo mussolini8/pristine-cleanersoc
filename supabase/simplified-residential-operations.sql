@@ -136,6 +136,9 @@ create table if not exists public.residential_weekly_payment_rows (
   deleted_at timestamptz
 );
 
+alter table public.residential_weekly_payment_rows
+  add column if not exists payment_mode text;
+
 alter table public.residential_weekly_payment_rows enable row level security;
 
 drop policy if exists "Residential weekly payment rows are readable by signed in users" on public.residential_weekly_payment_rows;
