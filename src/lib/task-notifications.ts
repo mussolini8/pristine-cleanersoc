@@ -346,7 +346,7 @@ export async function sendTaskAssignedEmail(task: TaskNotificationPayload, assig
 
   return sendEmail({
     to: assignee.email,
-    recipientEnvName: assignee.name === "Carlos Lopez" ? "OPERATIONS_MANAGER_EMAIL" : undefined,
+    recipientEnvName: assignee.name === "Carlos Lopez" ? "OPERATIONS_MANAGER_EMAIL" : assignee.name === "Jake Ivan-Pal" ? "OWNER_EMAIL" : undefined,
     subject,
     html,
     text,

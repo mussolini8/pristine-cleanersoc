@@ -58,7 +58,7 @@ export function canAccessArea(role: AppRole, area: AccessArea) {
 
 export function getDefaultPathForRole(role: AppRole) {
   if (role === "commercial") return "/dashboard";
-  if (role === "seo") return "/seo";
+  if (role === "seo") return "/dashboard";
   return "/dashboard";
 }
 

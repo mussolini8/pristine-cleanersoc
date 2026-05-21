@@ -55,7 +55,10 @@ alter table public.staff_members enable row level security;
 alter table public.staff_members
   add column if not exists display_role text,
   add column if not exists team_scope text,
-  add column if not exists commercial_payroll_eligible boolean not null default true;
+  add column if not exists commercial_payroll_eligible boolean not null default true,
+  add column if not exists hourly_rate numeric(10,2),
+  add column if not exists active boolean not null default true,
+  add column if not exists deleted_at timestamptz;
 
 create policy "Staff members are readable by owners"
   on public.staff_members for select
@@ -480,6 +483,118 @@ set
 where lower(cleaner_name) in ('juan romero', 'esperanza youseff', 'esperanza yoseff', 'lorena benitez');
 
 
+-- Simplified residential operations scope 2026-05-20
+-- Additive residential tables for recurring accounts, worked hours, and weekly payments.
+create table if not exists public.residential_recurring_cleaning_accounts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  account_name text not null,
+  scheduled_hours numeric(8,2) not null default 0,
+  frequency text not null default 'weekly',
+  frequency_detail text,
+  day_of_week text,
+  assigned_team_id uuid,
+  assigned_team_name text,
+  active boolean not null default true,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+alter table public.residential_recurring_cleaning_accounts enable row level security;
+
+drop policy if exists "Residential recurring accounts are readable by signed in users" on public.residential_recurring_cleaning_accounts;
+create policy "Residential recurring accounts are readable by signed in users"
+  on public.residential_recurring_cleaning_accounts for select
+  using (auth.uid() is not null and deleted_at is null);
+
+drop policy if exists "Residential recurring accounts are editable by owners" on public.residential_recurring_cleaning_accounts;
+create policy "Residential recurring accounts are editable by owners"
+  on public.residential_recurring_cleaning_accounts for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+create index if not exists residential_recurring_accounts_active_idx
+  on public.residential_recurring_cleaning_accounts(active, deleted_at, account_name);
+
+create index if not exists residential_recurring_accounts_team_idx
+  on public.residential_recurring_cleaning_accounts(assigned_team_id, assigned_team_name);
+
+create table if not exists public.residential_work_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  account_id uuid references public.residential_recurring_cleaning_accounts(id) on delete set null,
+  account_name text not null,
+  team_id uuid references public.staff_members(id) on delete set null,
+  team_name text not null,
+  work_date date not null,
+  hours_worked numeric(8,2) not null default 0,
+  notes text,
+  status text not null default 'pending',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+alter table public.residential_work_logs enable row level security;
+
+drop policy if exists "Residential work logs are readable by signed in users" on public.residential_work_logs;
+create policy "Residential work logs are readable by signed in users"
+  on public.residential_work_logs for select
+  using (auth.uid() is not null and deleted_at is null);
+
+drop policy if exists "Residential work logs are editable by owners" on public.residential_work_logs;
+create policy "Residential work logs are editable by owners"
+  on public.residential_work_logs for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+create index if not exists residential_work_logs_date_team_idx
+  on public.residential_work_logs(work_date, team_id, team_name, status);
+
+create index if not exists residential_work_logs_account_idx
+  on public.residential_work_logs(account_id, account_name);
+
+create table if not exists public.residential_weekly_payments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  team_id uuid references public.staff_members(id) on delete set null,
+  team_name text not null,
+  week_start date not null,
+  week_end date not null,
+  total_hours numeric(8,2) not null default 0,
+  hourly_rate numeric(10,2) not null default 0,
+  total_payment numeric(12,2) not null default 0,
+  status text not null default 'pending',
+  paid_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+alter table public.residential_weekly_payments enable row level security;
+
+drop policy if exists "Residential weekly payments are readable by signed in users" on public.residential_weekly_payments;
+create policy "Residential weekly payments are readable by signed in users"
+  on public.residential_weekly_payments for select
+  using (auth.uid() is not null and deleted_at is null);
+
+drop policy if exists "Residential weekly payments are editable by owners" on public.residential_weekly_payments;
+create policy "Residential weekly payments are editable by owners"
+  on public.residential_weekly_payments for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+create unique index if not exists residential_weekly_payments_team_week_uidx
+  on public.residential_weekly_payments(coalesce(team_id::text, team_name), week_start)
+  where deleted_at is null;
+
+create index if not exists residential_weekly_payments_status_idx
+  on public.residential_weekly_payments(week_start, week_end, status);
+
+
 -- Unified payments progressive migration 2026-05-14
 alter table public.payment_entries
   add column if not exists source_type text,
@@ -632,13 +747,17 @@ alter table public.operation_tasks
   add column if not exists created_by uuid references auth.users(id) on delete set null,
   add column if not exists completed_by uuid references auth.users(id) on delete set null,
   add column if not exists business_unit text,
-  add column if not exists metadata jsonb not null default '{}'::jsonb;
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists deleted_at timestamptz;
 
 create index if not exists operation_tasks_panel_status_idx
   on public.operation_tasks(panel, status, due_date);
 
 create index if not exists operation_tasks_assigned_to_idx
   on public.operation_tasks(assigned_to);
+
+create index if not exists operation_tasks_deleted_at_idx
+  on public.operation_tasks(deleted_at);
 
 drop policy if exists "SEO tasks are readable by SEO and owners" on public.operation_tasks;
 create policy "SEO tasks are readable by SEO and owners"

@@ -1,7 +1,7 @@
-import { UnifiedOperationsClient } from "@/components/operations/unified-operations-client";
+import { SimpleOperationsClient } from "@/components/operations/simple-operations-client";
 import { requireAreaAccess } from "@/lib/server-access";
 
 export default async function StaffPage() {
   await requireAreaAccess("operations");
-  return <UnifiedOperationsClient view="staff" />;
+  return <SimpleOperationsClient view="staff" />;
 }

@@ -1,6 +1,6 @@
-import { requireAreaAccess } from "@/lib/server-access";
+import { redirect } from "next/navigation";
 
 export default async function SeoLayout({ children }: { children: React.ReactNode }) {
-  await requireAreaAccess("seo");
-  return children;
+  void children;
+  redirect("/dashboard");
 }

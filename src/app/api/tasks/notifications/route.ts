@@ -36,6 +36,16 @@ function isCarlos(value: string | null | undefined) {
   return String(value ?? "").trim().toLowerCase() === "carlos lopez";
 }
 
+function isJake(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase() === "jake ivan-pal";
+}
+
+function personRole(value: string | null | undefined) {
+  if (isCarlos(value)) return operationsManager.role;
+  if (isJake(value)) return owner.role;
+  return "Team member";
+}
+
 function isSeoTask(task: TaskNotificationPayload) {
   return String(task.panel ?? "").trim().toLowerCase() === "seo";
 }
@@ -185,12 +195,16 @@ export async function POST(request: Request) {
     }
 
     if (body.event === "task_assigned") {
-      const staffEmail = isCarlos(body.task.assignedTo) ? null : await findStaffEmail(supabase, body.task.assignedTo);
-      const assigneeEmail = isCarlos(body.task.assignedTo) ? process.env.OPERATIONS_MANAGER_EMAIL : staffEmail;
+      const staffEmail = isCarlos(body.task.assignedTo) || isJake(body.task.assignedTo) ? null : await findStaffEmail(supabase, body.task.assignedTo);
+      const assigneeEmail = isCarlos(body.task.assignedTo)
+        ? process.env.OPERATIONS_MANAGER_EMAIL
+        : isJake(body.task.assignedTo)
+          ? process.env.OWNER_EMAIL
+          : staffEmail;
       const assigneeName = body.task.assignedTo || "Unassigned";
       const result = await sendTaskAssignedEmail(body.task, {
         name: assigneeName,
-        role: isCarlos(assigneeName) ? operationsManager.role : "Team member",
+        role: personRole(assigneeName),
         email: assigneeEmail,
       });
       await writeNotificationAudit(supabase, body.task.id, body.event, result, {
@@ -204,7 +218,7 @@ export async function POST(request: Request) {
     if (body.event === "task_completed") {
       const completedBy = {
         name: body.actorName ?? body.task.completedBy ?? body.task.assignedTo ?? operationsManager.name,
-        role: isCarlos(body.task.assignedTo) ? operationsManager.role : "Team member",
+        role: personRole(body.actorName ?? body.task.completedBy ?? body.task.assignedTo),
         email: isCarlos(body.task.assignedTo) ? process.env.OPERATIONS_MANAGER_EMAIL : null,
       };
       const result = await sendTaskCompletedEmail(body.task, completedBy, {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, CalendarDays, CheckSquare, Home, LineChart, LogOut, Search, Settings, Users, Wallet } from "lucide-react";
+import { BarChart3, CheckSquare, Home, LogOut, Search, Settings, Users, Wallet } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
@@ -13,13 +13,11 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
-  { label: "Tasks", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
-  { label: "Calendar", href: "/calendar", icon: CalendarDays, area: "workspace" as AccessArea },
-  { label: "Payments", href: "/payments", icon: Wallet, area: "workspace" as AccessArea },
-  { label: "Staff", href: "/staff", icon: Users, area: "operations" as AccessArea },
+  { label: "Task Reminders", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
+  { label: "Residential Hours / Payments", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
+  { label: "Staff / Teams", href: "/staff", icon: Users, area: "operations" as AccessArea },
   { label: "Reports", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
   { label: "Settings", href: "/settings", icon: Settings, area: "operations" as AccessArea },
-  { label: "SEO", href: "/seo", icon: LineChart, area: "seo" as AccessArea },
 ];
 
 export function DashboardShell({
@@ -69,7 +67,7 @@ export function DashboardShell({
         <div className="px-4 py-4">
           <div className="flex items-center gap-2 rounded-md border border-border/80 bg-background/70 px-3 py-2 text-sm text-muted-foreground shadow-sm">
             <Search className="size-4" />
-            <span>Operations workspace</span>
+            <span>Residential operations</span>
           </div>
         </div>
         <nav className="space-y-1 px-3">
@@ -98,7 +96,7 @@ export function DashboardShell({
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border/70 bg-background/78 px-4 backdrop-blur-xl sm:px-6">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-normal text-primary">Pristine Cleaners</p>
-            <p className="text-sm font-semibold text-foreground">Operations command center</p>
+            <p className="text-sm font-semibold text-foreground">Reminders and residential payments</p>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
