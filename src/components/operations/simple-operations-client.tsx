@@ -69,6 +69,9 @@ type CommercialHoursStatus = "scheduled" | "completed" | "verified" | "pending_p
 type PaymentKindFilter = "all" | "residential" | "commercial" | "mixed";
 type PaymentMode = "residential_only" | "mixed";
 type MessageTone = "success" | "error" | "info";
+type PayrollPanelTab = "residential" | "commercial" | "review";
+type PaymentModalMode = "residential" | "juan" | "commercial_hours" | "commercial_schedule";
+type CommercialSourceFilter = "all" | "manual" | "scheduled";
 
 const ORANGE_COUNTY_CITIES = [
   "Aliso Viejo",
@@ -253,6 +256,9 @@ type CommercialScheduleRuleRow = {
   frequency_type?: string | null;
   frequency_interval?: number | null;
   anchor_date?: string | null;
+  scheduled_hours?: number | string | null;
+  effective_from?: string | null;
+  effective_until?: string | null;
 };
 
 type CommercialHoursEntryRow = {
@@ -365,6 +371,19 @@ type CommercialHoursDraft = {
   manualEntry: boolean;
 };
 
+type CommercialScheduleDraft = {
+  accountId: string;
+  assignedTeamId: string;
+  assignedTeamName: string;
+  frequency: "weekly" | "biweekly" | "monthly" | "custom";
+  selectedDays: string[];
+  dayHours: Record<string, string>;
+  effectiveFrom: string;
+  effectiveUntil: string;
+  active: boolean;
+  notes: string;
+};
+
 const EMPTY_TASK_DRAFT: TaskDraft = {
   title: "",
   description: "",
@@ -431,6 +450,19 @@ const EMPTY_COMMERCIAL_HOURS_DRAFT: CommercialHoursDraft = {
   verified: false,
   notes: "",
   manualEntry: true,
+};
+
+const EMPTY_COMMERCIAL_SCHEDULE_DRAFT: CommercialScheduleDraft = {
+  accountId: "",
+  assignedTeamId: "",
+  assignedTeamName: "",
+  frequency: "weekly",
+  selectedDays: [],
+  dayHours: {},
+  effectiveFrom: todayKey(),
+  effectiveUntil: "",
+  active: true,
+  notes: "",
 };
 
 function normalizeTaskStatus(status: string | null | undefined): "pending" | "completed" {
@@ -544,6 +576,44 @@ function dateOutsideRange(value: string, start: string, end: string) {
   return Boolean(value && (value < start || value > end));
 }
 
+function minDateKey(a: string, b: string) {
+  return a < b ? a : b;
+}
+
+function commercialFrequencyLabel(value: string | null | undefined) {
+  if (value === "biweekly" || value === "every_2_weeks") return "Every 2 weeks";
+  if (value === "monthly") return "Monthly";
+  if (value === "custom") return "Custom";
+  return "Weekly";
+}
+
+function commercialRuleFrequency(rule: Pick<CommercialScheduleRuleRow, "frequency_type" | "frequency_interval">) {
+  if (rule.frequency_type === "monthly" || rule.frequency_type === "custom") return rule.frequency_type;
+  if (rule.frequency_type === "biweekly" || rule.frequency_interval === 2) return "biweekly";
+  return "weekly";
+}
+
+function commercialRuleMatchesDate(rule: CommercialScheduleRuleRow, dateKey: string) {
+  const date = parseDateKey(dateKey);
+  if (!date) return false;
+  const frequency = commercialRuleFrequency(rule);
+  const anchor = parseDateKey(rule.anchor_date ?? rule.effective_start_date ?? rule.effective_from ?? dateKey);
+  if (!anchor) return true;
+  const days = Math.floor((date.getTime() - anchor.getTime()) / 86400000);
+  if (days < 0) return false;
+  if (frequency === "biweekly") return Math.floor(days / 7) % 2 === 0;
+  if (frequency === "monthly") return date.getDate() === anchor.getDate() || date.getDay() === Number(rule.day_of_week);
+  return true;
+}
+
+function commercialScheduleSummary(rules: CommercialScheduleRuleRow[]) {
+  const activeRules = rules.filter((rule) => rule.active !== false).sort((a, b) => Number(a.day_of_week) - Number(b.day_of_week));
+  if (!activeRules.length) return "No structured schedule";
+  const frequency = commercialFrequencyLabel(commercialRuleFrequency(activeRules[0]));
+  const days = activeRules.map((rule) => `${WEEKDAY_NAMES[Number(rule.day_of_week)] ?? "Day"} ${formatHours(toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours))}`).join(" + ");
+  return `${frequency} · ${days}`;
+}
+
 function isMissingSchemaTableError(error: { message?: string; code?: string } | null | undefined) {
   const message = String(error?.message ?? "").toLowerCase();
   return error?.code === "PGRST205" || (message.includes("schema cache") && message.includes("could not find the table"));
@@ -647,13 +717,19 @@ export function SimpleOperationsClient({
   const [paymentWeekStart, setPaymentWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
   const [paymentRowDrafts, setPaymentRowDrafts] = useState<Record<string, PaymentRowDraft>>({});
   const [commercialHoursDraft, setCommercialHoursDraft] = useState<CommercialHoursDraft>(EMPTY_COMMERCIAL_HOURS_DRAFT);
+  const [commercialScheduleDraft, setCommercialScheduleDraft] = useState<CommercialScheduleDraft>(EMPTY_COMMERCIAL_SCHEDULE_DRAFT);
+  const [payrollTab, setPayrollTab] = useState<PayrollPanelTab>("residential");
+  const [paymentModalMode, setPaymentModalMode] = useState<PaymentModalMode | null>(null);
+  const [activePaymentSummaryKey, setActivePaymentSummaryKey] = useState<string | null>(null);
   const [savingPaymentKey, setSavingPaymentKey] = useState<string | null>(null);
   const [deletingPaymentRowId, setDeletingPaymentRowId] = useState<string | null>(null);
   const [showAllPaymentCleaners, setShowAllPaymentCleaners] = useState(true);
   const [paymentFilter, setPaymentFilter] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [paymentKindFilter, setPaymentKindFilter] = useState<PaymentKindFilter>("all");
+  const [paymentCityFilter, setPaymentCityFilter] = useState("all");
   const [commercialAccountFilter, setCommercialAccountFilter] = useState("all");
+  const [commercialSourceFilter, setCommercialSourceFilter] = useState<CommercialSourceFilter>("all");
   const [reportKind, setReportKind] = useState<ReportKind>("tasks");
 
   const loadData = useCallback(async () => {
@@ -890,7 +966,9 @@ export function SimpleOperationsClient({
   }, 0), [weeklyPaymentSummaries]);
 
   const commercialRowsInWeek = useMemo(() => {
-    const stored = commercialHoursEntries.filter((entry) => isDateInRange(entry.work_date, weekRange.start, weekRange.end));
+    const cutoff = minDateKey(weekRange.end, today);
+    if (weekRange.start > cutoff) return [];
+    const stored = commercialHoursEntries.filter((entry) => isDateInRange(entry.work_date, weekRange.start, cutoff));
     const storedKeys = new Set(stored.map((entry) => `${entry.account_id ?? entry.account_name}:${entry.team_name ?? ""}:${entry.work_date}`));
     const generated: CommercialHoursEntryRow[] = [];
 
@@ -900,15 +978,16 @@ export function SimpleOperationsClient({
         const day = Number(rule.day_of_week);
         if (!Number.isFinite(day)) continue;
         const cursor = parseDateKey(weekRange.start);
-        const end = parseDateKey(weekRange.end);
+        const end = parseDateKey(cutoff);
         if (!cursor || !end) continue;
         while (cursor <= end) {
           const key = formatDateKey(cursor);
-          const effectiveFrom = rule.effective_start_date ?? account.contract_start;
-          const effectiveUntil = rule.effective_end_date ?? account.contract_end;
-          if (cursor.getDay() === day && (!effectiveFrom || key >= effectiveFrom) && (!effectiveUntil || key <= effectiveUntil)) {
+          const effectiveFrom = rule.effective_from ?? rule.effective_start_date ?? account.contract_start;
+          const effectiveUntil = rule.effective_until ?? rule.effective_end_date ?? account.contract_end;
+          if (cursor.getDay() === day && (!effectiveFrom || key >= effectiveFrom) && (!effectiveUntil || key <= effectiveUntil) && commercialRuleMatchesDate(rule, key)) {
             const generatedKey = `${account.id}:${rule.assigned_cleaner_name ?? account.cleaner_name ?? ""}:${key}`;
             if (!storedKeys.has(generatedKey)) {
+              const scheduledHours = toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours);
               generated.push({
                 id: `scheduled-${rule.id}-${key}`,
                 account_id: account.id,
@@ -917,12 +996,12 @@ export function SimpleOperationsClient({
                 team_name: rule.assigned_cleaner_name ?? account.cleaner_name,
                 work_date: key,
                 scheduled_day: WEEKDAY_NAMES[cursor.getDay()],
-                scheduled_hours: rule.paid_hours,
+                scheduled_hours: scheduledHours,
                 completed_hours: 0,
                 verified_hours: 0,
-                status: "scheduled",
+                status: scheduledHours > 0 ? "needs_review" : "scheduled",
                 verified: false,
-                notes: rule.notes ?? "Scheduled from account calendar",
+                notes: rule.notes ?? commercialScheduleSummary([rule]),
                 manual_entry: false,
               });
             }
@@ -933,12 +1012,14 @@ export function SimpleOperationsClient({
     }
 
     return [...stored, ...generated].sort((a, b) => `${a.work_date}${a.account_name}`.localeCompare(`${b.work_date}${b.account_name}`));
-  }, [commercialAccounts, commercialHoursEntries, commercialScheduleRules, weekRange.end, weekRange.start]);
+  }, [commercialAccounts, commercialHoursEntries, commercialScheduleRules, today, weekRange.end, weekRange.start]);
 
   const filteredCommercialRows = useMemo(() => {
     return commercialRowsInWeek.filter((entry) => {
       if (commercialAccountFilter !== "all" && entry.account_id !== commercialAccountFilter) return false;
       if (paymentStatusFilter !== "all" && entry.status !== paymentStatusFilter) return false;
+      if (commercialSourceFilter === "manual" && entry.manual_entry === false) return false;
+      if (commercialSourceFilter === "scheduled" && entry.manual_entry !== false) return false;
       if (paymentFilter.trim()) {
         const needle = paymentFilter.trim().toLowerCase();
         const haystack = [entry.account_name, entry.team_name, entry.scheduled_day, entry.notes].filter(Boolean).join(" ").toLowerCase();
@@ -946,7 +1027,7 @@ export function SimpleOperationsClient({
       }
       return true;
     });
-  }, [commercialAccountFilter, commercialRowsInWeek, paymentFilter, paymentStatusFilter]);
+  }, [commercialAccountFilter, commercialRowsInWeek, commercialSourceFilter, paymentFilter, paymentStatusFilter]);
 
   const commercialTotals = useMemo(() => {
     return commercialRowsInWeek.reduce((totals, entry) => {
@@ -1351,6 +1432,17 @@ export function SimpleOperationsClient({
     setPaymentRowDrafts((current) => ({ ...current, [summary.key]: draft }));
   }
 
+  function openPaymentModal(summary: (typeof weeklyPaymentSummaries)[number], mode: "residential" | "juan", row?: ResidentialWeeklyPaymentLineRow) {
+    setActivePaymentSummaryKey(summary.key);
+    setPaymentModalMode(mode);
+    if (row) editPaymentRow(row);
+  }
+
+  function closePaymentModal() {
+    setPaymentModalMode(null);
+    setActivePaymentSummaryKey(null);
+  }
+
   function editPaymentRow(row: ResidentialWeeklyPaymentLineRow) {
     const key = teamKey(row.cleaner_id, row.cleaner_name);
     setPaymentRowDrafts((current) => ({
@@ -1452,6 +1544,7 @@ export function SimpleOperationsClient({
       }
       if (result.error) throw new Error(result.error.message);
       setPaymentRowDrafts((current) => ({ ...current, [summary.key]: { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start } }));
+      closePaymentModal();
       setMessage({ tone: "success", text: "Payment row saved." });
       await loadData();
     } catch (error) {
@@ -1497,6 +1590,24 @@ export function SimpleOperationsClient({
       await loadData();
     } catch (error) {
       setMessage({ tone: "error", text: `Payment status could not be updated: ${error instanceof Error ? error.message : "unexpected error"}` });
+    } finally {
+      setSavingPaymentKey(null);
+    }
+  }
+
+  async function updatePaymentRowStatus(row: ResidentialWeeklyPaymentLineRow, status: WeeklyPaymentStatus) {
+    if (savingPaymentKey) return;
+    if (row.status === "paid" && status !== "paid" && !window.confirm("This record is already marked as paid. Editing it may affect payroll history.")) return;
+    const now = new Date().toISOString();
+    setSavingPaymentKey(row.id);
+    try {
+      const payload = status === "paid" ? { status, paid_at: now, updated_at: now } : { status, updated_at: now };
+      const { error } = await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", row.id);
+      if (error) throw new Error(error.message);
+      setMessage({ tone: "success", text: `Payment row marked ${status.replace("_", " ")}.` });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Payment row status could not be updated: ${error instanceof Error ? error.message : "unexpected error"}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -1571,10 +1682,64 @@ export function SimpleOperationsClient({
         : await supabase.from("commercial_hours_entries").insert({ ...payload, created_at: now });
       if (result.error) throw new Error(result.error.message);
       setCommercialHoursDraft({ ...EMPTY_COMMERCIAL_HOURS_DRAFT, workDate: commercialHoursDraft.workDate });
+      setPaymentModalMode(null);
       setMessage({ tone: "success", text: "Commercial hours saved." });
       await loadData();
     } catch (error) {
       setMessage({ tone: "error", text: `Commercial hours could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+    } finally {
+      setSavingPaymentKey(null);
+    }
+  }
+
+  async function saveCommercialSchedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!userId || savingPaymentKey) return;
+    const account = commercialAccounts.find((item) => item.id === commercialScheduleDraft.accountId);
+    const team = activeTeams.find((item) => item.id === commercialScheduleDraft.assignedTeamId);
+    const assignedName = team?.name ?? commercialScheduleDraft.assignedTeamName.trim();
+    if (!account || !assignedName || !commercialScheduleDraft.effectiveFrom || commercialScheduleDraft.selectedDays.length === 0) {
+      setMessage({ tone: "error", text: "Commercial schedule could not be saved: account, team, effective date, and service days are required." });
+      return;
+    }
+    const dayPayloads = commercialScheduleDraft.selectedDays.map((day) => {
+      const hours = toNumber(commercialScheduleDraft.dayHours[day]);
+      return { day: Number(day), hours };
+    });
+    if (dayPayloads.some((item) => !Number.isFinite(item.day) || item.hours <= 0)) {
+      setMessage({ tone: "error", text: "Commercial schedule could not be saved: each selected day needs hours greater than 0." });
+      return;
+    }
+    const now = new Date().toISOString();
+    setSavingPaymentKey("commercial-schedule");
+    try {
+      const rows = dayPayloads.map((item) => ({
+        user_id: userId,
+        commercial_account_id: account.id,
+        day_of_week: item.day,
+        paid_hours: item.hours,
+        scheduled_hours: item.hours,
+        assigned_cleaner_name: assignedName,
+        active: commercialScheduleDraft.active,
+        effective_start_date: commercialScheduleDraft.effectiveFrom,
+        effective_end_date: commercialScheduleDraft.effectiveUntil || null,
+        effective_from: commercialScheduleDraft.effectiveFrom,
+        effective_until: commercialScheduleDraft.effectiveUntil || null,
+        frequency_type: commercialScheduleDraft.frequency === "biweekly" ? "biweekly" : commercialScheduleDraft.frequency,
+        frequency_interval: commercialScheduleDraft.frequency === "biweekly" ? 2 : 1,
+        anchor_date: commercialScheduleDraft.effectiveFrom,
+        notes: commercialScheduleDraft.notes.trim() || null,
+        created_at: now,
+        updated_at: now,
+      }));
+      const { error } = await supabase.from("commercial_account_schedule_rules").insert(rows);
+      if (error) throw new Error(error.message);
+      setCommercialScheduleDraft({ ...EMPTY_COMMERCIAL_SCHEDULE_DRAFT, effectiveFrom: todayKey() });
+      setPaymentModalMode(null);
+      setMessage({ tone: "success", text: "Commercial schedule saved. The hours table now uses those structured service days." });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Commercial schedule could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -2194,21 +2359,35 @@ export function SimpleOperationsClient({
       if (paymentKindFilter === "residential" && mixed) return false;
       if (paymentKindFilter === "mixed" && !mixed) return false;
       if (paymentStatusFilter !== "all" && paymentSummaryStatus(summary) !== paymentStatusFilter && !summary.rows.some((row) => row.status === paymentStatusFilter)) return false;
+      if (paymentCityFilter !== "all" && !summary.rows.some((row) => displayPaymentCity(row) === paymentCityFilter)) return false;
       if (!paymentFilter.trim()) return true;
       const needle = paymentFilter.trim().toLowerCase();
       return [summary.teamName, ...summary.rows.flatMap((row) => [row.city, row.custom_city, row.notes])].filter(Boolean).join(" ").toLowerCase().includes(needle);
     });
     const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
+    const activePaymentSummary = activePaymentSummaryKey ? weeklyPaymentSummaries.find((summary) => summary.key === activePaymentSummaryKey) : null;
+    const cityFilterOptions = Array.from(new Set(paymentRowsInWeek.map(displayPaymentCity).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
+              <p className="text-xs font-black uppercase text-muted-foreground">Weekly Payments Sheet</p>
               <h2 className="text-2xl font-black tracking-normal">Residential Hours / Payments</h2>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</p>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">{dateRangeLabel(weekRange.start, weekRange.end)} · Excel-style payroll cards</p>
             </div>
-            <Button variant="outline" onClick={exportWeeklyPayments}><FileSpreadsheet className="size-4" /> Export weekly payments</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => {
+                const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary));
+                if (first) openPaymentModal(first, "residential");
+              }}><Plus className="size-4" /> Add residential payment</Button>
+              <Button variant="outline" onClick={() => {
+                const juanSummary = weeklyPaymentSummaries.find((summary) => isMixedPaySummary(summary));
+                if (juanSummary) openPaymentModal(juanSummary, "juan");
+              }}><Plus className="size-4" /> Add Juan mixed row</Button>
+              <Button variant="outline" onClick={exportWeeklyPayments}><FileSpreadsheet className="size-4" /> Export</Button>
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Button size="icon" variant="outline" aria-label="Previous week" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -7)))}><ChevronLeft className="size-4" /></Button>
@@ -2219,36 +2398,59 @@ export function SimpleOperationsClient({
         </div>
 
         <div className="grid gap-2 md:grid-cols-4 xl:grid-cols-7">
-          <MetricCard icon={WalletCards} label="Residential payments" value={formatMoney(residentialOnlyTotal + juanResidentialTotal)} />
-          <MetricCard icon={WalletCards} label="Juan commercial add-on" value={formatMoney(juanCommercialTotal)} note="Juan only" />
-          <MetricCard icon={Clock} label="Commercial hours" value={`${formatHours(commercialTotals.scheduled)} hrs`} note="Hours only" />
+          <MetricCard icon={WalletCards} label="Residential total" value={formatMoney(residentialOnlyTotal)} />
+          <MetricCard icon={WalletCards} label="Juan residential" value={formatMoney(juanResidentialTotal)} />
+          <MetricCard icon={WalletCards} label="Juan commercial" value={formatMoney(juanCommercialTotal)} note="Juan only" />
           <MetricCard icon={BadgeCheck} label="Verified commercial hours" value={`${formatHours(commercialTotals.verified)} hrs`} />
-          <MetricCard icon={BadgeCheck} label="Grand total weekly payments" value={formatMoney(weekTotal)} />
           <MetricCard icon={Clock} label="Pending total" value={formatMoney(pendingTotal)} tone={pendingTotal ? "warn" : "good"} />
-          <MetricCard icon={AlertTriangle} label="Needs review" value={commercialTotals.needsReview} tone={commercialTotals.needsReview ? "warn" : "good"} />
+          <MetricCard icon={BadgeCheck} label="Paid total" value={formatMoney(paidTotal)} tone="good" />
+          <MetricCard icon={BadgeCheck} label="Grand total" value={formatMoney(weekTotal)} />
+        </div>
+
+        <div className="inline-flex rounded-md border border-border bg-background/80 p-1" aria-label="Payroll sheet tabs">
+          {[
+            ["residential", "Residential Payments"],
+            ["commercial", "Commercial Hours"],
+            ["review", "Payroll Review"],
+          ].map(([value, label]) => (
+            <button key={value} type="button" className={cn("rounded px-3 py-1.5 text-xs font-black text-muted-foreground transition hover:bg-accent hover:text-foreground", payrollTab === value && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")} onClick={() => setPayrollTab(value as PayrollPanelTab)}>{label}</button>
+          ))}
         </div>
 
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground"><Filter className="size-4" /> Payroll review filters</div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <input className="h-10 rounded-md border bg-background px-3 text-sm font-bold" placeholder="Cleaner, city, account, note" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
             <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)}>
               <option value="all">All payment types</option>
               <option value="residential">Residential only</option>
-              <option value="commercial">Commercial only</option>
+              <option value="commercial">Commercial hours only</option>
               <option value="mixed">Mixed pay only</option>
             </select>
             <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)}>
               <option value="all">All statuses</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="completed">Completed</option>
               <option value="pending">Pending</option>
               <option value="verified">Verified</option>
+              <option value="pending_payment">Pending payment</option>
               <option value="needs_review">Needs review</option>
               <option value="paid">Paid</option>
               <option value="no_jobs">No jobs</option>
             </select>
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentCityFilter} onChange={(event) => setPaymentCityFilter(event.target.value)}>
+              <option value="all">All cities</option>
+              {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
+              {cityFilterOptions.filter((city) => !ORANGE_COUNTY_CITIES.includes(city as (typeof ORANGE_COUNTY_CITIES)[number])).map((city) => <option key={city} value={city}>{city}</option>)}
+            </select>
             <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialAccountFilter} onChange={(event) => setCommercialAccountFilter(event.target.value)}>
               <option value="all">All commercial accounts</option>
               {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </select>
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialSourceFilter} onChange={(event) => setCommercialSourceFilter(event.target.value as CommercialSourceFilter)}>
+              <option value="all">Manual + auto schedule</option>
+              <option value="manual">Manual hours</option>
+              <option value="scheduled">Auto schedule</option>
             </select>
             <label className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-black">
               <input type="checkbox" checked={showAllPaymentCleaners} onChange={(event) => setShowAllPaymentCleaners(event.target.checked)} />
@@ -2257,86 +2459,188 @@ export function SimpleOperationsClient({
           </div>
         </div>
 
-        {paymentKindFilter !== "commercial" ? (
+        {(payrollTab === "residential" || payrollTab === "review") && paymentKindFilter !== "commercial" ? (
           <div className="grid gap-4">
-            <div className="rounded-lg border border-border bg-background p-3">
-              <h3 className="text-xl font-black tracking-normal">Residential payment sheets</h3>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">Each cleaner has a compact payment sheet. Juan Romero keeps residential and commercial add-on totals separated.</p>
-            </div>
             {displayedSummaries.length === 0 ? <Card><CardContent className="p-8 text-center text-sm font-bold text-muted-foreground">No residential payments recorded for this period.</CardContent></Card> : null}
-            {displayedSummaries.map((summary) => renderCleanerPaymentCard(summary))}
+            <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
+              {displayedSummaries.map((summary) => renderCleanerPaymentCard(summary))}
+            </div>
           </div>
         ) : null}
 
-        {paymentKindFilter !== "residential" ? renderCommercialHoursCard(lucia) : null}
+        {(payrollTab === "commercial" || payrollTab === "review") && paymentKindFilter !== "residential" ? renderCommercialHoursCard(lucia) : null}
+        {renderPaymentModal(activePaymentSummary)}
       </div>
     );
   }
 
   function renderCleanerPaymentCard(summary: (typeof weeklyPaymentSummaries)[number]) {
-    const draft = paymentDraftForSummary(summary);
     const mixed = isMixedPaySummary(summary);
-    const residentialRows = mixed ? summary.rows.filter((row) => toNumber(row.residential_amount) > 0) : summary.rows;
+    const validJobRows = mixed ? summary.rows.filter((row) => toNumber(row.residential_amount) > 0 || toNumber(row.commercial_amount) > 0) : summary.rows.filter((row) => toNumber(row.payment_amount) > 0);
     const paid = summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const pending = summary.paymentTotal - paid;
 
     return (
-      <Card className={cn("overflow-hidden rounded-md", mixed ? "border-amber-300 bg-amber-50/30 dark:border-amber-900 dark:bg-amber-950/10" : "border-border")} key={summary.key}>
-        <CardHeader className="border-b border-border bg-background/80">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <CardTitle className="text-2xl tracking-normal">{summary.teamName}</CardTitle>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Mixed pay" : "Residential payment"}</Badge>
+      <Card className={cn("overflow-hidden rounded-md shadow-sm", mixed ? "border-amber-300 bg-amber-50/20 dark:border-amber-900 dark:bg-amber-950/10" : "border-border bg-card")} key={summary.key}>
+        <CardHeader className={cn("border-b border-border px-3 py-2", mixed ? "bg-amber-100/70 dark:bg-amber-950/20" : "bg-background/85")}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <CardTitle className="truncate text-base font-black tracking-normal">{summary.teamName}</CardTitle>
+              <div className="mt-1 flex flex-wrap gap-1">
+                <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Juan mixed pay" : "Residential"}</Badge>
                 <Badge className={statusBadgeClass(paymentSummaryStatus(summary))} variant="outline">{paymentSummaryStatus(summary)}</Badge>
-                <Badge variant="outline">{residentialRows.length} jobs</Badge>
               </div>
             </div>
-            <div className="grid gap-1 text-right text-sm font-black">
-              <span>Total jobs: {residentialRows.length}</span>
-              <span>Residential total: {formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal)}</span>
-              {mixed ? <span>Commercial total: {formatMoney(summary.commercialTotal)}</span> : null}
-              <span>Paid total: {formatMoney(paid)}</span>
-              <span>Pending total: {formatMoney(pending)}</span>
-              {mixed ? <span className="text-primary">Grand total: {formatMoney(summary.paymentTotal)}</span> : null}
-            </div>
+            <Button size="sm" variant="outline" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential")}><Plus className="size-4" /> Row</Button>
           </div>
         </CardHeader>
-        <CardContent className="grid gap-4 p-0">
+        <CardContent className="p-0">
           <div className="overflow-auto">
-            <table className="w-full min-w-[900px] border-collapse text-sm">
+            <table className="w-full min-w-[360px] border-collapse text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/45 text-left text-xs font-black uppercase text-muted-foreground">
-                  <th className="border-r border-border px-4 py-3">Date</th>
-                  <th className="border-r border-border px-4 py-3">City</th>
-                  <th className="border-r border-border px-4 py-3 text-right">Payment</th>
-                  <th className="border-r border-border px-4 py-3">Notes</th>
-                  <th className="border-r border-border px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                <tr className="border-b border-border bg-muted/35 text-left text-xs font-black text-foreground">
+                  <th className="border-r border-border px-2 py-2">Date</th>
+                  <th className="border-r border-border px-2 py-2">City</th>
+                  {mixed ? <th className="border-r border-border px-2 py-2 text-right">Residential</th> : <th className="border-r border-border px-2 py-2 text-right">Payment</th>}
+                  {mixed ? <th className="border-r border-border px-2 py-2 text-right">Commercial</th> : null}
+                  <th className="px-2 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {residentialRows.length === 0 ? <tr><td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={6}>No residential payments recorded for this period.</td></tr> : null}
-                {residentialRows.map((row) => (
+                {validJobRows.length === 0 ? <tr><td className="px-2 py-8 text-center font-bold text-muted-foreground" colSpan={mixed ? 5 : 4}>No rows yet.</td></tr> : null}
+                {validJobRows.map((row) => (
                   <tr className="border-b border-border/80" key={row.id}>
-                    <td className="border-r border-border/70 px-4 py-3 font-bold">{displayDate(row.work_date)}</td>
-                    <td className="border-r border-border/70 px-4 py-3 font-bold">{displayPaymentCity(row)}</td>
-                    <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
-                    <td className="border-r border-border/70 px-4 py-3 text-xs font-semibold text-muted-foreground">{row.notes || "-"}</td>
-                    <td className="border-r border-border/70 px-4 py-3"><Badge className={statusBadgeClass(row.status)} variant="outline">{row.status ?? "pending"}</Badge></td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
-                        <Button size="icon" variant="outline" aria-label="Edit payment row" onClick={() => editPaymentRow(row)}><Edit3 className="size-4" /></Button>
+                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayDate(row.work_date)}</td>
+                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayPaymentCity(row)}<div className="mt-1"><Badge className={statusBadgeClass(row.status)} variant="outline">{row.status ?? "pending"}</Badge></div></td>
+                    <td className="border-r border-border/70 px-2 py-2 text-right font-black">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                    {mixed ? <td className="border-r border-border/70 px-2 py-2 text-right font-black">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
+                    <td className="px-2 py-2">
+                      <div className="flex justify-end gap-1">
+                        <Button size="icon" variant="outline" aria-label="Edit payment row" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential", row)}><Edit3 className="size-4" /></Button>
+                        <Button size="icon" variant="outline" aria-label="Mark row pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-4" /></Button>
+                        <Button size="icon" variant="outline" aria-label="Mark row paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-4" /></Button>
                         <Button size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></Button>
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-yellow-200 text-sm font-black text-slate-950">
+                  <td className="border-r border-yellow-400 px-2 py-2">TOTAL</td>
+                  <td className="border-r border-yellow-400 px-2 py-2 text-center">{validJobRows.length}</td>
+                  <td className="border-r border-yellow-400 px-2 py-2 text-right">{formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal)}</td>
+                  {mixed ? <td className="border-r border-yellow-400 px-2 py-2 text-right">{formatMoney(summary.commercialTotal)}</td> : null}
+                  <td className="px-2 py-2 text-right">{mixed ? formatMoney(summary.paymentTotal) : ""}</td>
+                </tr>
+                {mixed ? <tr className="bg-yellow-200 text-sm font-black text-slate-950"><td className="px-2 py-2 text-right" colSpan={5}>GRAND TOTAL: {formatMoney(summary.paymentTotal)}</td></tr> : null}
+              </tfoot>
             </table>
           </div>
 
-          <div className="mx-4 grid gap-3 rounded-md border border-border bg-background/70 p-3 md:grid-cols-5">
+          <div className="flex flex-wrap justify-between gap-2 border-t border-border bg-background/70 px-3 py-2">
+            <div className="text-xs font-black text-muted-foreground">Paid {formatMoney(paid)} · Pending {formatMoney(pending)}</div>
+            <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-4" /> Mark verified</Button>
+            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-4" /> Mark paid</Button>
+            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}>Mark pending</Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  function renderPaymentModal(summary: (typeof weeklyPaymentSummaries)[number] | null | undefined) {
+    if (!paymentModalMode) return null;
+    if (paymentModalMode === "commercial_hours") {
+      return (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
+          <div className="w-full max-w-4xl rounded-md border border-border bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h2 className="text-lg font-black">Add commercial hours</h2>
+              <Button size="icon" variant="outline" aria-label="Close" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></Button>
+            </div>
+            <div className="p-4">{renderCommercialHoursForm()}</div>
+          </div>
+        </div>
+      );
+    }
+    if (paymentModalMode === "commercial_schedule") {
+      return (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
+          <div className="w-full max-w-5xl rounded-md border border-border bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h2 className="text-lg font-black">Configure commercial schedule</h2>
+              <Button size="icon" variant="outline" aria-label="Close" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></Button>
+            </div>
+            <form className="grid gap-4 p-4" onSubmit={saveCommercialSchedule}>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="grid gap-1 text-sm font-bold">Commercial account<select className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.accountId} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, accountId: event.target.value })}>
+                  <option value="">Select account</option>
+                  {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </select></label>
+                <label className="grid gap-1 text-sm font-bold">Assigned team<select className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.assignedTeamId} onChange={(event) => {
+                  const team = activeTeams.find((item) => item.id === event.target.value);
+                  setCommercialScheduleDraft({ ...commercialScheduleDraft, assignedTeamId: event.target.value, assignedTeamName: team?.name ?? "" });
+                }}>
+                  <option value="">Manual name</option>
+                  {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                </select></label>
+                {!commercialScheduleDraft.assignedTeamId ? <label className="grid gap-1 text-sm font-bold">Team/person<input className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.assignedTeamName} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, assignedTeamName: event.target.value })} /></label> : null}
+                <label className="grid gap-1 text-sm font-bold">Frequency<select className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.frequency} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, frequency: event.target.value as CommercialScheduleDraft["frequency"] })}>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Every 2 weeks</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="custom">Custom</option>
+                </select></label>
+                <label className="grid gap-1 text-sm font-bold">Effective from<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialScheduleDraft.effectiveFrom} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveFrom: event.target.value })} /></label>
+                <label className="grid gap-1 text-sm font-bold">Effective until<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialScheduleDraft.effectiveUntil} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveUntil: event.target.value })} /></label>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                {WEEKDAY_NAMES.map((day, index) => {
+                  const dayKey = String(index);
+                  const selected = commercialScheduleDraft.selectedDays.includes(dayKey);
+                  return (
+                    <label className="grid gap-2 rounded-md border border-border bg-background p-3 text-sm font-black" key={day}>
+                      <span className="flex items-center gap-2"><input type="checkbox" checked={selected} onChange={(event) => {
+                        setCommercialScheduleDraft((current) => ({
+                          ...current,
+                          selectedDays: event.target.checked ? [...current.selectedDays, dayKey] : current.selectedDays.filter((item) => item !== dayKey),
+                        }));
+                      }} /> {day}</span>
+                      <input className="h-10 rounded-md border bg-card px-3" disabled={!selected} inputMode="decimal" min="0" placeholder="Hours" type="number" value={commercialScheduleDraft.dayHours[dayKey] ?? ""} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, dayHours: { ...commercialScheduleDraft.dayHours, [dayKey]: event.target.value } })} />
+                    </label>
+                  );
+                })}
+              </div>
+              <label className="grid gap-1 text-sm font-bold">Notes<input className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.notes} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, notes: event.target.value })} /></label>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
+                <Button disabled={savingPaymentKey === "commercial-schedule"} type="submit"><Save className="size-4" /> Save schedule</Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+    if (!summary) return null;
+    const draft = paymentDraftForSummary(summary);
+    const mixed = isMixedPaySummary(summary);
+    return (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
+        <div className="w-full max-w-3xl rounded-md border border-border bg-card shadow-xl">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <h2 className="text-lg font-black">{mixed ? "Add Juan mixed row" : "Add residential payment"}</h2>
+            <Button size="icon" variant="outline" aria-label="Close" onClick={closePaymentModal}><X className="size-4" /></Button>
+          </div>
+          <div className="grid gap-3 p-4 md:grid-cols-2">
+            <label className="grid gap-1 text-sm font-bold">Cleaner<select className="h-10 rounded-md border bg-background px-3" value={summary.key} onChange={(event) => {
+              const next = weeklyPaymentSummaries.find((item) => item.key === event.target.value);
+              if (next) setActivePaymentSummaryKey(next.key);
+            }}>
+              {weeklyPaymentSummaries.filter((item) => paymentModalMode === "juan" ? isMixedPaySummary(item) : !isMixedPaySummary(item)).map((item) => <option key={item.key} value={item.key}>{item.teamName}</option>)}
+            </select></label>
             <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
             <label className="grid gap-1 text-sm font-bold">City<select className="h-10 rounded-md border bg-background px-3" value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? draft.customCity : "" })}>
               <option value="">Select city</option>
@@ -2344,47 +2648,59 @@ export function SimpleOperationsClient({
               <option value={OUTSIDE_OC_CITY}>{OUTSIDE_OC_CITY}</option>
             </select></label>
             {draft.city === OUTSIDE_OC_CITY ? <label className="grid gap-1 text-sm font-bold">Custom city<input className="h-10 rounded-md border bg-background px-3" value={draft.customCity} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, customCity: event.target.value })} /></label> : null}
-            {mixed ? <label className="grid gap-1 text-sm font-bold">Residential payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label> : <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>}
+            {mixed ? (
+              <>
+                <label className="grid gap-1 text-sm font-bold">Residential amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label>
+                <label className="grid gap-1 text-sm font-bold">Commercial amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.commercialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, commercialAmount: event.target.value })} /></label>
+              </>
+            ) : <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>}
             <label className="grid gap-1 text-sm font-bold md:col-span-2">Notes<input className="h-10 rounded-md border bg-background px-3" value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
-            <Button className="self-end" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Add residential payment"}</Button>
-            {draft.id ? <Button className="self-end" variant="outline" onClick={() => setPaymentDraftForSummary(summary, { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start })}>Cancel edit</Button> : null}
           </div>
-
-          {mixed ? (
-            <div className="mx-4 rounded-md border border-amber-200 bg-amber-50/80 p-3">
-              <p className="text-sm font-black text-amber-950">Juan commercial add-on</p>
-              <div className="mt-2 overflow-auto">
-                <table className="w-full min-w-[560px] text-sm">
-                  <tbody>
-                    {summary.rows.filter((row) => toNumber(row.commercial_amount) > 0).length === 0 ? <tr><td className="py-4 text-center font-bold text-amber-950">No commercial add-on rows for Juan in this period.</td></tr> : null}
-                    {summary.rows.filter((row) => toNumber(row.commercial_amount) > 0).map((row) => (
-                      <tr className="border-t border-amber-200" key={row.id}>
-                        <td className="py-2 font-bold">{displayDate(row.work_date)}</td>
-                        <td className="py-2">{displayPaymentCity(row)}</td>
-                        <td className="py-2 text-right font-black">{formatMoney(toNumber(row.commercial_amount))}</td>
-                        <td className="py-2 text-right"><Button size="icon" variant="outline" aria-label="Edit Juan add-on" onClick={() => editPaymentRow(row)}><Edit3 className="size-4" /></Button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-3 grid gap-2 text-sm font-black text-amber-950 md:grid-cols-5">
-                <span>Residential total: {formatMoney(summary.residentialTotal)}</span>
-                <span>Commercial total: {formatMoney(summary.commercialTotal)}</span>
-                <span>Grand total: {formatMoney(summary.paymentTotal)}</span>
-                <span>Pending total: {formatMoney(pending)}</span>
-                <span>Paid total: {formatMoney(paid)}</span>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap justify-end gap-2 px-4 pb-4">
-            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-4" /> Mark verified</Button>
-            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-4" /> Mark paid</Button>
-            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}>Mark pending</Button>
+          <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+            <Button variant="outline" onClick={closePaymentModal}>Cancel</Button>
+            <Button disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Save row"}</Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+    );
+  }
+
+  function renderCommercialHoursForm() {
+    const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
+    return (
+      <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-7" onSubmit={saveCommercialHours}>
+        <label className="grid gap-1 text-sm font-bold xl:col-span-2">Commercial account<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
+          <option value="">Select account</option>
+          {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+        </select></label>
+        <label className="grid gap-1 text-sm font-bold">Team/person<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamId} onChange={(event) => {
+          const team = activeTeams.find((item) => item.id === event.target.value);
+          setCommercialHoursDraft({ ...commercialHoursDraft, teamId: event.target.value, teamName: team?.name ?? "", manualEntry: true });
+        }}>
+          <option value="">Manual name</option>
+          {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+        </select></label>
+        {!commercialHoursDraft.teamId ? <label className="grid gap-1 text-sm font-bold">Manual name<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
+        <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
+        <label className="grid gap-1 text-sm font-bold">Hours<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
+        <label className="grid gap-1 text-sm font-bold">Source<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.manualEntry ? "manual" : "scheduled"} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, manualEntry: event.target.value === "manual" })}>
+          <option value="manual">Manual</option>
+          <option value="scheduled">Scheduled</option>
+        </select></label>
+        <label className="grid gap-1 text-sm font-bold">Status<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.status} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, status: event.target.value as CommercialHoursStatus })}>
+          <option value="scheduled">Scheduled</option>
+          <option value="completed">Completed</option>
+          <option value="verified">Verified</option>
+          <option value="pending_payment">Pending payment</option>
+          <option value="needs_review">Needs review</option>
+          <option value="paid">Paid</option>
+          <option value="skipped">No eligible service</option>
+        </select></label>
+        <label className="flex items-center gap-2 self-end rounded-md border border-border bg-card px-3 py-2 text-sm font-black"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
+        <label className="grid gap-1 text-sm font-bold md:col-span-2 xl:col-span-5">Notes<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
+        {lucia ? <div className="self-end rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-black text-sky-950">Lucia Portillo: Manual hours</div> : null}
+        <Button className="self-end" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
+      </form>
     );
   }
 
@@ -2398,38 +2714,21 @@ export function SimpleOperationsClient({
               <CardTitle className="text-2xl tracking-normal">Commercial hours</CardTitle>
               <p className="mt-1 text-sm font-bold text-muted-foreground">Hours only. No hourly rate or invented commercial dollars.</p>
             </div>
-            <Badge variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
+              <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure schedule</Button>
+              <Badge variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 p-4">
-          <form className="grid gap-3 rounded-md border border-border bg-background/70 p-3 md:grid-cols-3 xl:grid-cols-7" onSubmit={saveCommercialHours}>
-            <label className="grid gap-1 text-sm font-bold xl:col-span-2">Commercial account<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
-              <option value="">Select account</option>
-              {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
-            </select></label>
-            <label className="grid gap-1 text-sm font-bold">Assigned team<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamId} onChange={(event) => {
-              const team = activeTeams.find((item) => item.id === event.target.value);
-              setCommercialHoursDraft({ ...commercialHoursDraft, teamId: event.target.value, teamName: team?.name ?? "" });
-            }}>
-              <option value="">Manual name</option>
-              {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-            </select></label>
-            {!commercialHoursDraft.teamId ? <label className="grid gap-1 text-sm font-bold">Team/person<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
-            <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">Hours<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">Status<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.status} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, status: event.target.value as CommercialHoursStatus })}>
-              <option value="completed">Completed</option>
-              <option value="verified">Verified</option>
-              <option value="pending_payment">Pending payment</option>
-              <option value="needs_review">Needs review</option>
-              <option value="paid">Paid</option>
-              <option value="skipped">Skipped / No service</option>
-            </select></label>
-            <label className="flex items-center gap-2 self-end rounded-md border border-border bg-card px-3 py-2 text-sm font-black"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
-            <label className="grid gap-1 text-sm font-bold md:col-span-2 xl:col-span-5">Notes<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
-            {lucia ? <div className="self-end rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-black text-sky-950">Lucia Portillo: Manual hours</div> : null}
-            <Button className="self-end" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Add commercial hours"}</Button>
-          </form>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {commercialAccounts.slice(0, 6).map((account) => {
+              const rules = commercialScheduleRules.filter((rule) => rule.commercial_account_id === account.id);
+              return <div className="rounded-md border border-border bg-background p-3 text-sm font-bold" key={account.id}><p className="font-black">{account.name}</p><p className="mt-1 text-xs text-muted-foreground">{commercialScheduleSummary(rules)}</p></div>;
+            })}
+            {lucia ? <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm font-black text-sky-950">Lucia Portillo · Manual hours</div> : null}
+          </div>
 
           <div className="overflow-auto rounded-md border border-border">
             <table className="w-full min-w-[980px] border-collapse text-sm">
