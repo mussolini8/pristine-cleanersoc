@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -573,6 +573,11 @@ function displayShortDate(value: string | null | undefined) {
   return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
 }
 
+function monthLabel(value: string) {
+  const date = parseDateKey(value) ?? new Date();
+  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
 function statusBadgeClass(status: string | null | undefined) {
   if (status === "paid" || status === "verified") return "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
   if (status === "needs_review") return "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
@@ -711,6 +716,7 @@ export function SimpleOperationsClient({
   const [staff, setStaff] = useState<StaffMemberRow[]>([]);
   const [taskTab, setTaskTab] = useState<TaskTab>("pending");
   const [taskSearch, setTaskSearch] = useState("");
+  const [taskCalendarAnchor, setTaskCalendarAnchor] = useState(() => formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
   const [savingTask, setSavingTask] = useState(false);
@@ -2102,6 +2108,23 @@ export function SimpleOperationsClient({
       overdue: taskStats.overdue.length,
       all: tasks.length,
     };
+    const anchorDate = parseDateKey(taskCalendarAnchor) ?? new Date();
+    const monthStart = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+    const monthEnd = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
+    const calendarStart = startOfWeek(monthStart);
+    const calendarDays = Array.from({ length: 42 }, (_, index) => {
+      const date = addDays(calendarStart, index);
+      return { key: formatDateKey(date), date, inMonth: date >= monthStart && date <= monthEnd };
+    });
+    const tasksByDay = new Map<string, OperationTaskRow[]>();
+    for (const task of filteredTasks) {
+      const key = dateKeyFromValue(task.due_date);
+      if (!key) continue;
+      const current = tasksByDay.get(key) ?? [];
+      current.push(task);
+      tasksByDay.set(key, current);
+    }
+    const unscheduledTasks = filteredTasks.filter((task) => !dateKeyFromValue(task.due_date));
 
     return (
       <div className="space-y-4">
@@ -2132,71 +2155,61 @@ export function SimpleOperationsClient({
         </div>
 
         <Card>
-          <CardContent className="overflow-auto p-0">
-            <table className="w-full min-w-[940px] text-sm">
-              <thead>
-                <tr className="border-b bg-muted/35 text-left text-xs font-black uppercase text-muted-foreground">
-                  <th className="px-4 py-3">Task</th>
-                  <th>Assigned to</th>
-                  <th>Due date</th>
-                  <th>Frequency</th>
-                  <th>Status</th>
-                  <th>Priority</th>
-                  <th className="text-right pr-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTasks.length === 0 ? <tr><td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={7}>No reminders match this view.</td></tr> : null}
-                {filteredTasks.map((task) => {
-                  const status = normalizeTaskStatus(task.status);
-                  const overdue = status === "pending" && Boolean(task.due_date && dateKeyFromValue(task.due_date) < today);
-                  return (
-                    <tr className="border-b border-border/70" key={task.id}>
-                      <td className="px-4 py-3">
-                        <button type="button" className="text-left font-black hover:text-primary" onClick={() => setSelectedTask(task)}>{task.title}</button>
-                        {task.description ? <p className="mt-1 line-clamp-1 text-xs font-semibold text-muted-foreground">{task.description}</p> : null}
-                      </td>
-                      <td className="font-bold">{task.assignee ?? "Unassigned"}</td>
-                      <td>{displayDate(task.due_date)}</td>
-                      <td>{TASK_FREQUENCY_LABELS[frequencyFromRecurrence(task.recurrence)]}</td>
-                      <td><Badge className={overdue ? "border-amber-200 bg-amber-50 text-amber-900" : status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : ""} variant="outline">{overdue ? "overdue" : status}</Badge></td>
-                      <td>{task.priority ?? "normal"}</td>
-                      <td className="pr-4">
-                        <div className="flex justify-end gap-2">
-                          <Button size="sm" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-4" /> {completingTaskId === task.id ? "Completing..." : "Complete"}</Button>
-                          <Button size="icon" variant="outline" aria-label="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-4" /></Button>
-                          <Button size="icon" variant="outline" aria-label="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-4" /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Reminder calendar</CardTitle>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>Task calendar</CardTitle>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">{monthLabel(taskCalendarAnchor)}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="icon" variant="outline" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></Button>
+              <Button variant="outline" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</Button>
+              <Button size="icon" variant="outline" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></Button>
+            </div>
           </CardHeader>
-          <CardContent className="grid gap-2 md:grid-cols-3">
-            {["overdue", "today", "upcoming"].map((bucket) => {
-              const rows = bucket === "overdue"
-                ? taskStats.overdue
-                : bucket === "today"
-                  ? taskStats.dueToday
-                  : taskStats.pending.filter((task) => task.due_date && dateKeyFromValue(task.due_date) > today).slice(0, 6);
-              return (
-                <section className="rounded-lg border border-border bg-background/60 p-3" key={bucket}>
-                  <h3 className="text-sm font-black capitalize">{bucket}</h3>
-                  <div className="mt-3 grid gap-2">
-                    {rows.length === 0 ? <p className="rounded-md border border-dashed border-border p-3 text-xs font-bold text-muted-foreground">No reminders here.</p> : null}
-                    {rows.slice(0, 6).map((task) => renderCompactTaskRow(task))}
-                  </div>
-                </section>
-              );
-            })}
+          <CardContent className="p-0">
+            <div className="grid grid-cols-7 border-y border-border bg-muted/35 text-center text-xs font-black uppercase text-muted-foreground">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border py-2 last:border-r-0" key={day}>{day}</div>)}
+            </div>
+            <div className="grid grid-cols-7">
+              {calendarDays.map(({ key, date, inMonth }) => {
+                const dayTasks = (tasksByDay.get(key) ?? []).slice().sort((a, b) => String(a.priority).localeCompare(String(b.priority)));
+                const isToday = key === today;
+                return (
+                  <section className={cn("min-h-32 border-b border-r border-border p-2 last:border-r-0", !inMonth && "bg-muted/20 text-muted-foreground", isToday && "bg-emerald-50/70 dark:bg-emerald-950/20")} key={key}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={cn("grid size-7 place-items-center rounded-md text-sm font-black", isToday && "bg-primary text-primary-foreground")}>{date.getDate()}</span>
+                      {dayTasks.length ? <Badge variant="outline">{dayTasks.length}</Badge> : null}
+                    </div>
+                    <div className="mt-2 grid gap-1">
+                      {dayTasks.slice(0, 3).map((task) => {
+                        const status = normalizeTaskStatus(task.status);
+                        const overdue = status === "pending" && key < today;
+                        return (
+                          <button
+                            type="button"
+                            className={cn("rounded-md border px-2 py-1 text-left text-[11px] font-black leading-tight transition hover:border-primary/40 hover:bg-accent/30", overdue ? "border-amber-200 bg-amber-50 text-amber-950" : status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-border bg-background")}
+                            key={task.id}
+                            onClick={() => setSelectedTask(task)}
+                          >
+                            <span className="line-clamp-2">{task.title}</span>
+                            <span className="mt-1 block truncate text-[10px] font-bold opacity-70">{task.assignee ?? "Unassigned"}</span>
+                          </button>
+                        );
+                      })}
+                      {dayTasks.length > 3 ? <button type="button" className="text-left text-[11px] font-black text-primary" onClick={() => setTaskTab("all")}>+{dayTasks.length - 3} more</button> : null}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+            {unscheduledTasks.length ? (
+              <div className="border-t border-border p-3">
+                <p className="text-sm font-black">No due date</p>
+                <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  {unscheduledTasks.slice(0, 6).map((task) => renderCompactTaskRow(task))}
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>
@@ -2514,27 +2527,21 @@ export function SimpleOperationsClient({
               <tbody>
                 {validJobRows.length === 0 ? <tr><td className="px-2 py-8 text-center font-bold text-muted-foreground" colSpan={mixed ? 4 : 3}>No rows yet.</td></tr> : null}
                 {validJobRows.map((row) => (
-                  <Fragment key={row.id}>
-                    <tr className="border-b border-border/40">
-                      <td className="border-r border-border/70 px-2 py-2 font-bold">{displayShortDate(row.work_date)}</td>
-                      <td className="border-r border-border/70 px-2 py-2 font-bold">
-                        <span className="block truncate" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
-                        <Badge className={cn("mt-1 max-w-full truncate", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
-                      </td>
-                      <td className={cn("px-2 py-2 text-right font-black", mixed && "border-r border-border/70")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
-                      {mixed ? <td className="px-2 py-2 text-right font-black">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
-                    </tr>
-                    <tr className="border-b border-border/80 bg-background/50">
-                      <td className="px-2 py-1.5" colSpan={mixed ? 4 : 3}>
-                        <div className="flex flex-wrap justify-end gap-1">
-                          <Button className="size-8" size="icon" variant="outline" aria-label="Edit payment row" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential", row)}><Edit3 className="size-3.5" /></Button>
-                          <Button className="size-8" size="icon" variant="outline" aria-label="Mark row pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-3.5" /></Button>
-                          <Button className="size-8" size="icon" variant="outline" aria-label="Mark row paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-3.5" /></Button>
-                          <Button className="size-8 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-3.5" /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  </Fragment>
+                  <tr className="border-b border-border/80" key={row.id}>
+                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayShortDate(row.work_date)}</td>
+                    <td className="border-r border-border/70 px-2 py-2 font-bold">
+                      <span className="block truncate" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
+                      <Badge className={cn("mt-1 max-w-full truncate", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
+                      <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[11px] font-black">
+                        <button type="button" className="text-primary hover:underline" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential", row)}>Edit</button>
+                        <button type="button" className="text-muted-foreground hover:text-foreground hover:underline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}>Pending</button>
+                        <button type="button" className="text-emerald-700 hover:underline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}>Paid</button>
+                        <button type="button" className="text-rose-700 hover:underline" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}>Delete</button>
+                      </div>
+                    </td>
+                    <td className={cn("px-2 py-2 text-right font-black", mixed && "border-r border-border/70")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                    {mixed ? <td className="px-2 py-2 text-right font-black">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
+                  </tr>
                 ))}
               </tbody>
               <tfoot>
@@ -2567,7 +2574,7 @@ export function SimpleOperationsClient({
     if (paymentModalMode === "commercial_hours") {
       return (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
-          <div className="w-full max-w-4xl rounded-md border border-border bg-card shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-5xl overflow-auto rounded-md border border-border bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-lg font-black">Add commercial hours</h2>
               <button type="button" className="grid size-9 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
@@ -2685,26 +2692,26 @@ export function SimpleOperationsClient({
     const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
     const commercialTeamChoices = activeTeams.filter((team) => !isJuanRomero(team.name));
     return (
-      <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-7" onSubmit={saveCommercialHours}>
-        <label className="grid gap-1 text-sm font-bold xl:col-span-2">Commercial account<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
+      <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" onSubmit={saveCommercialHours}>
+        <label className="grid min-w-0 gap-1 text-sm font-bold">Commercial account<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
           <option value="">Select account</option>
           {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
         </select></label>
-        <label className="grid gap-1 text-sm font-bold">Team/person<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamId} onChange={(event) => {
+        <label className="grid min-w-0 gap-1 text-sm font-bold">Team/person<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.teamId} onChange={(event) => {
           const team = activeTeams.find((item) => item.id === event.target.value);
           setCommercialHoursDraft({ ...commercialHoursDraft, teamId: event.target.value, teamName: team?.name ?? "", manualEntry: true });
         }}>
           <option value="">Manual name</option>
           {commercialTeamChoices.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
         </select></label>
-        {!commercialHoursDraft.teamId ? <label className="grid gap-1 text-sm font-bold">Manual name<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
-        <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
-        <label className="grid gap-1 text-sm font-bold">Hours<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
-        <label className="grid gap-1 text-sm font-bold">Source<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.manualEntry ? "manual" : "scheduled"} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, manualEntry: event.target.value === "manual" })}>
+        {!commercialHoursDraft.teamId ? <label className="grid min-w-0 gap-1 text-sm font-bold">Manual name<input className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
+        <label className="grid min-w-0 gap-1 text-sm font-bold">Date<input className="h-10 min-w-0 rounded-md border bg-background px-3" type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
+        <label className="grid min-w-0 gap-1 text-sm font-bold">Hours<input className="h-10 min-w-0 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
+        <label className="grid min-w-0 gap-1 text-sm font-bold">Source<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.manualEntry ? "manual" : "scheduled"} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, manualEntry: event.target.value === "manual" })}>
           <option value="manual">Manual</option>
           <option value="scheduled">Scheduled</option>
         </select></label>
-        <label className="grid gap-1 text-sm font-bold">Status<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.status} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, status: event.target.value as CommercialHoursStatus })}>
+        <label className="grid min-w-0 gap-1 text-sm font-bold">Status<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.status} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, status: event.target.value as CommercialHoursStatus })}>
           <option value="scheduled">Scheduled</option>
           <option value="completed">Completed</option>
           <option value="verified">Verified</option>
@@ -2713,10 +2720,12 @@ export function SimpleOperationsClient({
           <option value="paid">Paid</option>
           <option value="skipped">No eligible service</option>
         </select></label>
-        <label className="flex items-center gap-2 self-end rounded-md border border-border bg-card px-3 py-2 text-sm font-black"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
-        <label className="grid gap-1 text-sm font-bold md:col-span-2 xl:col-span-5">Notes<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
+        <label className="flex h-10 items-center gap-2 self-end rounded-md border border-border bg-card px-3 text-sm font-black"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
+        <label className="grid min-w-0 gap-1 text-sm font-bold md:col-span-2 xl:col-span-3">Notes<input className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
         {lucia ? <div className="self-end rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-black text-sky-950">Lucia Portillo: Manual hours</div> : null}
-        <Button className="self-end" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
+        <div className="flex justify-end md:col-span-2 xl:col-span-4">
+          <Button disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
+        </div>
       </form>
     );
   }
