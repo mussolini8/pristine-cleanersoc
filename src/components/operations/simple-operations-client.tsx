@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -1929,7 +1929,7 @@ export function SimpleOperationsClient({
   return (
     <DashboardShell userEmail={userEmail}>
       <div className="space-y-5">
-        {renderHeader()}
+        {view === "residential" ? null : renderHeader()}
         {message ? (
           <div className={cn("flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-sm font-bold", messageClass(message.tone))}>
             <span>{message.text}</span>
@@ -2497,59 +2497,64 @@ export function SimpleOperationsClient({
                 <Badge className={statusBadgeClass(paymentSummaryStatus(summary))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
               </div>
             </div>
-            <Button size="sm" variant="outline" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential")}><Plus className="size-4" /> Row</Button>
+            <Button className="h-9 px-3" size="sm" variant="outline" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential")}><Plus className="size-4" /> Row</Button>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-auto">
-            <table className="w-full min-w-[360px] border-collapse text-sm">
+          <div>
+            <table className="w-full table-fixed border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/35 text-left text-xs font-black text-foreground">
-                  <th className="border-r border-border px-2 py-2">Date</th>
-                  <th className="border-r border-border px-2 py-2">City</th>
-                  {mixed ? <th className="border-r border-border px-2 py-2 text-right">Residential</th> : <th className="border-r border-border px-2 py-2 text-right">Payment</th>}
-                  {mixed ? <th className="border-r border-border px-2 py-2 text-right">Commercial</th> : null}
-                  <th className="px-2 py-2 text-right">Actions</th>
+                  <th className="w-[18%] border-r border-border px-2 py-2">Date</th>
+                  <th className={cn("border-r border-border px-2 py-2", mixed ? "w-[34%]" : "w-[42%]")}>City</th>
+                  {mixed ? <th className="w-[24%] border-r border-border px-2 py-2 text-right">Residential</th> : <th className="w-[40%] px-2 py-2 text-right">Payment</th>}
+                  {mixed ? <th className="w-[24%] px-2 py-2 text-right">Commercial</th> : null}
                 </tr>
               </thead>
               <tbody>
-                {validJobRows.length === 0 ? <tr><td className="px-2 py-8 text-center font-bold text-muted-foreground" colSpan={mixed ? 5 : 4}>No rows yet.</td></tr> : null}
+                {validJobRows.length === 0 ? <tr><td className="px-2 py-8 text-center font-bold text-muted-foreground" colSpan={mixed ? 4 : 3}>No rows yet.</td></tr> : null}
                 {validJobRows.map((row) => (
-                  <tr className="border-b border-border/80" key={row.id}>
-                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayShortDate(row.work_date)}</td>
-                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayPaymentCity(row)}<div className="mt-1"><Badge className={statusBadgeClass(row.status)} variant="outline">{statusLabel(row.status)}</Badge></div></td>
-                    <td className="border-r border-border/70 px-2 py-2 text-right font-black">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
-                    {mixed ? <td className="border-r border-border/70 px-2 py-2 text-right font-black">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
-                    <td className="px-2 py-2">
-                      <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="outline" aria-label="Edit payment row" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential", row)}><Edit3 className="size-4" /></Button>
-                        <Button size="icon" variant="outline" aria-label="Mark row pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-4" /></Button>
-                        <Button size="icon" variant="outline" aria-label="Mark row paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-4" /></Button>
-                        <Button className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></Button>
-                      </div>
-                    </td>
-                  </tr>
+                  <Fragment key={row.id}>
+                    <tr className="border-b border-border/40">
+                      <td className="border-r border-border/70 px-2 py-2 font-bold">{displayShortDate(row.work_date)}</td>
+                      <td className="border-r border-border/70 px-2 py-2 font-bold">
+                        <span className="block truncate" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
+                        <Badge className={cn("mt-1 max-w-full truncate", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
+                      </td>
+                      <td className={cn("px-2 py-2 text-right font-black", mixed && "border-r border-border/70")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                      {mixed ? <td className="px-2 py-2 text-right font-black">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
+                    </tr>
+                    <tr className="border-b border-border/80 bg-background/50">
+                      <td className="px-2 py-1.5" colSpan={mixed ? 4 : 3}>
+                        <div className="flex flex-wrap justify-end gap-1">
+                          <Button className="size-8" size="icon" variant="outline" aria-label="Edit payment row" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential", row)}><Edit3 className="size-3.5" /></Button>
+                          <Button className="size-8" size="icon" variant="outline" aria-label="Mark row pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-3.5" /></Button>
+                          <Button className="size-8" size="icon" variant="outline" aria-label="Mark row paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-3.5" /></Button>
+                          <Button className="size-8 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-3.5" /></Button>
+                        </div>
+                      </td>
+                    </tr>
+                  </Fragment>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-border bg-yellow-200 text-sm font-black text-slate-950">
                   <td className="border-r border-yellow-400 px-2 py-2">TOTAL</td>
                   <td className="border-r border-yellow-400 px-2 py-2 text-center">{validJobRows.length}</td>
-                  <td className="border-r border-yellow-400 px-2 py-2 text-right">{formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal)}</td>
-                  {mixed ? <td className="border-r border-yellow-400 px-2 py-2 text-right">{formatMoney(summary.commercialTotal)}</td> : null}
-                  <td className="px-2 py-2 text-right">{mixed ? formatMoney(summary.paymentTotal) : ""}</td>
+                  <td className={cn("px-2 py-2 text-right", mixed && "border-r border-yellow-400")}>{formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal)}</td>
+                  {mixed ? <td className="px-2 py-2 text-right">{formatMoney(summary.commercialTotal)}</td> : null}
                 </tr>
-                {mixed ? <tr className="bg-yellow-200 text-sm font-black text-slate-950"><td className="px-2 py-2 text-right" colSpan={5}>GRAND TOTAL: {formatMoney(summary.paymentTotal)}</td></tr> : null}
+                {mixed ? <tr className="bg-yellow-200 text-sm font-black text-slate-950"><td className="px-2 py-2 text-right" colSpan={4}>GRAND TOTAL: {formatMoney(summary.paymentTotal)}</td></tr> : null}
               </tfoot>
             </table>
           </div>
 
-          <div className="flex flex-wrap justify-between gap-2 border-t border-border bg-background/70 px-3 py-2">
+          <div className="grid gap-2 border-t border-border bg-background/70 px-3 py-2">
             <div className="text-xs font-black text-muted-foreground">Paid {formatMoney(paid)} · Pending {formatMoney(pending)}</div>
-            <div className="flex flex-wrap justify-end gap-2">
-            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-4" /> Mark verified</Button>
-            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-4" /> Mark paid</Button>
-            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}>Mark pending</Button>
+            <div className="grid grid-cols-3 gap-2">
+              <Button className="h-9 px-2 text-xs" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-3.5" /> Verified</Button>
+              <Button className="h-9 px-2 text-xs" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-3.5" /> Paid</Button>
+              <Button className="h-9 px-2 text-xs" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}><Clock className="size-3.5" /> Pending</Button>
             </div>
           </div>
         </CardContent>
