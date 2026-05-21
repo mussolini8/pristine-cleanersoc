@@ -26,6 +26,10 @@ create table if not exists public.residential_recurring_cleaning_accounts (
 
 alter table public.residential_recurring_cleaning_accounts enable row level security;
 
+alter table public.residential_recurring_cleaning_accounts
+  add column if not exists city text,
+  add column if not exists custom_city text;
+
 drop policy if exists "Residential recurring accounts are readable by signed in users" on public.residential_recurring_cleaning_accounts;
 create policy "Residential recurring accounts are readable by signed in users"
   on public.residential_recurring_cleaning_accounts for select
@@ -137,7 +141,65 @@ create table if not exists public.residential_weekly_payment_rows (
 );
 
 alter table public.residential_weekly_payment_rows
-  add column if not exists payment_mode text;
+  add column if not exists payment_mode text,
+  add column if not exists custom_city text,
+  add column if not exists verified_at timestamptz,
+  add column if not exists paid_at timestamptz,
+  add column if not exists updated_by uuid references auth.users(id) on delete set null;
+
+create table if not exists public.commercial_hours_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  account_id uuid references public.commercial_accounts(id) on delete set null,
+  account_name text not null,
+  team_id uuid references public.staff_members(id) on delete set null,
+  team_name text,
+  work_date date not null,
+  period_start date,
+  period_end date,
+  scheduled_day text,
+  scheduled_hours numeric(8,2) not null default 0,
+  completed_hours numeric(8,2) not null default 0,
+  verified_hours numeric(8,2) not null default 0,
+  status text not null default 'completed',
+  verified boolean not null default false,
+  paid_at timestamptz,
+  notes text,
+  manual_entry boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+alter table public.commercial_hours_entries enable row level security;
+
+drop policy if exists "Commercial hours are readable by signed in users" on public.commercial_hours_entries;
+create policy "Commercial hours are readable by signed in users"
+  on public.commercial_hours_entries for select
+  using (auth.uid() is not null and deleted_at is null);
+
+drop policy if exists "Commercial hours are editable by signed in users" on public.commercial_hours_entries;
+create policy "Commercial hours are editable by signed in users"
+  on public.commercial_hours_entries for all
+  using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
+  with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+create index if not exists commercial_hours_entries_period_idx
+  on public.commercial_hours_entries(work_date, status, account_id, team_id)
+  where deleted_at is null;
+
+alter table public.commercial_account_schedule_rules
+  add column if not exists scheduled_hours numeric(8,2),
+  add column if not exists effective_from date,
+  add column if not exists effective_until date;
+
+update public.commercial_account_schedule_rules
+set scheduled_hours = coalesce(scheduled_hours, paid_hours),
+    effective_from = coalesce(effective_from, effective_start_date),
+    effective_until = coalesce(effective_until, effective_end_date)
+where scheduled_hours is null
+   or effective_from is null
+   or effective_until is null;
 
 alter table public.residential_weekly_payment_rows enable row level security;
 

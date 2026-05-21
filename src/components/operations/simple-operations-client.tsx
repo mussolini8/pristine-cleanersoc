@@ -15,6 +15,7 @@ import {
   Edit3,
   FileSpreadsheet,
   FileText,
+  Filter,
   Mail,
   PauseCircle,
   Plus,
@@ -63,9 +64,51 @@ type ResidentialTab = "accounts" | "work_logs" | "weekly_payments";
 type TaskTab = "pending" | "completed" | "overdue" | "all";
 type ReportKind = "tasks" | "hours" | "weekly_payments";
 type WorkLogStatus = "pending" | "approved" | "paid";
-type WeeklyPaymentStatus = "pending" | "paid";
+type WeeklyPaymentStatus = "pending" | "verified" | "needs_review" | "paid" | "no_jobs";
+type CommercialHoursStatus = "scheduled" | "completed" | "verified" | "pending_payment" | "paid" | "needs_review" | "skipped";
+type PaymentKindFilter = "all" | "residential" | "commercial" | "mixed";
 type PaymentMode = "residential_only" | "mixed";
 type MessageTone = "success" | "error" | "info";
+
+const ORANGE_COUNTY_CITIES = [
+  "Aliso Viejo",
+  "Anaheim",
+  "Brea",
+  "Buena Park",
+  "Costa Mesa",
+  "Cypress",
+  "Dana Point",
+  "Fountain Valley",
+  "Fullerton",
+  "Garden Grove",
+  "Huntington Beach",
+  "Irvine",
+  "La Habra",
+  "La Palma",
+  "Laguna Beach",
+  "Laguna Hills",
+  "Laguna Niguel",
+  "Laguna Woods",
+  "Lake Forest",
+  "Los Alamitos",
+  "Mission Viejo",
+  "Newport Beach",
+  "Orange",
+  "Placentia",
+  "Rancho Santa Margarita",
+  "San Clemente",
+  "San Juan Capistrano",
+  "Santa Ana",
+  "Seal Beach",
+  "Stanton",
+  "Tustin",
+  "Villa Park",
+  "Westminster",
+  "Yorba Linda",
+] as const;
+
+const OUTSIDE_OC_CITY = "Other / Outside Orange County";
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 
 type EnvStatus = {
   appBaseUrl: boolean;
@@ -117,6 +160,8 @@ type ResidentialAccountRow = {
   frequency: ResidentialFrequency | string | null;
   frequency_detail: string | null;
   day_of_week: string | null;
+  city?: string | null;
+  custom_city?: string | null;
   assigned_team_id: string | null;
   assigned_team_name: string | null;
   active: boolean | null;
@@ -167,6 +212,7 @@ type ResidentialWeeklyPaymentLineRow = {
   cleaner_name: string;
   work_date: string;
   city: string | null;
+  custom_city?: string | null;
   payment_amount: number | string | null;
   residential_amount: number | string | null;
   commercial_amount: number | string | null;
@@ -176,6 +222,56 @@ type ResidentialWeeklyPaymentLineRow = {
   week_end: string;
   status: WeeklyPaymentStatus | string | null;
   notes: string | null;
+  deleted_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type CommercialAccountRow = {
+  id: string;
+  user_id?: string | null;
+  name: string;
+  city: string | null;
+  cleaner_name: string | null;
+  hours: number | string | null;
+  frequency: string | null;
+  contract_start?: string | null;
+  contract_end?: string | null;
+};
+
+type CommercialScheduleRuleRow = {
+  id: string;
+  user_id?: string | null;
+  commercial_account_id: string | null;
+  day_of_week: number | null;
+  paid_hours: number | string | null;
+  assigned_cleaner_name: string | null;
+  active: boolean | null;
+  effective_start_date: string | null;
+  effective_end_date: string | null;
+  notes?: string | null;
+  frequency_type?: string | null;
+  frequency_interval?: number | null;
+  anchor_date?: string | null;
+};
+
+type CommercialHoursEntryRow = {
+  id: string;
+  user_id?: string | null;
+  account_id: string | null;
+  account_name: string;
+  team_id: string | null;
+  team_name: string | null;
+  work_date: string;
+  scheduled_day: string | null;
+  scheduled_hours: number | string | null;
+  completed_hours: number | string | null;
+  verified_hours: number | string | null;
+  status: CommercialHoursStatus | string | null;
+  verified: boolean | null;
+  paid_at?: string | null;
+  notes: string | null;
+  manual_entry?: boolean | null;
   deleted_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -216,6 +312,8 @@ type AccountDraft = {
   frequency: ResidentialFrequency;
   frequencyDetail: string;
   dayOfWeek: string;
+  city: string;
+  customCity: string;
   assignedTeamId: string;
   assignedTeamName: string;
   active: boolean;
@@ -247,10 +345,24 @@ type PaymentRowDraft = {
   cleanerName: string;
   workDate: string;
   city: string;
+  customCity: string;
   paymentAmount: string;
   residentialAmount: string;
   commercialAmount: string;
   notes: string;
+};
+
+type CommercialHoursDraft = {
+  id?: string;
+  accountId: string;
+  teamId: string;
+  teamName: string;
+  workDate: string;
+  hours: string;
+  status: CommercialHoursStatus;
+  verified: boolean;
+  notes: string;
+  manualEntry: boolean;
 };
 
 const EMPTY_TASK_DRAFT: TaskDraft = {
@@ -271,6 +383,8 @@ const EMPTY_ACCOUNT_DRAFT: AccountDraft = {
   frequency: "weekly",
   frequencyDetail: "Every Wednesday",
   dayOfWeek: "",
+  city: "",
+  customCity: "",
   assignedTeamId: "",
   assignedTeamName: "",
   active: true,
@@ -300,10 +414,23 @@ const EMPTY_PAYMENT_ROW_DRAFT: PaymentRowDraft = {
   cleanerName: "",
   workDate: todayKey(),
   city: "",
+  customCity: "",
   paymentAmount: "",
   residentialAmount: "",
   commercialAmount: "",
   notes: "",
+};
+
+const EMPTY_COMMERCIAL_HOURS_DRAFT: CommercialHoursDraft = {
+  accountId: "",
+  teamId: "",
+  teamName: "",
+  workDate: todayKey(),
+  hours: "",
+  status: "completed",
+  verified: false,
+  notes: "",
+  manualEntry: true,
 };
 
 function normalizeTaskStatus(status: string | null | undefined): "pending" | "completed" {
@@ -402,6 +529,21 @@ function paymentSummaryStatus(summary: { rows: ResidentialWeeklyPaymentLineRow[]
   return summary.payment?.status === "paid" ? "paid" : "pending";
 }
 
+function displayPaymentCity(row: Pick<ResidentialWeeklyPaymentLineRow, "city" | "custom_city">) {
+  return row.city === OUTSIDE_OC_CITY ? row.custom_city || OUTSIDE_OC_CITY : row.city || "No city";
+}
+
+function statusBadgeClass(status: string | null | undefined) {
+  if (status === "paid" || status === "verified") return "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
+  if (status === "needs_review") return "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
+  if (status === "skipped" || status === "no_jobs") return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/25 dark:text-slate-200";
+  return "border-border bg-background text-muted-foreground";
+}
+
+function dateOutsideRange(value: string, start: string, end: string) {
+  return Boolean(value && (value < start || value > end));
+}
+
 function isMissingSchemaTableError(error: { message?: string; code?: string } | null | undefined) {
   const message = String(error?.message ?? "").toLowerCase();
   return error?.code === "PGRST205" || (message.includes("schema cache") && message.includes("could not find the table"));
@@ -482,6 +624,9 @@ export function SimpleOperationsClient({
   const [workLogs, setWorkLogs] = useState<ResidentialWorkLogRow[]>([]);
   const [weeklyPayments, setWeeklyPayments] = useState<ResidentialWeeklyPaymentRow[]>([]);
   const [weeklyPaymentRows, setWeeklyPaymentRows] = useState<ResidentialWeeklyPaymentLineRow[]>([]);
+  const [commercialAccounts, setCommercialAccounts] = useState<CommercialAccountRow[]>([]);
+  const [commercialScheduleRules, setCommercialScheduleRules] = useState<CommercialScheduleRuleRow[]>([]);
+  const [commercialHoursEntries, setCommercialHoursEntries] = useState<CommercialHoursEntryRow[]>([]);
   const [staff, setStaff] = useState<StaffMemberRow[]>([]);
   const [taskTab, setTaskTab] = useState<TaskTab>("pending");
   const [taskSearch, setTaskSearch] = useState("");
@@ -501,9 +646,14 @@ export function SimpleOperationsClient({
   const periodAnchor = todayKey();
   const [paymentWeekStart, setPaymentWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
   const [paymentRowDrafts, setPaymentRowDrafts] = useState<Record<string, PaymentRowDraft>>({});
+  const [commercialHoursDraft, setCommercialHoursDraft] = useState<CommercialHoursDraft>(EMPTY_COMMERCIAL_HOURS_DRAFT);
   const [savingPaymentKey, setSavingPaymentKey] = useState<string | null>(null);
   const [deletingPaymentRowId, setDeletingPaymentRowId] = useState<string | null>(null);
   const [showAllPaymentCleaners, setShowAllPaymentCleaners] = useState(true);
+  const [paymentFilter, setPaymentFilter] = useState("");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
+  const [paymentKindFilter, setPaymentKindFilter] = useState<PaymentKindFilter>("all");
+  const [commercialAccountFilter, setCommercialAccountFilter] = useState("all");
   const [reportKind, setReportKind] = useState<ReportKind>("tasks");
 
   const loadData = useCallback(async () => {
@@ -521,7 +671,7 @@ export function SimpleOperationsClient({
     setUserId(user.id);
     setUserEmail(user.email ?? null);
 
-    const [taskResult, activityResult, accountResult, workLogResult, weeklyPaymentResult, weeklyPaymentRowResult, staffResult] = await Promise.all([
+    const [taskResult, activityResult, accountResult, workLogResult, weeklyPaymentResult, weeklyPaymentRowResult, staffResult, commercialAccountResult, commercialScheduleResult, commercialHoursResult] = await Promise.all([
       supabase.from("operation_tasks").select("*").order("due_date", { ascending: true, nullsFirst: false }).limit(1000),
       supabase.from("operation_task_audit_log").select("*").order("created_at", { ascending: false }).limit(1200),
       supabase.from("residential_recurring_cleaning_accounts").select("*").order("account_name").limit(1000),
@@ -529,12 +679,16 @@ export function SimpleOperationsClient({
       supabase.from("residential_weekly_payments").select("*").order("week_start", { ascending: false }).limit(800),
       supabase.from("residential_weekly_payment_rows").select("*").order("work_date", { ascending: true }).order("created_at", { ascending: true }).limit(2000),
       supabase.from("staff_members").select("*").order("name").limit(700),
+      supabase.from("commercial_accounts").select("id,user_id,name,city,cleaner_name,hours,frequency,contract_start,contract_end").order("name").limit(1000),
+      supabase.from("commercial_account_schedule_rules").select("*").order("day_of_week").limit(2000),
+      supabase.from("commercial_hours_entries").select("*").order("work_date", { ascending: true }).limit(2000),
     ]);
 
     const requiredErrors = [taskResult.error, activityResult.error, staffResult.error].filter(Boolean);
-    const residentialTableErrors = [accountResult.error, workLogResult.error, weeklyPaymentResult.error, weeklyPaymentRowResult.error].filter(Boolean);
+    const residentialTableErrors = [accountResult.error, workLogResult.error, weeklyPaymentResult.error, weeklyPaymentRowResult.error, commercialHoursResult.error].filter(Boolean);
+    const commercialOptionalErrors = [commercialAccountResult.error, commercialScheduleResult.error].filter(Boolean);
     const nonSetupResidentialErrors = residentialTableErrors.filter((error) => !isMissingSchemaTableError(error));
-    const errors = [...requiredErrors, ...nonSetupResidentialErrors].map((error) => error?.message).filter(Boolean);
+    const errors = [...requiredErrors, ...nonSetupResidentialErrors, ...commercialOptionalErrors.filter((error) => !isMissingSchemaTableError(error))].map((error) => error?.message).filter(Boolean);
     const setupPending = residentialTableErrors.some(isMissingSchemaTableError);
 
     if (errors.length) {
@@ -555,6 +709,9 @@ export function SimpleOperationsClient({
     setWorkLogs(isMissingSchemaTableError(workLogResult.error) ? [] : ((workLogResult.data ?? []) as ResidentialWorkLogRow[]).filter((log) => !log.deleted_at));
     setWeeklyPayments(isMissingSchemaTableError(weeklyPaymentResult.error) ? [] : ((weeklyPaymentResult.data ?? []) as ResidentialWeeklyPaymentRow[]).filter((payment) => !payment.deleted_at));
     setWeeklyPaymentRows(isMissingSchemaTableError(weeklyPaymentRowResult.error) ? [] : ((weeklyPaymentRowResult.data ?? []) as ResidentialWeeklyPaymentLineRow[]).filter((row) => !row.deleted_at));
+    setCommercialAccounts(isMissingSchemaTableError(commercialAccountResult.error) ? [] : (commercialAccountResult.data ?? []) as CommercialAccountRow[]);
+    setCommercialScheduleRules(isMissingSchemaTableError(commercialScheduleResult.error) ? [] : ((commercialScheduleResult.data ?? []) as CommercialScheduleRuleRow[]).filter((rule) => rule.active !== false));
+    setCommercialHoursEntries(isMissingSchemaTableError(commercialHoursResult.error) ? [] : ((commercialHoursResult.data ?? []) as CommercialHoursEntryRow[]).filter((entry) => !entry.deleted_at));
     setStaff((staffResult.data ?? []) as StaffMemberRow[]);
     setLoading(false);
   }, [supabase]);
@@ -731,6 +888,80 @@ export function SimpleOperationsClient({
   const pendingPaymentTotal = useMemo(() => weeklyPaymentSummaries.reduce((sum, item) => {
     return paymentSummaryStatus(item) === "paid" ? sum : sum + item.paymentTotal;
   }, 0), [weeklyPaymentSummaries]);
+
+  const commercialRowsInWeek = useMemo(() => {
+    const stored = commercialHoursEntries.filter((entry) => isDateInRange(entry.work_date, weekRange.start, weekRange.end));
+    const storedKeys = new Set(stored.map((entry) => `${entry.account_id ?? entry.account_name}:${entry.team_name ?? ""}:${entry.work_date}`));
+    const generated: CommercialHoursEntryRow[] = [];
+
+    for (const account of commercialAccounts) {
+      const rules = commercialScheduleRules.filter((rule) => rule.commercial_account_id === account.id && rule.active !== false);
+      for (const rule of rules) {
+        const day = Number(rule.day_of_week);
+        if (!Number.isFinite(day)) continue;
+        const cursor = parseDateKey(weekRange.start);
+        const end = parseDateKey(weekRange.end);
+        if (!cursor || !end) continue;
+        while (cursor <= end) {
+          const key = formatDateKey(cursor);
+          const effectiveFrom = rule.effective_start_date ?? account.contract_start;
+          const effectiveUntil = rule.effective_end_date ?? account.contract_end;
+          if (cursor.getDay() === day && (!effectiveFrom || key >= effectiveFrom) && (!effectiveUntil || key <= effectiveUntil)) {
+            const generatedKey = `${account.id}:${rule.assigned_cleaner_name ?? account.cleaner_name ?? ""}:${key}`;
+            if (!storedKeys.has(generatedKey)) {
+              generated.push({
+                id: `scheduled-${rule.id}-${key}`,
+                account_id: account.id,
+                account_name: account.name,
+                team_id: null,
+                team_name: rule.assigned_cleaner_name ?? account.cleaner_name,
+                work_date: key,
+                scheduled_day: WEEKDAY_NAMES[cursor.getDay()],
+                scheduled_hours: rule.paid_hours,
+                completed_hours: 0,
+                verified_hours: 0,
+                status: "scheduled",
+                verified: false,
+                notes: rule.notes ?? "Scheduled from account calendar",
+                manual_entry: false,
+              });
+            }
+          }
+          cursor.setDate(cursor.getDate() + 1);
+        }
+      }
+    }
+
+    return [...stored, ...generated].sort((a, b) => `${a.work_date}${a.account_name}`.localeCompare(`${b.work_date}${b.account_name}`));
+  }, [commercialAccounts, commercialHoursEntries, commercialScheduleRules, weekRange.end, weekRange.start]);
+
+  const filteredCommercialRows = useMemo(() => {
+    return commercialRowsInWeek.filter((entry) => {
+      if (commercialAccountFilter !== "all" && entry.account_id !== commercialAccountFilter) return false;
+      if (paymentStatusFilter !== "all" && entry.status !== paymentStatusFilter) return false;
+      if (paymentFilter.trim()) {
+        const needle = paymentFilter.trim().toLowerCase();
+        const haystack = [entry.account_name, entry.team_name, entry.scheduled_day, entry.notes].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      return true;
+    });
+  }, [commercialAccountFilter, commercialRowsInWeek, paymentFilter, paymentStatusFilter]);
+
+  const commercialTotals = useMemo(() => {
+    return commercialRowsInWeek.reduce((totals, entry) => {
+      const scheduled = toNumber(entry.scheduled_hours);
+      const completed = toNumber(entry.completed_hours);
+      const verified = entry.verified || entry.status === "verified" || entry.status === "paid" ? toNumber(entry.verified_hours) || completed || scheduled : 0;
+      return {
+        scheduled: roundHours(totals.scheduled + scheduled),
+        completed: roundHours(totals.completed + completed),
+        verified: roundHours(totals.verified + verified),
+        pending: roundHours(totals.pending + (entry.status === "paid" ? 0 : verified)),
+        needsReview: totals.needsReview + (entry.status === "needs_review" ? 1 : 0),
+      };
+    }, { scheduled: 0, completed: 0, verified: 0, pending: 0, needsReview: 0 });
+  }, [commercialRowsInWeek]);
 
   async function writeTaskAudit(taskId: string, action: string, details: Record<string, unknown>) {
     const { error } = await supabase.from("operation_task_audit_log").insert({
@@ -941,6 +1172,8 @@ export function SimpleOperationsClient({
       frequency: normalizeResidentialFrequency(account.frequency),
       frequencyDetail: account.frequency_detail ?? "",
       dayOfWeek: account.day_of_week ?? "",
+      city: account.city ?? "",
+      customCity: account.custom_city ?? "",
       assignedTeamId: account.assigned_team_id ?? "",
       assignedTeamName: account.assigned_team_name ?? "",
       active: account.active !== false,
@@ -964,6 +1197,8 @@ export function SimpleOperationsClient({
       frequency: accountDraft.frequency,
       frequency_detail: accountDraft.frequencyDetail.trim() || null,
       day_of_week: accountDraft.dayOfWeek || null,
+      city: accountDraft.city || null,
+      custom_city: accountDraft.city === OUTSIDE_OC_CITY ? accountDraft.customCity.trim() || null : null,
       assigned_team_id: selectedTeam?.id ?? null,
       assigned_team_name: selectedTeam?.name ?? (accountDraft.assignedTeamName.trim() || null),
       active: accountDraft.active,
@@ -1103,49 +1338,6 @@ export function SimpleOperationsClient({
     }
   }
 
-  async function saveWeeklyPayment(summary: (typeof weeklyPaymentSummaries)[number], status: WeeklyPaymentStatus) {
-    if (!userId || savingPaymentKey) return;
-    const key = summary.key;
-    const total = roundHours(summary.paymentTotal);
-    const now = new Date().toISOString();
-    setSavingPaymentKey(key);
-
-    try {
-      const payload = {
-        user_id: userId,
-        team_id: summary.teamId,
-        team_name: summary.teamName,
-        week_start: weekRange.start,
-        week_end: weekRange.end,
-        total_hours: summary.totalHours,
-        hourly_rate: toNumber(summary.team?.hourly_rate),
-        total_payment: total,
-        status,
-        paid_at: status === "paid" ? now : null,
-        notes: summary.payment?.notes || null,
-        updated_at: now,
-      };
-      const result = summary.payment
-        ? await supabase.from("residential_weekly_payments").update(payload).eq("id", summary.payment.id)
-        : await supabase.from("residential_weekly_payments").insert({ ...payload, created_at: now });
-      if (result.error) throw new Error(result.error.message);
-
-      if (summary.logs.length) {
-        await supabase.from("residential_work_logs").update({ status, updated_at: now }).in("id", summary.logs.map((log) => log.id));
-      }
-      if (summary.rows.length) {
-        await supabase.from("residential_weekly_payment_rows").update({ status, updated_at: now }).in("id", summary.rows.map((row) => row.id));
-      }
-
-      setMessage({ tone: "success", text: status === "paid" ? "Weekly payment marked as paid." : "Weekly payment marked as pending." });
-      await loadData();
-    } catch (error) {
-      setMessage({ tone: "error", text: `Weekly payment could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
-    } finally {
-      setSavingPaymentKey(null);
-    }
-  }
-
   function paymentDraftForSummary(summary: (typeof weeklyPaymentSummaries)[number]) {
     return paymentRowDrafts[summary.key] ?? {
       ...EMPTY_PAYMENT_ROW_DRAFT,
@@ -1169,6 +1361,7 @@ export function SimpleOperationsClient({
         cleanerName: row.cleaner_name,
         workDate: row.work_date,
         city: row.city ?? "",
+        customCity: row.custom_city ?? "",
         paymentAmount: row.payment_amount ? String(row.payment_amount) : "",
         residentialAmount: row.residential_amount ? String(row.residential_amount) : "",
         commercialAmount: row.commercial_amount ? String(row.commercial_amount) : "",
@@ -1185,25 +1378,43 @@ export function SimpleOperationsClient({
     const paymentAmount = toNumber(draft.paymentAmount);
     const residentialAmount = toNumber(draft.residentialAmount);
     const commercialAmount = toNumber(draft.commercialAmount);
+    const resolvedCity = draft.city === OUTSIDE_OC_CITY ? draft.customCity.trim() : draft.city.trim();
 
     if (!draft.workDate) {
       setMessage({ tone: "error", text: "Payment row could not be saved: date is required." });
       return;
     }
-    if (!draft.city.trim()) {
+    if (!resolvedCity) {
       setMessage({ tone: "error", text: "Payment row could not be saved: city is required." });
+      return;
+    }
+    if (!mixed && paymentAmount <= 0) {
+      setMessage({ tone: "error", text: "Payment row could not be saved: payment must be greater than 0." });
       return;
     }
     if (paymentAmount < 0 || residentialAmount < 0 || commercialAmount < 0) {
       setMessage({ tone: "error", text: "Payment row could not be saved: amounts cannot be negative." });
       return;
     }
-    if (!mixed && paymentAmount < 0) {
-      setMessage({ tone: "error", text: "Payment row could not be saved: payment cannot be negative." });
-      return;
-    }
     if (mixed && residentialAmount === 0 && commercialAmount === 0) {
       setMessage({ tone: "error", text: "Juan's mixed pay row needs a residential or commercial amount." });
+      return;
+    }
+    if (dateOutsideRange(draft.workDate, weekRange.start, weekRange.end) && !window.confirm("This date is outside the selected pay period. Save it anyway?")) {
+      return;
+    }
+    const duplicate = weeklyPaymentRows.some((row) => {
+      if (row.id === draft.id) return false;
+      return row.cleaner_name === summary.teamName &&
+        row.work_date === draft.workDate &&
+        displayPaymentCity(row).toLowerCase() === resolvedCity.toLowerCase() &&
+        paymentLineTotal(row) === (mixed ? residentialAmount + commercialAmount : paymentAmount);
+    });
+    if (duplicate && !window.confirm("Possible duplicate: same cleaner, date, city, and amount. Save anyway?")) {
+      return;
+    }
+    const existing = draft.id ? weeklyPaymentRows.find((row) => row.id === draft.id) : null;
+    if (existing?.status === "paid" && !window.confirm("This record is already marked as paid. Editing it may affect payroll history.")) {
       return;
     }
 
@@ -1216,6 +1427,7 @@ export function SimpleOperationsClient({
         cleaner_name: summary.teamName,
         work_date: draft.workDate,
         city: draft.city.trim(),
+        custom_city: draft.city === OUTSIDE_OC_CITY ? draft.customCity.trim() || null : null,
         payment_amount: mixed ? 0 : paymentAmount,
         residential_amount: mixed ? residentialAmount : 0,
         commercial_amount: mixed ? commercialAmount : 0,
@@ -1223,16 +1435,17 @@ export function SimpleOperationsClient({
         payment_mode: mixed ? "mixed" : "residential_only",
         week_start: weekRange.start,
         week_end: weekRange.end,
-        status: "pending",
+        status: existing?.status ?? "pending",
         notes: draft.notes.trim() || null,
         updated_at: now,
       };
       let result = draft.id
         ? await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", draft.id)
         : await supabase.from("residential_weekly_payment_rows").insert({ ...payload, created_at: now });
-      if (result.error && result.error.message.toLowerCase().includes("payment_mode")) {
-        const { payment_mode: paymentModeSnapshot, ...fallbackPayload } = payload;
+      if (result.error && (result.error.message.toLowerCase().includes("payment_mode") || result.error.message.toLowerCase().includes("custom_city"))) {
+        const { payment_mode: paymentModeSnapshot, custom_city: customCitySnapshot, ...fallbackPayload } = payload;
         void paymentModeSnapshot;
+        void customCitySnapshot;
         result = draft.id
           ? await supabase.from("residential_weekly_payment_rows").update(fallbackPayload).eq("id", draft.id)
           : await supabase.from("residential_weekly_payment_rows").insert({ ...fallbackPayload, created_at: now });
@@ -1264,6 +1477,131 @@ export function SimpleOperationsClient({
     } finally {
       setDeletingPaymentRowId(null);
     }
+  }
+
+  async function updatePaymentRowsStatus(summary: (typeof weeklyPaymentSummaries)[number], status: WeeklyPaymentStatus) {
+    if (!summary.rows.length || savingPaymentKey) return;
+    setSavingPaymentKey(summary.key);
+    const now = new Date().toISOString();
+    try {
+      const paidPayload = status === "paid" ? { status, paid_at: now, updated_at: now } : { status, updated_at: now };
+      const { error } = await supabase.from("residential_weekly_payment_rows").update(paidPayload).in("id", summary.rows.map((row) => row.id));
+      if (error) throw new Error(error.message);
+      await supabase.from("payroll_audit_log").insert({
+        entity_type: "residential_weekly_payment_rows",
+        action: `rows_marked_${status}`,
+        new_value: JSON.stringify({ cleaner: summary.teamName, row_count: summary.rows.length, status }),
+        changed_by: userId,
+      });
+      setMessage({ tone: "success", text: status === "paid" ? "Selected cleaner rows marked paid." : `Rows marked ${status.replace("_", " ")}.` });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Payment status could not be updated: ${error instanceof Error ? error.message : "unexpected error"}` });
+    } finally {
+      setSavingPaymentKey(null);
+    }
+  }
+
+  function editCommercialHours(entry: CommercialHoursEntryRow) {
+    if (entry.id.startsWith("scheduled-")) {
+      setCommercialHoursDraft({
+        accountId: entry.account_id ?? "",
+        teamId: "",
+        teamName: entry.team_name ?? "",
+        workDate: entry.work_date,
+        hours: String(toNumber(entry.scheduled_hours)),
+        status: "completed",
+        verified: false,
+        notes: entry.notes ?? "",
+        manualEntry: false,
+      });
+      return;
+    }
+    const team = activeTeams.find((person) => person.name === entry.team_name);
+    setCommercialHoursDraft({
+      id: entry.id,
+      accountId: entry.account_id ?? "",
+      teamId: entry.team_id ?? team?.id ?? "",
+      teamName: entry.team_name ?? "",
+      workDate: entry.work_date,
+      hours: String(toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours)),
+      status: (entry.status as CommercialHoursStatus) || "completed",
+      verified: Boolean(entry.verified),
+      notes: entry.notes ?? "",
+      manualEntry: entry.manual_entry !== false,
+    });
+  }
+
+  async function saveCommercialHours(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!userId || savingPaymentKey) return;
+    const account = commercialAccounts.find((item) => item.id === commercialHoursDraft.accountId);
+    const team = activeTeams.find((item) => item.id === commercialHoursDraft.teamId);
+    const teamName = team?.name ?? commercialHoursDraft.teamName.trim();
+    const hours = toNumber(commercialHoursDraft.hours);
+    if (!account || !commercialHoursDraft.workDate || !teamName || hours <= 0) {
+      setMessage({ tone: "error", text: "Commercial hours could not be saved: account, team/person, date, and hours are required." });
+      return;
+    }
+    if (dateOutsideRange(commercialHoursDraft.workDate, weekRange.start, weekRange.end) && !window.confirm("This commercial hours date is outside the selected pay period. Save it anyway?")) {
+      return;
+    }
+    const now = new Date().toISOString();
+    setSavingPaymentKey("commercial-hours");
+    try {
+      const payload = {
+        user_id: userId,
+        account_id: account.id,
+        account_name: account.name,
+        team_id: team?.id ?? null,
+        team_name: teamName,
+        work_date: commercialHoursDraft.workDate,
+        scheduled_day: WEEKDAY_NAMES[(parseDateKey(commercialHoursDraft.workDate) ?? new Date()).getDay()],
+        scheduled_hours: hours,
+        completed_hours: hours,
+        verified_hours: commercialHoursDraft.verified || commercialHoursDraft.status === "verified" || commercialHoursDraft.status === "paid" ? hours : 0,
+        status: commercialHoursDraft.status,
+        verified: commercialHoursDraft.verified || commercialHoursDraft.status === "verified" || commercialHoursDraft.status === "paid",
+        notes: commercialHoursDraft.notes.trim() || null,
+        manual_entry: commercialHoursDraft.manualEntry,
+        updated_at: now,
+      };
+      const result = commercialHoursDraft.id
+        ? await supabase.from("commercial_hours_entries").update(payload).eq("id", commercialHoursDraft.id)
+        : await supabase.from("commercial_hours_entries").insert({ ...payload, created_at: now });
+      if (result.error) throw new Error(result.error.message);
+      setCommercialHoursDraft({ ...EMPTY_COMMERCIAL_HOURS_DRAFT, workDate: commercialHoursDraft.workDate });
+      setMessage({ tone: "success", text: "Commercial hours saved." });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Commercial hours could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+    } finally {
+      setSavingPaymentKey(null);
+    }
+  }
+
+  async function updateCommercialHoursStatus(entry: CommercialHoursEntryRow, status: CommercialHoursStatus) {
+    if (entry.id.startsWith("scheduled-")) {
+      editCommercialHours(entry);
+      setMessage({ tone: "info", text: "Scheduled hours need to be saved as a completed or verified entry before payroll status changes." });
+      return;
+    }
+    if (entry.status === "paid" && status !== "paid" && !window.confirm("This record is already marked as paid. Editing it may affect payroll history.")) return;
+    const now = new Date().toISOString();
+    const hours = toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours);
+    const { error } = await supabase.from("commercial_hours_entries").update({
+      status,
+      verified: status === "verified" || status === "paid" ? true : entry.verified,
+      verified_hours: status === "verified" || status === "paid" ? hours : entry.verified_hours,
+      paid_at: status === "paid" ? now : entry.paid_at ?? null,
+      updated_at: now,
+    }).eq("id", entry.id);
+    if (error) {
+      setMessage({ tone: "error", text: `Commercial hours status could not be updated: ${error.message}` });
+      return;
+    }
+    setMessage({ tone: "success", text: `Commercial hours marked ${status.replace("_", " ")}.` });
+    await loadData();
   }
 
   async function exportRows(filename: string, rows: Record<string, string | number | null | undefined>[]) {
@@ -1844,27 +2182,30 @@ export function SimpleOperationsClient({
 
   function renderWeeklyPayments() {
     const weekStartDate = parseDateKey(paymentWeekStart) ?? startOfWeek(new Date());
-    const residentialOnlyTotal = weeklyPaymentSummaries
-      .filter((summary) => !isMixedPaySummary(summary))
-      .reduce((sum, summary) => sum + summary.paymentTotal, 0);
-    const juanResidentialTotal = weeklyPaymentSummaries
-      .filter((summary) => isMixedPaySummary(summary))
-      .reduce((sum, summary) => sum + summary.residentialTotal, 0);
-    const juanCommercialTotal = weeklyPaymentSummaries
-      .filter((summary) => isMixedPaySummary(summary))
-      .reduce((sum, summary) => sum + summary.commercialTotal, 0);
+    const residentialOnlyTotal = weeklyPaymentSummaries.filter((summary) => !isMixedPaySummary(summary)).reduce((sum, summary) => sum + summary.paymentTotal, 0);
+    const juanResidentialTotal = weeklyPaymentSummaries.filter((summary) => isMixedPaySummary(summary)).reduce((sum, summary) => sum + summary.residentialTotal, 0);
+    const juanCommercialTotal = weeklyPaymentSummaries.filter((summary) => isMixedPaySummary(summary)).reduce((sum, summary) => sum + summary.commercialTotal, 0);
     const weekTotal = residentialOnlyTotal + juanResidentialTotal + juanCommercialTotal;
-    const paidTotal = weeklyPaymentSummaries
-      .filter((summary) => paymentSummaryStatus(summary) === "paid")
-      .reduce((sum, summary) => sum + summary.paymentTotal, 0);
+    const paidTotal = weeklyPaymentSummaries.flatMap((summary) => summary.rows).filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const pendingTotal = weekTotal - paidTotal;
-    const displayedSummaries = showAllPaymentCleaners ? weeklyPaymentSummaries : weeklyPaymentSummaries.filter((summary) => summary.rows.length > 0);
+    const displayedSummaries = (showAllPaymentCleaners ? weeklyPaymentSummaries : weeklyPaymentSummaries.filter((summary) => summary.rows.length > 0)).filter((summary) => {
+      const mixed = isMixedPaySummary(summary);
+      if (paymentKindFilter === "commercial") return false;
+      if (paymentKindFilter === "residential" && mixed) return false;
+      if (paymentKindFilter === "mixed" && !mixed) return false;
+      if (paymentStatusFilter !== "all" && paymentSummaryStatus(summary) !== paymentStatusFilter && !summary.rows.some((row) => row.status === paymentStatusFilter)) return false;
+      if (!paymentFilter.trim()) return true;
+      const needle = paymentFilter.trim().toLowerCase();
+      return [summary.teamName, ...summary.rows.flatMap((row) => [row.city, row.custom_city, row.notes])].filter(Boolean).join(" ").toLowerCase().includes(needle);
+    });
+    const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
+
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-black tracking-normal">Weekly payments</h2>
+              <h2 className="text-2xl font-black tracking-normal">Residential Hours / Payments</h2>
               <p className="mt-1 text-sm font-bold text-muted-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</p>
             </div>
             <Button variant="outline" onClick={exportWeeklyPayments}><FileSpreadsheet className="size-4" /> Export weekly payments</Button>
@@ -1877,159 +2218,274 @@ export function SimpleOperationsClient({
           </div>
         </div>
 
-        <div className="grid gap-2 md:grid-cols-5">
-          <MetricCard icon={WalletCards} label="Residential payments" value={formatMoney(residentialOnlyTotal + juanResidentialTotal)} note="Normal cleaners plus Juan residential" />
-          <MetricCard icon={WalletCards} label="Juan commercial add-on" value={formatMoney(juanCommercialTotal)} note="Simple mixed pay only" />
+        <div className="grid gap-2 md:grid-cols-4 xl:grid-cols-7">
+          <MetricCard icon={WalletCards} label="Residential payments" value={formatMoney(residentialOnlyTotal + juanResidentialTotal)} />
+          <MetricCard icon={WalletCards} label="Juan commercial add-on" value={formatMoney(juanCommercialTotal)} note="Juan only" />
+          <MetricCard icon={Clock} label="Commercial hours" value={`${formatHours(commercialTotals.scheduled)} hrs`} note="Hours only" />
+          <MetricCard icon={BadgeCheck} label="Verified commercial hours" value={`${formatHours(commercialTotals.verified)} hrs`} />
           <MetricCard icon={BadgeCheck} label="Grand total weekly payments" value={formatMoney(weekTotal)} />
           <MetricCard icon={Clock} label="Pending total" value={formatMoney(pendingTotal)} tone={pendingTotal ? "warn" : "good"} />
-          <MetricCard icon={CheckCircle2} label="Paid total" value={formatMoney(paidTotal)} tone="good" />
+          <MetricCard icon={AlertTriangle} label="Needs review" value={commercialTotals.needsReview} tone={commercialTotals.needsReview ? "warn" : "good"} />
         </div>
 
-        <div className="grid gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
-            <div>
-              <h3 className="text-xl font-black tracking-normal">Payment sheets by cleaner</h3>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">Each cleaner has a weekly spreadsheet. Only Juan Romero has Residential and Commercial columns.</p>
-            </div>
-            <label className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-black">
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground"><Filter className="size-4" /> Payroll review filters</div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <input className="h-10 rounded-md border bg-background px-3 text-sm font-bold" placeholder="Cleaner, city, account, note" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)}>
+              <option value="all">All payment types</option>
+              <option value="residential">Residential only</option>
+              <option value="commercial">Commercial only</option>
+              <option value="mixed">Mixed pay only</option>
+            </select>
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)}>
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="verified">Verified</option>
+              <option value="needs_review">Needs review</option>
+              <option value="paid">Paid</option>
+              <option value="no_jobs">No jobs</option>
+            </select>
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialAccountFilter} onChange={(event) => setCommercialAccountFilter(event.target.value)}>
+              <option value="all">All commercial accounts</option>
+              {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </select>
+            <label className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-black">
               <input type="checkbox" checked={showAllPaymentCleaners} onChange={(event) => setShowAllPaymentCleaners(event.target.checked)} />
               Show all cleaners
             </label>
           </div>
-          {displayedSummaries.map((summary) => {
-            const draft = paymentDraftForSummary(summary);
-            const mixed = isMixedPaySummary(summary);
-            const isPaid = paymentSummaryStatus(summary) === "paid";
-            return (
-              <Card className={cn("overflow-hidden rounded-md", mixed ? "border-amber-300 bg-amber-50/35 dark:border-amber-900 dark:bg-amber-950/15" : "border-border")} key={summary.key}>
-                <CardHeader className="border-b border-border bg-background/80">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-stretch gap-4">
-                      <div className={cn("grid min-h-32 w-28 shrink-0 place-items-center border text-center", mixed ? "border-amber-300 bg-amber-100 text-amber-950" : "border-border bg-card")}>
-                        <span className="[writing-mode:vertical-rl] rotate-180 text-2xl font-black tracking-normal">{summary.teamName}</span>
-                      </div>
-                      <div className="min-w-0">
-                        <CardTitle className="text-3xl tracking-normal">{summary.teamName}</CardTitle>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Mixed pay: Residential + Commercial" : "Residential pay"}</Badge>
-                          <Badge variant="outline">{isPaid ? "paid" : "pending"}</Badge>
-                          <Badge variant="outline">{summary.rows.length} jobs</Badge>
-                          {summary.totalHours ? <Badge variant="outline">{formatHours(summary.totalHours)} logged hours</Badge> : null}
-                        </div>
-                        {mixed ? <p className="mt-3 text-sm font-black text-amber-950 dark:text-amber-100">Juan Romero = Mixed pay: Residential + Commercial</p> : null}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-black uppercase text-muted-foreground">Sheet total</p>
-                      <p className="mt-1 text-3xl font-black text-primary">{formatMoney(summary.paymentTotal)}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="grid gap-4 p-0">
-                  <div className="overflow-auto">
-                    <table className={cn("w-full border-collapse text-sm", mixed ? "min-w-[840px]" : "min-w-[680px]")}>
-                      <thead>
-                        <tr className="border-b border-border bg-muted/45 text-left text-xs font-black uppercase text-muted-foreground">
-                          <th className="border-r border-border px-4 py-3">Date</th>
-                          <th className="border-r border-border px-4 py-3">City</th>
-                          {mixed ? (
-                            <>
-                              <th className="border-r border-border px-4 py-3 text-right">Residential</th>
-                              <th className="border-r border-border px-4 py-3 text-right">Commercial</th>
-                            </>
-                          ) : (
-                            <th className="border-r border-border px-4 py-3 text-right">Payment</th>
-                          )}
-                          <th className="w-32 px-4 py-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {summary.rows.length === 0 ? <tr><td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={mixed ? 5 : 4}>No payments yet for this week.</td></tr> : null}
-                        {summary.rows.map((row) => (
-                          <tr className="border-b border-border/80" key={row.id}>
-                            <td className="border-r border-border/70 px-4 py-3 font-bold">{displayDate(row.work_date)}</td>
-                            <td className="border-r border-border/70 px-4 py-3">
-                              <p className="font-bold">{row.city}</p>
-                              {row.notes ? <p className="mt-1 max-w-80 truncate text-xs font-semibold text-muted-foreground">{row.notes}</p> : null}
-                            </td>
-                            {mixed ? (
-                              <>
-                                <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatMoney(toNumber(row.residential_amount))}</td>
-                                <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatMoney(toNumber(row.commercial_amount))}</td>
-                              </>
-                            ) : (
-                              <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatMoney(toNumber(row.payment_amount))}</td>
-                            )}
-                            <td className="px-4 py-3">
-                              <div className="flex justify-end gap-2">
-                                <Button size="icon" variant="outline" aria-label="Edit payment row" onClick={() => editPaymentRow(row)}><Edit3 className="size-4" /></Button>
-                                <Button size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        {mixed ? (
-                          <>
-                            <tr className="border-t-2 border-border bg-yellow-100 text-base font-black text-yellow-950">
-                              <td className="border-r border-yellow-300 px-4 py-3">TOTAL</td>
-                              <td className="border-r border-yellow-300 px-4 py-3">{summary.rows.length} jobs</td>
-                              <td className="border-r border-yellow-300 px-4 py-3 text-right">{formatMoney(summary.residentialTotal)}</td>
-                              <td className="border-r border-yellow-300 px-4 py-3 text-right">{formatMoney(summary.commercialTotal)}</td>
-                              <td className="px-4 py-3 text-right">{formatMoney(summary.paymentTotal)}</td>
-                            </tr>
-                          </>
-                        ) : (
-                          <tr className="border-t-2 border-border bg-yellow-100 text-base font-black text-yellow-950">
-                            <td className="border-r border-yellow-300 px-4 py-3">TOTAL</td>
-                            <td className="border-r border-yellow-300 px-4 py-3">{summary.rows.length} jobs</td>
-                            <td className="border-r border-yellow-300 px-4 py-3 text-right">{formatMoney(summary.paymentTotal)}</td>
-                            <td className="px-4 py-3" />
-                          </tr>
-                        )}
-                      </tfoot>
-                    </table>
-                  </div>
-
-                  <div className={cn("mx-4 grid gap-3 rounded-md border border-border bg-background/70 p-3", mixed ? "md:grid-cols-[1fr_1fr_1fr_1fr_auto]" : "md:grid-cols-[1fr_1fr_1fr_1fr_auto]")}>
-                    <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
-                    <label className="grid gap-1 text-sm font-bold">City<input className="h-10 rounded-md border bg-background px-3" value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value })} /></label>
-                    {mixed ? (
-                      <>
-                        <label className="grid gap-1 text-sm font-bold">Residential<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label>
-                        <label className="grid gap-1 text-sm font-bold">Commercial<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.commercialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, commercialAmount: event.target.value })} /></label>
-                      </>
-                    ) : (
-                      <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>
-                    )}
-                    <div className="flex items-end gap-2">
-                      <Button className="w-full" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Add payment row"}</Button>
-                    </div>
-                    <label className={cn("grid gap-1 text-sm font-bold", mixed ? "md:col-span-4" : "md:col-span-3")}>Notes<input className="h-10 rounded-md border bg-background px-3" value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
-                    {draft.id ? <Button className="self-end" variant="outline" onClick={() => setPaymentDraftForSummary(summary, { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start })}>Cancel edit</Button> : null}
-                  </div>
-
-                  {mixed ? (
-                    <div className="mx-4 grid gap-2 rounded-md border border-amber-200 bg-amber-50/80 p-3 text-sm font-black text-amber-950 md:grid-cols-3">
-                      <span>Total Residential: {formatMoney(summary.residentialTotal)}</span>
-                      <span>Total Commercial: {formatMoney(summary.commercialTotal)}</span>
-                      <span>Grand Total: {formatMoney(summary.paymentTotal)}</span>
-                    </div>
-                  ) : (
-                    <div className="mx-4 rounded-md border border-border bg-background/70 p-3 text-sm font-black">Total: {formatMoney(summary.paymentTotal)}</div>
-                  )}
-
-                  <div className="flex flex-wrap justify-end gap-2 px-4 pb-4">
-                    <Button disabled={savingPaymentKey === summary.key} onClick={() => saveWeeklyPayment(summary, "paid")}><CheckCircle2 className="size-4" /> Mark paid</Button>
-                    <Button disabled={savingPaymentKey === summary.key} variant="outline" onClick={() => saveWeeklyPayment(summary, "pending")}>Mark pending</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
         </div>
+
+        {paymentKindFilter !== "commercial" ? (
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-border bg-background p-3">
+              <h3 className="text-xl font-black tracking-normal">Residential payment sheets</h3>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">Each cleaner has a compact payment sheet. Juan Romero keeps residential and commercial add-on totals separated.</p>
+            </div>
+            {displayedSummaries.length === 0 ? <Card><CardContent className="p-8 text-center text-sm font-bold text-muted-foreground">No residential payments recorded for this period.</CardContent></Card> : null}
+            {displayedSummaries.map((summary) => renderCleanerPaymentCard(summary))}
+          </div>
+        ) : null}
+
+        {paymentKindFilter !== "residential" ? renderCommercialHoursCard(lucia) : null}
       </div>
+    );
+  }
+
+  function renderCleanerPaymentCard(summary: (typeof weeklyPaymentSummaries)[number]) {
+    const draft = paymentDraftForSummary(summary);
+    const mixed = isMixedPaySummary(summary);
+    const residentialRows = mixed ? summary.rows.filter((row) => toNumber(row.residential_amount) > 0) : summary.rows;
+    const paid = summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
+    const pending = summary.paymentTotal - paid;
+
+    return (
+      <Card className={cn("overflow-hidden rounded-md", mixed ? "border-amber-300 bg-amber-50/30 dark:border-amber-900 dark:bg-amber-950/10" : "border-border")} key={summary.key}>
+        <CardHeader className="border-b border-border bg-background/80">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <CardTitle className="text-2xl tracking-normal">{summary.teamName}</CardTitle>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Mixed pay" : "Residential payment"}</Badge>
+                <Badge className={statusBadgeClass(paymentSummaryStatus(summary))} variant="outline">{paymentSummaryStatus(summary)}</Badge>
+                <Badge variant="outline">{residentialRows.length} jobs</Badge>
+              </div>
+            </div>
+            <div className="grid gap-1 text-right text-sm font-black">
+              <span>Total jobs: {residentialRows.length}</span>
+              <span>Residential total: {formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal)}</span>
+              {mixed ? <span>Commercial total: {formatMoney(summary.commercialTotal)}</span> : null}
+              <span>Paid total: {formatMoney(paid)}</span>
+              <span>Pending total: {formatMoney(pending)}</span>
+              {mixed ? <span className="text-primary">Grand total: {formatMoney(summary.paymentTotal)}</span> : null}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-4 p-0">
+          <div className="overflow-auto">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/45 text-left text-xs font-black uppercase text-muted-foreground">
+                  <th className="border-r border-border px-4 py-3">Date</th>
+                  <th className="border-r border-border px-4 py-3">City</th>
+                  <th className="border-r border-border px-4 py-3 text-right">Payment</th>
+                  <th className="border-r border-border px-4 py-3">Notes</th>
+                  <th className="border-r border-border px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {residentialRows.length === 0 ? <tr><td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={6}>No residential payments recorded for this period.</td></tr> : null}
+                {residentialRows.map((row) => (
+                  <tr className="border-b border-border/80" key={row.id}>
+                    <td className="border-r border-border/70 px-4 py-3 font-bold">{displayDate(row.work_date)}</td>
+                    <td className="border-r border-border/70 px-4 py-3 font-bold">{displayPaymentCity(row)}</td>
+                    <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                    <td className="border-r border-border/70 px-4 py-3 text-xs font-semibold text-muted-foreground">{row.notes || "-"}</td>
+                    <td className="border-r border-border/70 px-4 py-3"><Badge className={statusBadgeClass(row.status)} variant="outline">{row.status ?? "pending"}</Badge></td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <Button size="icon" variant="outline" aria-label="Edit payment row" onClick={() => editPaymentRow(row)}><Edit3 className="size-4" /></Button>
+                        <Button size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mx-4 grid gap-3 rounded-md border border-border bg-background/70 p-3 md:grid-cols-5">
+            <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
+            <label className="grid gap-1 text-sm font-bold">City<select className="h-10 rounded-md border bg-background px-3" value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? draft.customCity : "" })}>
+              <option value="">Select city</option>
+              {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
+              <option value={OUTSIDE_OC_CITY}>{OUTSIDE_OC_CITY}</option>
+            </select></label>
+            {draft.city === OUTSIDE_OC_CITY ? <label className="grid gap-1 text-sm font-bold">Custom city<input className="h-10 rounded-md border bg-background px-3" value={draft.customCity} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, customCity: event.target.value })} /></label> : null}
+            {mixed ? <label className="grid gap-1 text-sm font-bold">Residential payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label> : <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>}
+            <label className="grid gap-1 text-sm font-bold md:col-span-2">Notes<input className="h-10 rounded-md border bg-background px-3" value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
+            <Button className="self-end" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Add residential payment"}</Button>
+            {draft.id ? <Button className="self-end" variant="outline" onClick={() => setPaymentDraftForSummary(summary, { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start })}>Cancel edit</Button> : null}
+          </div>
+
+          {mixed ? (
+            <div className="mx-4 rounded-md border border-amber-200 bg-amber-50/80 p-3">
+              <p className="text-sm font-black text-amber-950">Juan commercial add-on</p>
+              <div className="mt-2 overflow-auto">
+                <table className="w-full min-w-[560px] text-sm">
+                  <tbody>
+                    {summary.rows.filter((row) => toNumber(row.commercial_amount) > 0).length === 0 ? <tr><td className="py-4 text-center font-bold text-amber-950">No commercial add-on rows for Juan in this period.</td></tr> : null}
+                    {summary.rows.filter((row) => toNumber(row.commercial_amount) > 0).map((row) => (
+                      <tr className="border-t border-amber-200" key={row.id}>
+                        <td className="py-2 font-bold">{displayDate(row.work_date)}</td>
+                        <td className="py-2">{displayPaymentCity(row)}</td>
+                        <td className="py-2 text-right font-black">{formatMoney(toNumber(row.commercial_amount))}</td>
+                        <td className="py-2 text-right"><Button size="icon" variant="outline" aria-label="Edit Juan add-on" onClick={() => editPaymentRow(row)}><Edit3 className="size-4" /></Button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm font-black text-amber-950 md:grid-cols-5">
+                <span>Residential total: {formatMoney(summary.residentialTotal)}</span>
+                <span>Commercial total: {formatMoney(summary.commercialTotal)}</span>
+                <span>Grand total: {formatMoney(summary.paymentTotal)}</span>
+                <span>Pending total: {formatMoney(pending)}</span>
+                <span>Paid total: {formatMoney(paid)}</span>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap justify-end gap-2 px-4 pb-4">
+            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-4" /> Mark verified</Button>
+            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-4" /> Mark paid</Button>
+            <Button disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}>Mark pending</Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  function renderCommercialHoursCard(lucia: StaffMemberRow | undefined) {
+    const emptyCommercialText = commercialRowsInWeek.length === 0 ? "No eligible cleanings before this pay date." : "No commercial hours match these filters.";
+    return (
+      <Card className="overflow-hidden rounded-md">
+        <CardHeader className="border-b border-border bg-background/80">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-2xl tracking-normal">Commercial hours</CardTitle>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">Hours only. No hourly rate or invented commercial dollars.</p>
+            </div>
+            <Badge variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-4 p-4">
+          <form className="grid gap-3 rounded-md border border-border bg-background/70 p-3 md:grid-cols-3 xl:grid-cols-7" onSubmit={saveCommercialHours}>
+            <label className="grid gap-1 text-sm font-bold xl:col-span-2">Commercial account<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
+              <option value="">Select account</option>
+              {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </select></label>
+            <label className="grid gap-1 text-sm font-bold">Assigned team<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamId} onChange={(event) => {
+              const team = activeTeams.find((item) => item.id === event.target.value);
+              setCommercialHoursDraft({ ...commercialHoursDraft, teamId: event.target.value, teamName: team?.name ?? "" });
+            }}>
+              <option value="">Manual name</option>
+              {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+            </select></label>
+            {!commercialHoursDraft.teamId ? <label className="grid gap-1 text-sm font-bold">Team/person<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
+            <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
+            <label className="grid gap-1 text-sm font-bold">Hours<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
+            <label className="grid gap-1 text-sm font-bold">Status<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.status} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, status: event.target.value as CommercialHoursStatus })}>
+              <option value="completed">Completed</option>
+              <option value="verified">Verified</option>
+              <option value="pending_payment">Pending payment</option>
+              <option value="needs_review">Needs review</option>
+              <option value="paid">Paid</option>
+              <option value="skipped">Skipped / No service</option>
+            </select></label>
+            <label className="flex items-center gap-2 self-end rounded-md border border-border bg-card px-3 py-2 text-sm font-black"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
+            <label className="grid gap-1 text-sm font-bold md:col-span-2 xl:col-span-5">Notes<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
+            {lucia ? <div className="self-end rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-black text-sky-950">Lucia Portillo: Manual hours</div> : null}
+            <Button className="self-end" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Add commercial hours"}</Button>
+          </form>
+
+          <div className="overflow-auto rounded-md border border-border">
+            <table className="w-full min-w-[980px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/45 text-left text-xs font-black uppercase text-muted-foreground">
+                  <th className="border-r border-border px-4 py-3">Date</th>
+                  <th className="border-r border-border px-4 py-3">Account / City</th>
+                  <th className="border-r border-border px-4 py-3">Team</th>
+                  <th className="border-r border-border px-4 py-3">Scheduled day</th>
+                  <th className="border-r border-border px-4 py-3 text-right">Scheduled</th>
+                  <th className="border-r border-border px-4 py-3 text-right">Completed</th>
+                  <th className="border-r border-border px-4 py-3 text-right">Verified payable</th>
+                  <th className="border-r border-border px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCommercialRows.length === 0 ? <tr><td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={9}>{emptyCommercialText}</td></tr> : null}
+                {filteredCommercialRows.map((entry) => {
+                  const isLucia = String(entry.team_name ?? "").toLowerCase() === "lucia portillo";
+                  const verifiedHours = entry.verified || entry.status === "verified" || entry.status === "paid" ? toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours) : 0;
+                  return (
+                    <tr className="border-b border-border/80" key={entry.id}>
+                      <td className="border-r border-border/70 px-4 py-3 font-bold">{displayDate(entry.work_date)}</td>
+                      <td className="border-r border-border/70 px-4 py-3"><p className="font-black">{entry.account_name}</p><p className="text-xs font-bold text-muted-foreground">{commercialAccounts.find((account) => account.id === entry.account_id)?.city ?? "No city"}</p></td>
+                      <td className="border-r border-border/70 px-4 py-3 font-bold">{entry.team_name ?? "Unassigned"} {isLucia ? <Badge className="ml-2 border-sky-200 bg-sky-50 text-sky-950" variant="outline">Manual hours</Badge> : null}</td>
+                      <td className="border-r border-border/70 px-4 py-3">{entry.scheduled_day ?? "-"}</td>
+                      <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(toNumber(entry.scheduled_hours))}</td>
+                      <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(toNumber(entry.completed_hours))}</td>
+                      <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(verifiedHours)}</td>
+                      <td className="border-r border-border/70 px-4 py-3"><Badge className={statusBadgeClass(entry.status)} variant="outline">{entry.status ?? "scheduled"}</Badge></td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          <Button size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Edit3 className="size-4" /></Button>
+                          <Button size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-4" /></Button>
+                          <Button size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-4" /></Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-sky-50 text-base font-black text-sky-950">
+                  <td className="border-r border-sky-200 px-4 py-3">TOTAL</td>
+                  <td className="border-r border-sky-200 px-4 py-3" colSpan={3}>0 payable hours for this period when no cleanings are eligible.</td>
+                  <td className="border-r border-sky-200 px-4 py-3 text-right">{formatHours(commercialTotals.scheduled)}</td>
+                  <td className="border-r border-sky-200 px-4 py-3 text-right">{formatHours(commercialTotals.completed)}</td>
+                  <td className="border-r border-sky-200 px-4 py-3 text-right">{formatHours(commercialTotals.verified)}</td>
+                  <td className="px-4 py-3" colSpan={2}>{commercialTotals.needsReview} needs review</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -2312,6 +2768,12 @@ export function SimpleOperationsClient({
               {Object.entries(RESIDENTIAL_FREQUENCY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select></label>
             <label className="grid gap-1 text-sm font-bold">Frequency detail<input className="h-10 rounded-md border bg-background px-3" value={accountDraft.frequencyDetail} onChange={(event) => setAccountDraft({ ...accountDraft, frequencyDetail: event.target.value })} placeholder="Every Wednesday" /></label>
+            <label className="grid gap-1 text-sm font-bold">City<select className="h-10 rounded-md border bg-background px-3" value={accountDraft.city} onChange={(event) => setAccountDraft({ ...accountDraft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? accountDraft.customCity : "" })}>
+              <option value="">Select city</option>
+              {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
+              <option value={OUTSIDE_OC_CITY}>{OUTSIDE_OC_CITY}</option>
+            </select></label>
+            {accountDraft.city === OUTSIDE_OC_CITY ? <label className="grid gap-1 text-sm font-bold">Custom city<input className="h-10 rounded-md border bg-background px-3" value={accountDraft.customCity} onChange={(event) => setAccountDraft({ ...accountDraft, customCity: event.target.value })} /></label> : null}
             <label className="grid gap-1 text-sm font-bold">Assigned team<select className="h-10 rounded-md border bg-background px-3" value={accountDraft.assignedTeamId} onChange={(event) => setAccountDraft({ ...accountDraft, assignedTeamId: event.target.value })}>
               <option value="">Unassigned</option>
               {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
@@ -2321,6 +2783,7 @@ export function SimpleOperationsClient({
               <option value="inactive">Inactive</option>
             </select></label>
           </div>
+          <p className="text-sm font-bold text-muted-foreground">Use this to track recurring residential cleanings and weekly payment rows.</p>
           <label className="grid gap-1 text-sm font-bold">Notes<textarea className="min-h-20 rounded-md border bg-background p-3" value={accountDraft.notes} onChange={(event) => setAccountDraft({ ...accountDraft, notes: event.target.value })} /></label>
           <div className="grid gap-2 rounded-lg border border-border bg-background/70 p-3 text-sm font-bold md:grid-cols-3">
             <span>{formatHours(totals.weekly)} hours/week</span>
