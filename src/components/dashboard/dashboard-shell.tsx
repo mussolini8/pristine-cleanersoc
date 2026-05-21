@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
   { label: "Task Reminders", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
-  { label: "Residential Hours / Payments", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
+  { label: "Residential payments / commercial hours", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
   { label: "Staff / Teams", href: "/staff", icon: Users, area: "operations" as AccessArea },
   { label: "Reports", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
   { label: "Settings", href: "/settings", icon: Settings, area: "operations" as AccessArea },

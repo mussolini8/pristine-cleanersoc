@@ -13,6 +13,7 @@ import {
   Clock,
   Download,
   Edit3,
+  FileDown,
   FileSpreadsheet,
   FileText,
   Filter,
@@ -60,18 +61,17 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 export type SimpleOperationsView = "dashboard" | "tasks" | "residential" | "staff" | "reports" | "settings";
-type ResidentialTab = "accounts" | "work_logs" | "weekly_payments";
 type TaskTab = "pending" | "completed" | "overdue" | "all";
 type ReportKind = "tasks" | "hours" | "weekly_payments";
 type WorkLogStatus = "pending" | "approved" | "paid";
 type WeeklyPaymentStatus = "pending" | "verified" | "needs_review" | "paid" | "no_jobs";
 type CommercialHoursStatus = "scheduled" | "completed" | "verified" | "pending_payment" | "paid" | "needs_review" | "skipped";
-type PaymentKindFilter = "all" | "residential" | "commercial" | "mixed";
+type PaymentKindFilter = "all" | "residential" | "mixed";
 type PaymentMode = "residential_only" | "mixed";
 type MessageTone = "success" | "error" | "info";
-type PayrollPanelTab = "residential" | "commercial" | "review";
 type PaymentModalMode = "residential" | "juan" | "commercial_hours" | "commercial_schedule";
 type CommercialSourceFilter = "all" | "manual" | "scheduled";
+type CommercialVerifiedFilter = "all" | "verified" | "needs_review";
 
 const ORANGE_COUNTY_CITIES = [
   "Aliso Viejo",
@@ -356,6 +356,7 @@ type PaymentRowDraft = {
   residentialAmount: string;
   commercialAmount: string;
   notes: string;
+  status: WeeklyPaymentStatus;
 };
 
 type CommercialHoursDraft = {
@@ -438,6 +439,7 @@ const EMPTY_PAYMENT_ROW_DRAFT: PaymentRowDraft = {
   residentialAmount: "",
   commercialAmount: "",
   notes: "",
+  status: "pending",
 };
 
 const EMPTY_COMMERCIAL_HOURS_DRAFT: CommercialHoursDraft = {
@@ -565,11 +567,22 @@ function displayPaymentCity(row: Pick<ResidentialWeeklyPaymentLineRow, "city" | 
   return row.city === OUTSIDE_OC_CITY ? row.custom_city || OUTSIDE_OC_CITY : row.city || "No city";
 }
 
+function displayShortDate(value: string | null | undefined) {
+  const date = parseDateKey(value);
+  if (!date) return "No date";
+  return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
+}
+
 function statusBadgeClass(status: string | null | undefined) {
   if (status === "paid" || status === "verified") return "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
   if (status === "needs_review") return "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
   if (status === "skipped" || status === "no_jobs") return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/25 dark:text-slate-200";
   return "border-border bg-background text-muted-foreground";
+}
+
+function statusLabel(status: string | null | undefined) {
+  if (status === "skipped") return "No eligible service";
+  return status ?? "pending";
 }
 
 function dateOutsideRange(value: string, start: string, end: string) {
@@ -610,7 +623,7 @@ function commercialScheduleSummary(rules: CommercialScheduleRuleRow[]) {
   const activeRules = rules.filter((rule) => rule.active !== false).sort((a, b) => Number(a.day_of_week) - Number(b.day_of_week));
   if (!activeRules.length) return "No structured schedule";
   const frequency = commercialFrequencyLabel(commercialRuleFrequency(activeRules[0]));
-  const days = activeRules.map((rule) => `${WEEKDAY_NAMES[Number(rule.day_of_week)] ?? "Day"} ${formatHours(toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours))}`).join(" + ");
+  const days = activeRules.map((rule) => `${WEEKDAY_NAMES[Number(rule.day_of_week)] ?? "Day"} ${formatHours(toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours))}h`).join(" + ");
   return `${frequency} · ${days}`;
 }
 
@@ -677,11 +690,9 @@ function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (valu
 export function SimpleOperationsClient({
   view,
   envStatus,
-  initialResidentialTab = "accounts",
 }: {
   view: SimpleOperationsView;
   envStatus?: EnvStatus;
-  initialResidentialTab?: ResidentialTab;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
@@ -705,7 +716,6 @@ export function SimpleOperationsClient({
   const [savingTask, setSavingTask] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
-  const [residentialTab, setResidentialTab] = useState<ResidentialTab>(initialResidentialTab);
   const [accountDraft, setAccountDraft] = useState<AccountDraft | null>(null);
   const [savingAccount, setSavingAccount] = useState(false);
   const [workLogDraft, setWorkLogDraft] = useState<WorkLogDraft>(EMPTY_WORK_LOG_DRAFT);
@@ -718,17 +728,22 @@ export function SimpleOperationsClient({
   const [paymentRowDrafts, setPaymentRowDrafts] = useState<Record<string, PaymentRowDraft>>({});
   const [commercialHoursDraft, setCommercialHoursDraft] = useState<CommercialHoursDraft>(EMPTY_COMMERCIAL_HOURS_DRAFT);
   const [commercialScheduleDraft, setCommercialScheduleDraft] = useState<CommercialScheduleDraft>(EMPTY_COMMERCIAL_SCHEDULE_DRAFT);
-  const [payrollTab, setPayrollTab] = useState<PayrollPanelTab>("residential");
   const [paymentModalMode, setPaymentModalMode] = useState<PaymentModalMode | null>(null);
+  const [commercialPanelOpen, setCommercialPanelOpen] = useState(false);
   const [activePaymentSummaryKey, setActivePaymentSummaryKey] = useState<string | null>(null);
   const [savingPaymentKey, setSavingPaymentKey] = useState<string | null>(null);
   const [deletingPaymentRowId, setDeletingPaymentRowId] = useState<string | null>(null);
   const [showAllPaymentCleaners, setShowAllPaymentCleaners] = useState(true);
   const [paymentFilter, setPaymentFilter] = useState("");
+  const [paymentCleanerFilter, setPaymentCleanerFilter] = useState("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [paymentKindFilter, setPaymentKindFilter] = useState<PaymentKindFilter>("all");
   const [paymentCityFilter, setPaymentCityFilter] = useState("all");
   const [commercialAccountFilter, setCommercialAccountFilter] = useState("all");
+  const [commercialTeamFilter, setCommercialTeamFilter] = useState("all");
+  const [commercialStatusFilter, setCommercialStatusFilter] = useState("all");
+  const [commercialVerifiedFilter, setCommercialVerifiedFilter] = useState<CommercialVerifiedFilter>("all");
+  const [commercialSearchFilter, setCommercialSearchFilter] = useState("");
   const [commercialSourceFilter, setCommercialSourceFilter] = useState<CommercialSourceFilter>("all");
   const [reportKind, setReportKind] = useState<ReportKind>("tasks");
 
@@ -864,9 +879,12 @@ export function SimpleOperationsClient({
   }, [activeAccounts]);
 
   const logsInPeriod = useMemo(() => workLogs.filter((log) => isDateInRange(log.work_date, periodRange.start, periodRange.end)), [periodRange.end, periodRange.start, workLogs]);
-  const weekRange = weekRangeFromStart(paymentWeekStart);
+  const weekRange = getPeriodRange(periodMode, paymentWeekStart);
   const logsInPaymentWeek = useMemo(() => workLogs.filter((log) => isDateInRange(log.work_date, weekRange.start, weekRange.end)), [weekRange.end, weekRange.start, workLogs]);
-  const paymentRowsInWeek = useMemo(() => weeklyPaymentRows.filter((row) => row.week_start === weekRange.start && row.week_end === weekRange.end), [weekRange.end, weekRange.start, weeklyPaymentRows]);
+  const paymentRowsInWeek = useMemo(() => weeklyPaymentRows.filter((row) => {
+    if (row.week_start === weekRange.start && row.week_end === weekRange.end) return true;
+    return isDateInRange(row.work_date, weekRange.start, weekRange.end);
+  }), [weekRange.end, weekRange.start, weeklyPaymentRows]);
 
   const teamHours = useMemo(() => {
     const map = new Map<string, {
@@ -968,13 +986,14 @@ export function SimpleOperationsClient({
   const commercialRowsInWeek = useMemo(() => {
     const cutoff = minDateKey(weekRange.end, today);
     if (weekRange.start > cutoff) return [];
-    const stored = commercialHoursEntries.filter((entry) => isDateInRange(entry.work_date, weekRange.start, cutoff));
+    const stored = commercialHoursEntries.filter((entry) => isDateInRange(entry.work_date, weekRange.start, cutoff) && !isJuanRomero(entry.team_name));
     const storedKeys = new Set(stored.map((entry) => `${entry.account_id ?? entry.account_name}:${entry.team_name ?? ""}:${entry.work_date}`));
     const generated: CommercialHoursEntryRow[] = [];
 
     for (const account of commercialAccounts) {
       const rules = commercialScheduleRules.filter((rule) => rule.commercial_account_id === account.id && rule.active !== false);
       for (const rule of rules) {
+        if (isJuanRomero(rule.assigned_cleaner_name ?? account.cleaner_name)) continue;
         const day = Number(rule.day_of_week);
         if (!Number.isFinite(day)) continue;
         const cursor = parseDateKey(weekRange.start);
@@ -1017,17 +1036,20 @@ export function SimpleOperationsClient({
   const filteredCommercialRows = useMemo(() => {
     return commercialRowsInWeek.filter((entry) => {
       if (commercialAccountFilter !== "all" && entry.account_id !== commercialAccountFilter) return false;
-      if (paymentStatusFilter !== "all" && entry.status !== paymentStatusFilter) return false;
+      if (commercialTeamFilter !== "all" && entry.team_name !== commercialTeamFilter) return false;
+      if (commercialStatusFilter !== "all" && entry.status !== commercialStatusFilter) return false;
       if (commercialSourceFilter === "manual" && entry.manual_entry === false) return false;
       if (commercialSourceFilter === "scheduled" && entry.manual_entry !== false) return false;
-      if (paymentFilter.trim()) {
-        const needle = paymentFilter.trim().toLowerCase();
+      if (commercialVerifiedFilter === "verified" && !(entry.verified || entry.status === "verified" || entry.status === "paid")) return false;
+      if (commercialVerifiedFilter === "needs_review" && (entry.verified || entry.status === "verified" || entry.status === "paid")) return false;
+      if (commercialSearchFilter.trim()) {
+        const needle = commercialSearchFilter.trim().toLowerCase();
         const haystack = [entry.account_name, entry.team_name, entry.scheduled_day, entry.notes].filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
       return true;
     });
-  }, [commercialAccountFilter, commercialRowsInWeek, commercialSourceFilter, paymentFilter, paymentStatusFilter]);
+  }, [commercialAccountFilter, commercialRowsInWeek, commercialSearchFilter, commercialSourceFilter, commercialStatusFilter, commercialTeamFilter, commercialVerifiedFilter]);
 
   const commercialTotals = useMemo(() => {
     return commercialRowsInWeek.reduce((totals, entry) => {
@@ -1458,6 +1480,7 @@ export function SimpleOperationsClient({
         residentialAmount: row.residential_amount ? String(row.residential_amount) : "",
         commercialAmount: row.commercial_amount ? String(row.commercial_amount) : "",
         notes: row.notes ?? "",
+        status: (row.status as WeeklyPaymentStatus) || "pending",
       },
     }));
   }
@@ -1527,7 +1550,7 @@ export function SimpleOperationsClient({
         payment_mode: mixed ? "mixed" : "residential_only",
         week_start: weekRange.start,
         week_end: weekRange.end,
-        status: existing?.status ?? "pending",
+        status: draft.status || existing?.status || "pending",
         notes: draft.notes.trim() || null,
         updated_at: now,
       };
@@ -1614,6 +1637,7 @@ export function SimpleOperationsClient({
   }
 
   function editCommercialHours(entry: CommercialHoursEntryRow) {
+    setPaymentModalMode("commercial_hours");
     if (entry.id.startsWith("scheduled-")) {
       setCommercialHoursDraft({
         accountId: entry.account_id ?? "",
@@ -1841,6 +1865,23 @@ export function SimpleOperationsClient({
     ]);
   }
 
+  async function exportCommercialHours() {
+    await exportRows(`commercial-hours-${weekRange.start}.xlsx`, filteredCommercialRows.map((entry) => {
+      const verifiedHours = entry.verified || entry.status === "verified" || entry.status === "paid" ? toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours) : 0;
+      return {
+        Date: entry.work_date,
+        "Commercial Account": entry.account_name,
+        Team: entry.team_name,
+        "Scheduled Day": entry.scheduled_day,
+        "Scheduled Hours": toNumber(entry.scheduled_hours),
+        "Actual Hours": toNumber(entry.completed_hours),
+        "Verified Payable": verifiedHours,
+        Status: entry.status,
+        Source: entry.manual_entry === false ? "scheduled" : "manual",
+      };
+    }));
+  }
+
   function getReportRows() {
     if (reportKind === "tasks") {
       return tasks.map((task) => {
@@ -1912,9 +1953,9 @@ export function SimpleOperationsClient({
 
   function renderHeader() {
     const headers: Record<SimpleOperationsView, { title: string; sub: string; icon: typeof CheckCircle2 }> = {
-      dashboard: { title: "Operations Dashboard", sub: "Reminders, residential hours, and weekly payments.", icon: CheckCircle2 },
+      dashboard: { title: "Operations Dashboard", sub: "Reminders, residential payments, and commercial hours.", icon: CheckCircle2 },
       tasks: { title: "Task Reminders", sub: "Simple reminders for Jake Ivan-Pal and Carlos Lopez.", icon: Clock },
-      residential: { title: "Residential Hours / Payments", sub: "Recurring cleanings, work logs, and weekly team payments.", icon: WalletCards },
+      residential: { title: "Residential payments / commercial hours", sub: "Weekly residential payments and commercial team hours tracking.", icon: WalletCards },
       staff: { title: "Staff / Teams", sub: "Residential teams, rates, hours, and payment status.", icon: Users },
       reports: { title: "Reports", sub: "Task, hours, and residential weekly payment exports.", icon: FileText },
       settings: { title: "Settings", sub: "Notification configuration and residential operations defaults.", icon: Settings2 },
@@ -1931,7 +1972,17 @@ export function SimpleOperationsClient({
           </div>
           <div className="flex flex-wrap gap-2">
             {view === "tasks" ? <Button onClick={() => openTaskDraft()}><Plus className="size-4" /> Create task</Button> : null}
-            {view === "residential" ? <Button onClick={() => openAccountDraft()}><Plus className="size-4" /> Add account</Button> : null}
+            {view === "residential" ? (
+              <>
+                <Button onClick={() => {
+                  setCommercialPanelOpen(false);
+                  const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary));
+                  if (first) openPaymentModal(first, "residential");
+                }}><Plus className="size-4" /> Add residential payment</Button>
+                <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
+                <Button variant="outline" onClick={commercialPanelOpen ? exportCommercialHours : exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
+              </>
+            ) : null}
             {view === "staff" ? <Button onClick={() => openStaffDraft()}><Plus className="size-4" /> Create team</Button> : null}
           </div>
         </div>
@@ -1955,7 +2006,7 @@ export function SimpleOperationsClient({
           <MetricCard icon={Clock} label="Tasks due today" value={taskStats.dueToday.length} note={taskStats.dueToday.length ? "Needs attention today" : "No reminders due today."} tone={taskStats.dueToday.length ? "warn" : "good"} />
           <MetricCard icon={AlertTriangle} label="Overdue tasks" value={taskStats.overdue.length} note="Pending past due date" tone={taskStats.overdue.length ? "warn" : "good"} />
           <MetricCard icon={CheckCircle2} label="Completed this week" value={taskStats.completedThisWeek.length} note="Closed reminders" tone="good" />
-          <MetricCard icon={BadgeCheck} label="Residential accounts active" value={activeAccounts.length} note="Recurring cleaning accounts" />
+          <MetricCard icon={BadgeCheck} label="Residential cleaners active" value={activeTeams.length} note="Cleaner payment profiles" />
           <MetricCard icon={CalendarDays} label="Weekly scheduled hours" value={formatHours(accountTotals.weekly)} note="Approximate recurring hours" />
           <MetricCard icon={CalendarDays} label="Monthly scheduled hours" value={formatHours(accountTotals.monthly)} note="Uses 4.33 weeks/month" />
           <MetricCard icon={Users} label="This week worked hours" value={formatHours(workedThisWeek)} note={dateRangeLabel(currentWeek.start, currentWeek.end)} />
@@ -2153,30 +2204,11 @@ export function SimpleOperationsClient({
   }
 
   function renderResidential() {
+    void renderAccounts;
+    void renderWorkLogs;
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
-          <div className="inline-flex rounded-md border border-border bg-background/80 p-1">
-            {([
-              ["accounts", "Scheduled accounts"],
-              ["work_logs", "Work logs"],
-              ["weekly_payments", "Weekly payments"],
-            ] as [ResidentialTab, string][]).map(([tab, label]) => (
-              <button
-                type="button"
-                className={cn("rounded px-3 py-1.5 text-xs font-black text-muted-foreground hover:bg-accent hover:text-foreground", residentialTab === tab && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
-                key={tab}
-                onClick={() => setResidentialTab(tab)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <PeriodSegment value={periodMode} onChange={setPeriodMode} />
-        </div>
-        {residentialTab === "accounts" ? renderAccounts() : null}
-        {residentialTab === "work_logs" ? renderWorkLogs() : null}
-        {residentialTab === "weekly_payments" ? renderWeeklyPayments() : null}
+        {commercialPanelOpen ? renderCommercialHoursPanel() : renderWeeklyPayments()}
       </div>
     );
   }
@@ -2347,15 +2379,17 @@ export function SimpleOperationsClient({
 
   function renderWeeklyPayments() {
     const weekStartDate = parseDateKey(paymentWeekStart) ?? startOfWeek(new Date());
+    const periodStepDays = periodMode === "month" ? 31 : periodMode === "biweekly" ? 14 : 7;
     const residentialOnlyTotal = weeklyPaymentSummaries.filter((summary) => !isMixedPaySummary(summary)).reduce((sum, summary) => sum + summary.paymentTotal, 0);
     const juanResidentialTotal = weeklyPaymentSummaries.filter((summary) => isMixedPaySummary(summary)).reduce((sum, summary) => sum + summary.residentialTotal, 0);
     const juanCommercialTotal = weeklyPaymentSummaries.filter((summary) => isMixedPaySummary(summary)).reduce((sum, summary) => sum + summary.commercialTotal, 0);
     const weekTotal = residentialOnlyTotal + juanResidentialTotal + juanCommercialTotal;
     const paidTotal = weeklyPaymentSummaries.flatMap((summary) => summary.rows).filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const pendingTotal = weekTotal - paidTotal;
+    const totalJobs = weeklyPaymentSummaries.reduce((sum, summary) => sum + summary.rows.length, 0);
     const displayedSummaries = (showAllPaymentCleaners ? weeklyPaymentSummaries : weeklyPaymentSummaries.filter((summary) => summary.rows.length > 0)).filter((summary) => {
       const mixed = isMixedPaySummary(summary);
-      if (paymentKindFilter === "commercial") return false;
+      if (paymentCleanerFilter !== "all" && summary.key !== paymentCleanerFilter) return false;
       if (paymentKindFilter === "residential" && mixed) return false;
       if (paymentKindFilter === "mixed" && !mixed) return false;
       if (paymentStatusFilter !== "all" && paymentSummaryStatus(summary) !== paymentStatusFilter && !summary.rows.some((row) => row.status === paymentStatusFilter)) return false;
@@ -2364,7 +2398,6 @@ export function SimpleOperationsClient({
       const needle = paymentFilter.trim().toLowerCase();
       return [summary.teamName, ...summary.rows.flatMap((row) => [row.city, row.custom_city, row.notes])].filter(Boolean).join(" ").toLowerCase().includes(needle);
     });
-    const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
     const activePaymentSummary = activePaymentSummaryKey ? weeklyPaymentSummaries.find((summary) => summary.key === activePaymentSummaryKey) : null;
     const cityFilterOptions = Array.from(new Set(paymentRowsInWeek.map(displayPaymentCity).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
@@ -2373,9 +2406,9 @@ export function SimpleOperationsClient({
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-black uppercase text-muted-foreground">Weekly Payments Sheet</p>
-              <h2 className="text-2xl font-black tracking-normal">Residential Hours / Payments</h2>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">{dateRangeLabel(weekRange.start, weekRange.end)} · Excel-style payroll cards</p>
+              <p className="text-xs font-black uppercase text-muted-foreground">Residential payments</p>
+              <h2 className="text-2xl font-black tracking-normal">Residential payments</h2>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">{dateRangeLabel(weekRange.start, weekRange.end)} · Excel-style cleaner cards</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => {
@@ -2386,71 +2419,48 @@ export function SimpleOperationsClient({
                 const juanSummary = weeklyPaymentSummaries.find((summary) => isMixedPaySummary(summary));
                 if (juanSummary) openPaymentModal(juanSummary, "juan");
               }}><Plus className="size-4" /> Add Juan mixed row</Button>
-              <Button variant="outline" onClick={exportWeeklyPayments}><FileSpreadsheet className="size-4" /> Export</Button>
+              <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
+              <Button variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button size="icon" variant="outline" aria-label="Previous week" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -7)))}><ChevronLeft className="size-4" /></Button>
+            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft className="size-4" /></Button>
             <div className="min-w-64 text-center text-sm font-black">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
-            <Button size="icon" variant="outline" aria-label="Next week" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, 7)))}><ChevronRight className="size-4" /></Button>
+            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight className="size-4" /></Button>
             <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
+            <PeriodSegment value={periodMode} onChange={setPeriodMode} />
           </div>
         </div>
 
-        <div className="grid gap-2 md:grid-cols-4 xl:grid-cols-7">
-          <MetricCard icon={WalletCards} label="Residential total" value={formatMoney(residentialOnlyTotal)} />
-          <MetricCard icon={WalletCards} label="Juan residential" value={formatMoney(juanResidentialTotal)} />
-          <MetricCard icon={WalletCards} label="Juan commercial" value={formatMoney(juanCommercialTotal)} note="Juan only" />
-          <MetricCard icon={BadgeCheck} label="Verified commercial hours" value={`${formatHours(commercialTotals.verified)} hrs`} />
-          <MetricCard icon={Clock} label="Pending total" value={formatMoney(pendingTotal)} tone={pendingTotal ? "warn" : "good"} />
-          <MetricCard icon={BadgeCheck} label="Paid total" value={formatMoney(paidTotal)} tone="good" />
-          <MetricCard icon={BadgeCheck} label="Grand total" value={formatMoney(weekTotal)} />
-        </div>
-
-        <div className="inline-flex rounded-md border border-border bg-background/80 p-1" aria-label="Payroll sheet tabs">
-          {[
-            ["residential", "Residential Payments"],
-            ["commercial", "Commercial Hours"],
-            ["review", "Payroll Review"],
-          ].map(([value, label]) => (
-            <button key={value} type="button" className={cn("rounded px-3 py-1.5 text-xs font-black text-muted-foreground transition hover:bg-accent hover:text-foreground", payrollTab === value && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")} onClick={() => setPayrollTab(value as PayrollPanelTab)}>{label}</button>
-          ))}
+        <div className="grid gap-2 md:grid-cols-4">
+          <MetricCard icon={WalletCards} label="Total residential payments" value={formatMoney(weekTotal)} />
+          <MetricCard icon={Clock} label="Pending" value={formatMoney(pendingTotal)} tone={pendingTotal ? "warn" : "good"} />
+          <MetricCard icon={BadgeCheck} label="Paid" value={formatMoney(paidTotal)} tone="good" />
+          <MetricCard icon={FileText} label="Total jobs" value={totalJobs} />
         </div>
 
         <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground"><Filter className="size-4" /> Payroll review filters</div>
+          <div className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground"><Filter className="size-4" /> Residential payment filters</div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-            <input className="h-10 rounded-md border bg-background px-3 text-sm font-bold" placeholder="Cleaner, city, account, note" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
+            <input className="h-10 rounded-md border bg-background px-3 text-sm font-bold" placeholder="Search cleaner or city" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentCleanerFilter} onChange={(event) => setPaymentCleanerFilter(event.target.value)}>
+              <option value="all">All cleaner names</option>
+              {weeklyPaymentSummaries.map((summary) => <option key={summary.key} value={summary.key}>{summary.teamName}</option>)}
+            </select>
             <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)}>
-              <option value="all">All payment types</option>
-              <option value="residential">Residential only</option>
-              <option value="commercial">Commercial hours only</option>
-              <option value="mixed">Mixed pay only</option>
+              <option value="all">All cleaners</option>
+              <option value="residential">Residential cleaners</option>
+              <option value="mixed">Juan mixed rows</option>
             </select>
             <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)}>
               <option value="all">All statuses</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="completed">Completed</option>
               <option value="pending">Pending</option>
-              <option value="verified">Verified</option>
-              <option value="pending_payment">Pending payment</option>
-              <option value="needs_review">Needs review</option>
               <option value="paid">Paid</option>
-              <option value="no_jobs">No jobs</option>
             </select>
             <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={paymentCityFilter} onChange={(event) => setPaymentCityFilter(event.target.value)}>
               <option value="all">All cities</option>
               {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
               {cityFilterOptions.filter((city) => !ORANGE_COUNTY_CITIES.includes(city as (typeof ORANGE_COUNTY_CITIES)[number])).map((city) => <option key={city} value={city}>{city}</option>)}
-            </select>
-            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialAccountFilter} onChange={(event) => setCommercialAccountFilter(event.target.value)}>
-              <option value="all">All commercial accounts</option>
-              {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
-            </select>
-            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialSourceFilter} onChange={(event) => setCommercialSourceFilter(event.target.value as CommercialSourceFilter)}>
-              <option value="all">Manual + auto schedule</option>
-              <option value="manual">Manual hours</option>
-              <option value="scheduled">Auto schedule</option>
             </select>
             <label className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-black">
               <input type="checkbox" checked={showAllPaymentCleaners} onChange={(event) => setShowAllPaymentCleaners(event.target.checked)} />
@@ -2459,16 +2469,12 @@ export function SimpleOperationsClient({
           </div>
         </div>
 
-        {(payrollTab === "residential" || payrollTab === "review") && paymentKindFilter !== "commercial" ? (
-          <div className="grid gap-4">
-            {displayedSummaries.length === 0 ? <Card><CardContent className="p-8 text-center text-sm font-bold text-muted-foreground">No residential payments recorded for this period.</CardContent></Card> : null}
-            <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
-              {displayedSummaries.map((summary) => renderCleanerPaymentCard(summary))}
-            </div>
+        <div className="grid gap-4">
+          {displayedSummaries.length === 0 ? <Card><CardContent className="p-8 text-center text-sm font-bold text-muted-foreground">No residential payments recorded for this period.</CardContent></Card> : null}
+          <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {displayedSummaries.map((summary) => renderCleanerPaymentCard(summary))}
           </div>
-        ) : null}
-
-        {(payrollTab === "commercial" || payrollTab === "review") && paymentKindFilter !== "residential" ? renderCommercialHoursCard(lucia) : null}
+        </div>
         {renderPaymentModal(activePaymentSummary)}
       </div>
     );
@@ -2488,7 +2494,7 @@ export function SimpleOperationsClient({
               <CardTitle className="truncate text-base font-black tracking-normal">{summary.teamName}</CardTitle>
               <div className="mt-1 flex flex-wrap gap-1">
                 <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : ""} variant="outline">{mixed ? "Juan mixed pay" : "Residential"}</Badge>
-                <Badge className={statusBadgeClass(paymentSummaryStatus(summary))} variant="outline">{paymentSummaryStatus(summary)}</Badge>
+                <Badge className={statusBadgeClass(paymentSummaryStatus(summary))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
               </div>
             </div>
             <Button size="sm" variant="outline" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential")}><Plus className="size-4" /> Row</Button>
@@ -2510,8 +2516,8 @@ export function SimpleOperationsClient({
                 {validJobRows.length === 0 ? <tr><td className="px-2 py-8 text-center font-bold text-muted-foreground" colSpan={mixed ? 5 : 4}>No rows yet.</td></tr> : null}
                 {validJobRows.map((row) => (
                   <tr className="border-b border-border/80" key={row.id}>
-                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayDate(row.work_date)}</td>
-                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayPaymentCity(row)}<div className="mt-1"><Badge className={statusBadgeClass(row.status)} variant="outline">{row.status ?? "pending"}</Badge></div></td>
+                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayShortDate(row.work_date)}</td>
+                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayPaymentCity(row)}<div className="mt-1"><Badge className={statusBadgeClass(row.status)} variant="outline">{statusLabel(row.status)}</Badge></div></td>
                     <td className="border-r border-border/70 px-2 py-2 text-right font-black">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
                     {mixed ? <td className="border-r border-border/70 px-2 py-2 text-right font-black">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
                     <td className="px-2 py-2">
@@ -2519,7 +2525,7 @@ export function SimpleOperationsClient({
                         <Button size="icon" variant="outline" aria-label="Edit payment row" onClick={() => openPaymentModal(summary, mixed ? "juan" : "residential", row)}><Edit3 className="size-4" /></Button>
                         <Button size="icon" variant="outline" aria-label="Mark row pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-4" /></Button>
                         <Button size="icon" variant="outline" aria-label="Mark row paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-4" /></Button>
-                        <Button size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></Button>
+                        <Button className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete payment row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></Button>
                       </div>
                     </td>
                   </tr>
@@ -2559,7 +2565,7 @@ export function SimpleOperationsClient({
           <div className="w-full max-w-4xl rounded-md border border-border bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-lg font-black">Add commercial hours</h2>
-              <Button size="icon" variant="outline" aria-label="Close" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></Button>
+              <button type="button" className="grid size-9 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
             </div>
             <div className="p-4">{renderCommercialHoursForm()}</div>
           </div>
@@ -2567,12 +2573,13 @@ export function SimpleOperationsClient({
       );
     }
     if (paymentModalMode === "commercial_schedule") {
+      const commercialTeamChoices = activeTeams.filter((team) => !isJuanRomero(team.name));
       return (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
           <div className="w-full max-w-5xl rounded-md border border-border bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-lg font-black">Configure commercial schedule</h2>
-              <Button size="icon" variant="outline" aria-label="Close" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></Button>
+              <button type="button" className="grid size-9 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close schedule modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
             </div>
             <form className="grid gap-4 p-4" onSubmit={saveCommercialSchedule}>
               <div className="grid gap-3 md:grid-cols-2">
@@ -2585,7 +2592,7 @@ export function SimpleOperationsClient({
                   setCommercialScheduleDraft({ ...commercialScheduleDraft, assignedTeamId: event.target.value, assignedTeamName: team?.name ?? "" });
                 }}>
                   <option value="">Manual name</option>
-                  {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                  {commercialTeamChoices.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
                 </select></label>
                 {!commercialScheduleDraft.assignedTeamId ? <label className="grid gap-1 text-sm font-bold">Team/person<input className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.assignedTeamName} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, assignedTeamName: event.target.value })} /></label> : null}
                 <label className="grid gap-1 text-sm font-bold">Frequency<select className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.frequency} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, frequency: event.target.value as CommercialScheduleDraft["frequency"] })}>
@@ -2632,7 +2639,7 @@ export function SimpleOperationsClient({
         <div className="w-full max-w-3xl rounded-md border border-border bg-card shadow-xl">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <h2 className="text-lg font-black">{mixed ? "Add Juan mixed row" : "Add residential payment"}</h2>
-            <Button size="icon" variant="outline" aria-label="Close" onClick={closePaymentModal}><X className="size-4" /></Button>
+            <button type="button" className="grid size-9 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-4" /></button>
           </div>
           <div className="grid gap-3 p-4 md:grid-cols-2">
             <label className="grid gap-1 text-sm font-bold">Cleaner<select className="h-10 rounded-md border bg-background px-3" value={summary.key} onChange={(event) => {
@@ -2654,6 +2661,10 @@ export function SimpleOperationsClient({
                 <label className="grid gap-1 text-sm font-bold">Commercial amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.commercialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, commercialAmount: event.target.value })} /></label>
               </>
             ) : <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>}
+            <label className="grid gap-1 text-sm font-bold">Status<select className="h-10 rounded-md border bg-background px-3" value={draft.status} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, status: event.target.value as WeeklyPaymentStatus })}>
+              <option value="pending">Pending</option>
+              <option value="paid">Paid</option>
+            </select></label>
             <label className="grid gap-1 text-sm font-bold md:col-span-2">Notes<input className="h-10 rounded-md border bg-background px-3" value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
           </div>
           <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
@@ -2667,6 +2678,7 @@ export function SimpleOperationsClient({
 
   function renderCommercialHoursForm() {
     const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
+    const commercialTeamChoices = activeTeams.filter((team) => !isJuanRomero(team.name));
     return (
       <form className="grid gap-3 md:grid-cols-3 xl:grid-cols-7" onSubmit={saveCommercialHours}>
         <label className="grid gap-1 text-sm font-bold xl:col-span-2">Commercial account<select className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
@@ -2678,7 +2690,7 @@ export function SimpleOperationsClient({
           setCommercialHoursDraft({ ...commercialHoursDraft, teamId: event.target.value, teamName: team?.name ?? "", manualEntry: true });
         }}>
           <option value="">Manual name</option>
-          {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+          {commercialTeamChoices.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
         </select></label>
         {!commercialHoursDraft.teamId ? <label className="grid gap-1 text-sm font-bold">Manual name<input className="h-10 rounded-md border bg-background px-3" value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
         <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
@@ -2704,6 +2716,75 @@ export function SimpleOperationsClient({
     );
   }
 
+  function renderCommercialHoursPanel() {
+    const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
+    const teamOptions = Array.from(new Set(commercialRowsInWeek.map((entry) => entry.team_name).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b));
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase text-muted-foreground">Commercial hours</p>
+              <h2 className="text-2xl font-black tracking-normal">Commercial hours</h2>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">Track commercial team hours by account, schedule, and pay period.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
+              <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
+              <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure schedule</Button>
+              <Button variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -14 : -7)))}><ChevronLeft className="size-4" /></Button>
+            <div className="min-w-64 text-center text-sm font-black">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
+            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 14 : 7)))}><ChevronRight className="size-4" /></Button>
+            <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
+            <PeriodSegment value={periodMode} onChange={setPeriodMode} />
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground"><Filter className="size-4" /> Commercial hours filters</div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <input className="h-10 rounded-md border bg-background px-3 text-sm font-bold" placeholder="Search account, team, note" value={commercialSearchFilter} onChange={(event) => setCommercialSearchFilter(event.target.value)} />
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialAccountFilter} onChange={(event) => setCommercialAccountFilter(event.target.value)}>
+              <option value="all">All commercial accounts</option>
+              {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </select>
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialTeamFilter} onChange={(event) => setCommercialTeamFilter(event.target.value)}>
+              <option value="all">All teams</option>
+              {teamOptions.map((team) => <option key={team} value={team}>{team}</option>)}
+            </select>
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialStatusFilter} onChange={(event) => setCommercialStatusFilter(event.target.value)}>
+              <option value="all">All statuses</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="completed">Completed</option>
+              <option value="verified">Verified</option>
+              <option value="pending_payment">Pending payment</option>
+              <option value="paid">Paid</option>
+              <option value="needs_review">Needs review</option>
+              <option value="skipped">No eligible service</option>
+            </select>
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialSourceFilter} onChange={(event) => setCommercialSourceFilter(event.target.value as CommercialSourceFilter)}>
+              <option value="all">Manual + scheduled</option>
+              <option value="manual">Manual hours</option>
+              <option value="scheduled">Scheduled</option>
+            </select>
+            <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={commercialVerifiedFilter} onChange={(event) => setCommercialVerifiedFilter(event.target.value as CommercialVerifiedFilter)}>
+              <option value="all">Verified + needs review</option>
+              <option value="verified">Verified</option>
+              <option value="needs_review">Needs review</option>
+            </select>
+          </div>
+        </div>
+
+        {renderCommercialHoursCard(lucia)}
+        {renderPaymentModal(null)}
+      </div>
+    );
+  }
+
   function renderCommercialHoursCard(lucia: StaffMemberRow | undefined) {
     const emptyCommercialText = commercialRowsInWeek.length === 0 ? "No eligible cleanings before this pay date." : "No commercial hours match these filters.";
     return (
@@ -2712,11 +2793,9 @@ export function SimpleOperationsClient({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle className="text-2xl tracking-normal">Commercial hours</CardTitle>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">Hours only. No hourly rate or invented commercial dollars.</p>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">Track commercial team hours by account, schedule, and pay period.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
-              <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure schedule</Button>
               <Badge variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
             </div>
           </div>
@@ -2735,11 +2814,11 @@ export function SimpleOperationsClient({
               <thead>
                 <tr className="border-b border-border bg-muted/45 text-left text-xs font-black uppercase text-muted-foreground">
                   <th className="border-r border-border px-4 py-3">Date</th>
-                  <th className="border-r border-border px-4 py-3">Account / City</th>
+                  <th className="border-r border-border px-4 py-3">Commercial Account</th>
                   <th className="border-r border-border px-4 py-3">Team</th>
                   <th className="border-r border-border px-4 py-3">Scheduled day</th>
                   <th className="border-r border-border px-4 py-3 text-right">Scheduled</th>
-                  <th className="border-r border-border px-4 py-3 text-right">Completed</th>
+                  <th className="border-r border-border px-4 py-3 text-right">Actual Hours</th>
                   <th className="border-r border-border px-4 py-3 text-right">Verified payable</th>
                   <th className="border-r border-border px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
@@ -2759,7 +2838,7 @@ export function SimpleOperationsClient({
                       <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(toNumber(entry.scheduled_hours))}</td>
                       <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(toNumber(entry.completed_hours))}</td>
                       <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(verifiedHours)}</td>
-                      <td className="border-r border-border/70 px-4 py-3"><Badge className={statusBadgeClass(entry.status)} variant="outline">{entry.status ?? "scheduled"}</Badge></td>
+                      <td className="border-r border-border/70 px-4 py-3"><Badge className={statusBadgeClass(entry.status)} variant="outline">{statusLabel(entry.status ?? "scheduled")}</Badge></td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
                           <Button size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Edit3 className="size-4" /></Button>
