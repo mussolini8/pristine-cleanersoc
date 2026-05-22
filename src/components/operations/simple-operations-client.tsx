@@ -988,9 +988,12 @@ export function SimpleOperationsClient({
     for (const row of paymentRowsInWeek) {
       const current = ensureSummary(row.cleaner_id, row.cleaner_name);
       current.rows.push(row);
-      current.residentialTotal = roundHours(current.residentialTotal + toNumber(row.residential_amount) + toNumber(row.payment_amount));
-      current.commercialTotal = roundHours(current.commercialTotal + toNumber(row.commercial_amount));
-      current.paymentTotal = roundHours(current.paymentTotal + paymentLineTotal(row));
+      const rowHasAmount = paymentLineTotal(row) > 0;
+      if (rowHasAmount) {
+        current.residentialTotal = roundHours(current.residentialTotal + toNumber(row.residential_amount) + toNumber(row.payment_amount));
+        current.commercialTotal = roundHours(current.commercialTotal + toNumber(row.commercial_amount));
+        current.paymentTotal = roundHours(current.paymentTotal + paymentLineTotal(row));
+      }
     }
 
     for (const payment of weeklyPayments.filter((item) => item.week_start === weekRange.start)) {
@@ -2261,7 +2264,7 @@ export function SimpleOperationsClient({
                 return (
                   <section className={cn("min-h-32 border-b border-r border-border p-2 last:border-r-0", !inMonth && "bg-muted/20 text-muted-foreground", isToday && "bg-emerald-50/70 dark:bg-emerald-950/20")} key={key}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className={cn("grid size-7 place-items-center rounded-md text-sm font-black", isToday && "bg-primary text-primary-foreground")}>{date.getDate()}</span>
+                      <button type="button" className={cn("grid size-7 place-items-center rounded-md text-sm font-black hover:bg-accent", isToday && "bg-primary text-primary-foreground hover:bg-primary")} onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>{date.getDate()}</button>
                       {dayTasks.length ? <Badge variant="outline">{dayTasks.length}</Badge> : null}
                     </div>
                     <div className="mt-2 grid gap-1">
@@ -2282,7 +2285,6 @@ export function SimpleOperationsClient({
                       })}
                       {dayTasks.length > 3 ? <button type="button" className="text-left text-[11px] font-black text-primary" onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>+{dayTasks.length - 3} more</button> : null}
                     </div>
-                    <button type="button" className="mt-2 text-[11px] font-black text-muted-foreground hover:text-primary" onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>View day</button>
                   </section>
                 );
               })}
@@ -2580,6 +2582,7 @@ export function SimpleOperationsClient({
   function renderCleanerPaymentCard(summary: (typeof weeklyPaymentSummaries)[number]) {
     const mixed = isMixedPaySummary(summary);
     const validJobRows = mixed ? summary.rows.filter((row) => toNumber(row.residential_amount) > 0 || toNumber(row.commercial_amount) > 0) : summary.rows.filter((row) => toNumber(row.payment_amount) > 0);
+    const hasRows = validJobRows.length > 0;
     const paid = summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const pending = summary.paymentTotal - paid;
 
@@ -2599,21 +2602,28 @@ export function SimpleOperationsClient({
         </CardHeader>
         <CardContent className="p-0">
           <div>
-            <table className="w-full table-fixed border-collapse text-sm">
+            <table className={cn("w-full table-fixed border-collapse text-sm", mixed && "border-y border-slate-950/80")}>
               <thead>
-                <tr className="border-b border-border bg-muted/35 text-left text-xs font-black text-foreground">
-                  <th className="w-[18%] border-r border-border px-2 py-2">Date</th>
-                  <th className={cn("border-r border-border px-2 py-2", mixed ? "w-[34%]" : "w-[42%]")}>City</th>
-                  {mixed ? <th className="w-[24%] border-r border-border px-2 py-2 text-right">Residential</th> : <th className="w-[40%] px-2 py-2 text-right">Payment</th>}
+                <tr className={cn("border-b bg-muted/35 text-left text-xs font-black text-foreground", mixed ? "border-slate-950/80" : "border-border")}>
+                  <th className={cn("w-[18%] border-r px-2 py-2", mixed ? "border-slate-950/80" : "border-border")}>Date</th>
+                  <th className={cn("border-r px-2 py-2", mixed ? "w-[34%] border-slate-950/80" : "w-[42%] border-border")}>City</th>
+                  {mixed ? <th className="w-[24%] border-r border-slate-950/80 px-2 py-2 text-right">Residential</th> : <th className="w-[40%] px-2 py-2 text-right">Payment</th>}
                   {mixed ? <th className="w-[24%] px-2 py-2 text-right">Commercial</th> : null}
                 </tr>
               </thead>
               <tbody>
-                {validJobRows.length === 0 ? <tr><td className="px-2 py-8 text-center font-bold text-muted-foreground" colSpan={mixed ? 4 : 3}>No rows yet.</td></tr> : null}
+                {validJobRows.length === 0 ? <tr>{mixed ? (
+                  <>
+                    <td className="h-24 border-r border-slate-950/80 px-2 py-8" />
+                    <td className="border-r border-slate-950/80 px-2 py-8 text-center font-bold text-muted-foreground">No rows yet.</td>
+                    <td className="border-r border-slate-950/80 px-2 py-8" />
+                    <td className="px-2 py-8" />
+                  </>
+                ) : <td className="px-2 py-8 text-center font-bold text-muted-foreground" colSpan={3}>No rows yet.</td>}</tr> : null}
                 {validJobRows.map((row) => (
-                  <tr className="border-b border-border/80" key={row.id}>
-                    <td className="border-r border-border/70 px-2 py-2 font-bold">{displayShortDate(row.work_date)}</td>
-                    <td className="border-r border-border/70 px-2 py-2 font-bold">
+                  <tr className={cn("border-b", mixed ? "border-slate-950/80" : "border-border/80")} key={row.id}>
+                    <td className={cn("border-r px-2 py-2 font-bold", mixed ? "border-slate-950/80" : "border-border/70")}>{displayShortDate(row.work_date)}</td>
+                    <td className={cn("border-r px-2 py-2 font-bold", mixed ? "border-slate-950/80" : "border-border/70")}>
                       <span className="block truncate" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
                       <Badge className={cn("mt-1 max-w-full truncate", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
                       <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[11px] font-black">
@@ -2623,19 +2633,19 @@ export function SimpleOperationsClient({
                         <button type="button" className="text-rose-700 hover:underline" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}>Delete</button>
                       </div>
                     </td>
-                    <td className={cn("px-2 py-2 text-right font-black", mixed && "border-r border-border/70")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                    <td className={cn("px-2 py-2 text-right font-black", mixed && "border-r border-slate-950/80")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
                     {mixed ? <td className="px-2 py-2 text-right font-black">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-border bg-yellow-200 text-sm font-black text-slate-950">
-                  <td className="border-r border-yellow-400 px-2 py-2">TOTAL</td>
-                  <td className="border-r border-yellow-400 px-2 py-2 text-center">{validJobRows.length}</td>
-                  <td className={cn("px-2 py-2 text-right", mixed && "border-r border-yellow-400")}>{formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal)}</td>
-                  {mixed ? <td className="px-2 py-2 text-right">{formatMoney(summary.commercialTotal)}</td> : null}
+                  <td className={cn("border-r px-2 py-2", mixed ? "border-slate-950/80" : "border-yellow-400")}>TOTAL</td>
+                  <td className={cn("border-r px-2 py-2 text-center", mixed ? "border-slate-950/80" : "border-yellow-400")}>{validJobRows.length}</td>
+                  <td className={cn("px-2 py-2 text-right", mixed ? "border-r border-slate-950/80" : "")}>{hasRows ? formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal) : ""}</td>
+                  {mixed ? <td className="px-2 py-2 text-right">{hasRows ? formatMoney(summary.commercialTotal) : ""}</td> : null}
                 </tr>
-                {mixed ? <tr className="bg-yellow-200 text-sm font-black text-slate-950"><td className="px-2 py-2 text-right" colSpan={4}>GRAND TOTAL: {formatMoney(summary.paymentTotal)}</td></tr> : null}
+                {mixed && hasRows ? <tr className="bg-yellow-200 text-sm font-black text-slate-950"><td className="px-2 py-2 text-right" colSpan={4}>GRAND TOTAL: {formatMoney(summary.paymentTotal)}</td></tr> : null}
               </tfoot>
             </table>
           </div>
