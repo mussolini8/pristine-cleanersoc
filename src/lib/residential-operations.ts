@@ -126,7 +126,7 @@ export function getPeriodRange(mode: PeriodMode, anchorKey: string) {
 
   if (mode === "biweekly") {
     const start = startOfWeek(anchor);
-    return { start: formatDateKey(start), end: formatDateKey(addDays(start, 13)), label: "This biweekly" };
+    return { start: formatDateKey(start), end: formatDateKey(addDays(start, 14)), label: "Every 15 days" };
   }
 
   return {

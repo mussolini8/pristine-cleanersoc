@@ -204,6 +204,17 @@ function classifyMailerError(error: unknown): EmailSendResult {
     };
   }
 
+  if (code === "ENETUNREACH") {
+    return {
+      ok: false,
+      sent: false,
+      reason: "Could not reach Gmail SMTP from this server/network.",
+      code,
+      command,
+      responseCode,
+    };
+  }
+
   if (code === "ECONNECTION" || code === "ETIMEDOUT" || code === "ESOCKET" || lower.includes("timeout")) {
     return {
       ok: false,
