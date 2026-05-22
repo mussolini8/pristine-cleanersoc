@@ -768,6 +768,8 @@ export function SimpleOperationsClient({
   const [commercialSourceFilter, setCommercialSourceFilter] = useState<CommercialSourceFilter>("all");
   const [commercialCustomStart, setCommercialCustomStart] = useState("");
   const [commercialCustomEnd, setCommercialCustomEnd] = useState("");
+  const [commercialDateMenuOpen, setCommercialDateMenuOpen] = useState(false);
+  const [carlosWeeklyPayment, setCarlosWeeklyPayment] = useState("");
   const [carlosOvertimeHours, setCarlosOvertimeHours] = useState("");
   const [reportKind, setReportKind] = useState<ReportKind>("tasks");
 
@@ -1028,6 +1030,7 @@ export function SimpleOperationsClient({
   const pendingPaymentTotal = useMemo(() => weeklyPaymentSummaries.reduce((sum, item) => {
     return paymentSummaryStatus(item) === "paid" ? sum : sum + item.paymentTotal;
   }, 0), [weeklyPaymentSummaries]);
+  const carlosPaymentSummary = useMemo(() => weeklyPaymentSummaries.find((summary) => isCarlosLopez(summary.teamName)), [weeklyPaymentSummaries]);
 
   const commercialRowsInWeek = useMemo(() => {
     const cutoff = minDateKey(commercialRange.end, today);
@@ -1516,15 +1519,6 @@ export function SimpleOperationsClient({
     openPaymentModal(juanSummary, "juan", row);
   }
 
-  function openCarlosPaymentModal(row?: ResidentialWeeklyPaymentLineRow) {
-    const carlosSummary = weeklyPaymentSummaries.find((summary) => isCarlosLopez(summary.teamName));
-    if (!carlosSummary) {
-      setMessage({ tone: "error", text: "Carlos Lopez payment profile is not available yet." });
-      return;
-    }
-    openPaymentModal(carlosSummary, "residential", row);
-  }
-
   function closePaymentModal() {
     setPaymentModalMode(null);
     setActivePaymentSummaryKey(null);
@@ -1681,42 +1675,52 @@ export function SimpleOperationsClient({
     }
   }
 
-  async function saveCarlosOvertime(summary: (typeof weeklyPaymentSummaries)[number]) {
+  async function saveCarlosWeeklyPayment(summary: (typeof weeklyPaymentSummaries)[number]) {
     if (!userId || savingPaymentKey) return;
-    const hours = toNumber(carlosOvertimeHours);
-    if (hours <= 0) {
-      setMessage({ tone: "error", text: "Carlos overtime needs hours greater than 0." });
+    const existingRow = summary.rows[0] ?? null;
+    const persistedWeeklyPayment = existingRow ? toNumber(existingRow.residential_amount) || toNumber(existingRow.payment_amount) : 0;
+    const persistedOvertimeHours = existingRow ? roundHours(toNumber(existingRow.commercial_amount) / CARLOS_OVERTIME_RATE) : 0;
+    const weeklyPayment = carlosWeeklyPayment === "" ? persistedWeeklyPayment : toNumber(carlosWeeklyPayment);
+    const hours = carlosOvertimeHours === "" ? persistedOvertimeHours : toNumber(carlosOvertimeHours);
+    if (weeklyPayment <= 0 && hours <= 0) {
+      setMessage({ tone: "error", text: "Carlos weekly payment or overtime hours must be greater than 0." });
       return;
     }
-    const amount = roundHours(hours * CARLOS_OVERTIME_RATE);
+    const overtimeAmount = roundHours(hours * CARLOS_OVERTIME_RATE);
     const now = new Date().toISOString();
-    setSavingPaymentKey("carlos-overtime");
+    setSavingPaymentKey("carlos-weekly-payment");
     try {
-      const { error } = await supabase.from("residential_weekly_payment_rows").insert({
+      const payload = {
         user_id: userId,
         cleaner_id: summary.teamId,
         cleaner_name: CARLOS_LOPEZ_NAME,
         work_date: weekRange.end,
         city: "Operations",
         custom_city: null,
-        payment_amount: amount,
-        residential_amount: 0,
-        commercial_amount: 0,
+        payment_amount: 0,
+        residential_amount: weeklyPayment,
+        commercial_amount: overtimeAmount,
         payment_type: "operations_overtime",
         payment_mode: "residential_only",
         week_start: weekRange.start,
         week_end: weekRange.end,
-        status: "pending",
-        notes: `${hours} overtime hour${hours === 1 ? "" : "s"} at $${CARLOS_OVERTIME_RATE}/hr`,
-        created_at: now,
+        status: existingRow?.status ?? "pending",
+        notes: `${CARLOS_LOPEZ_NAME} weekly operations manager payment. Overtime: ${hours} hour${hours === 1 ? "" : "s"} at $${CARLOS_OVERTIME_RATE}/hr.`,
         updated_at: now,
-      });
+      };
+      const { error } = existingRow
+        ? await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", existingRow.id)
+        : await supabase.from("residential_weekly_payment_rows").insert({ ...payload, created_at: now });
       if (error) throw new Error(error.message);
-      setCarlosOvertimeHours("");
-      setMessage({ tone: "success", text: `Carlos overtime added: ${formatMoney(amount)}.` });
+      const extraRows = existingRow ? summary.rows.filter((row) => row.id !== existingRow.id) : [];
+      if (extraRows.length > 0) {
+        const { error: cleanupError } = await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).in("id", extraRows.map((row) => row.id));
+        if (cleanupError) throw new Error(cleanupError.message);
+      }
+      setMessage({ tone: "success", text: `Carlos Lopez weekly payment saved: ${formatMoney(weeklyPayment + overtimeAmount)}.` });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Carlos overtime could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Carlos Lopez weekly payment could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -2581,9 +2585,10 @@ export function SimpleOperationsClient({
     const weekTotal = residentialOnlyTotal + juanResidentialTotal + juanCommercialTotal;
     const paidTotal = weeklyPaymentSummaries.flatMap((summary) => summary.rows).filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const pendingTotal = weekTotal - paidTotal;
-    const totalJobs = weeklyPaymentSummaries.reduce((sum, summary) => sum + summary.rows.length, 0);
+    const totalJobs = weeklyPaymentSummaries.filter((summary) => !isCarlosLopez(summary.teamName)).reduce((sum, summary) => sum + summary.rows.length, 0);
     const displayedSummaries = (showAllPaymentCleaners ? weeklyPaymentSummaries : weeklyPaymentSummaries.filter((summary) => summary.rows.length > 0)).filter((summary) => {
       const mixed = isMixedPaySummary(summary);
+      if (isCarlosLopez(summary.teamName)) return false;
       if (paymentCleanerFilter !== "all" && summary.key !== paymentCleanerFilter) return false;
       if (paymentKindFilter === "residential" && mixed) return false;
       if (paymentKindFilter === "mixed" && !mixed) return false;
@@ -2611,7 +2616,6 @@ export function SimpleOperationsClient({
                 if (first) openPaymentModal(first, "residential");
               }}><Plus className="size-4" /> Add residential payment</Button>
               <Button variant="outline" onClick={() => openJuanPaymentModal()}><Plus className="size-4" /> Add Juan payment row</Button>
-              <Button variant="outline" onClick={() => openCarlosPaymentModal()}><Plus className="size-4" /> Carlos payment</Button>
               <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
               <Button variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
             </div>
@@ -2632,13 +2636,15 @@ export function SimpleOperationsClient({
           <MetricCard icon={FileText} label="Total jobs" value={totalJobs} />
         </div>
 
+        {carlosPaymentSummary ? renderCarlosPaymentPanel(carlosPaymentSummary) : null}
+
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground"><Filter className="size-4" /> Residential payment filters</div>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-3">
             <input className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" placeholder="Search cleaner or city" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
             <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={paymentCleanerFilter} onChange={(event) => setPaymentCleanerFilter(event.target.value)}>
               <option value="all">All cleaner names</option>
-              {weeklyPaymentSummaries.map((summary) => <option key={summary.key} value={summary.key}>{summary.teamName}</option>)}
+              {weeklyPaymentSummaries.filter((summary) => !isCarlosLopez(summary.teamName)).map((summary) => <option key={summary.key} value={summary.key}>{summary.teamName}</option>)}
             </select>
             <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)}>
               <option value="all">All cleaners</option>
@@ -2670,6 +2676,53 @@ export function SimpleOperationsClient({
         </div>
         {renderPaymentModal(activePaymentSummary)}
       </div>
+    );
+  }
+
+  function renderCarlosPaymentPanel(summary: (typeof weeklyPaymentSummaries)[number]) {
+    const row = summary.rows[0] ?? null;
+    const persistedWeeklyPayment = row ? toNumber(row.residential_amount) || toNumber(row.payment_amount) : 0;
+    const persistedOvertimeHours = row ? roundHours(toNumber(row.commercial_amount) / CARLOS_OVERTIME_RATE) : 0;
+    const weeklyPaymentValue = carlosWeeklyPayment === "" && persistedWeeklyPayment ? String(persistedWeeklyPayment) : carlosWeeklyPayment;
+    const overtimeHoursValue = carlosOvertimeHours === "" && persistedOvertimeHours ? String(persistedOvertimeHours) : carlosOvertimeHours;
+    const weeklyPayment = toNumber(weeklyPaymentValue);
+    const overtimeHours = toNumber(overtimeHoursValue);
+    const overtimeAmount = roundHours(overtimeHours * CARLOS_OVERTIME_RATE);
+    const total = weeklyPayment + overtimeAmount;
+    const paid = row?.status === "paid";
+
+    return (
+      <Card className="rounded-md border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/15">
+        <CardContent className="grid gap-3 p-4 lg:grid-cols-[1.1fr_.8fr_.8fr_auto]">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase text-muted-foreground">Operations manager</p>
+            <h3 className="mt-1 text-lg font-black tracking-normal">Carlos Lopez</h3>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Badge className="border-emerald-300 bg-emerald-100 text-emerald-950" variant="outline">{paid ? "Paid" : "Pending"}</Badge>
+              <Badge variant="outline">Weekly payment</Badge>
+            </div>
+          </div>
+          <label className="grid min-w-0 gap-1 text-xs font-black uppercase text-muted-foreground">
+            Weekly payment
+            <input className="h-11 min-w-0 rounded-md border border-emerald-200 bg-background px-3 text-base font-black normal-case text-foreground" inputMode="decimal" min="0" type="number" value={weeklyPaymentValue} onChange={(event) => setCarlosWeeklyPayment(event.target.value)} placeholder="$0.00" />
+          </label>
+          <label className="grid min-w-0 gap-1 text-xs font-black uppercase text-muted-foreground">
+            Overtime hours
+            <input className="h-11 min-w-0 rounded-md border border-emerald-200 bg-background px-3 text-base font-black normal-case text-foreground" inputMode="decimal" min="0" step="0.5" type="number" value={overtimeHoursValue} onChange={(event) => setCarlosOvertimeHours(event.target.value)} placeholder="0" />
+            <span className="text-[11px] normal-case text-muted-foreground">{formatMoney(overtimeAmount)} at $7/hr</span>
+          </label>
+          <div className="flex flex-wrap items-end justify-between gap-2 lg:justify-end">
+            <div>
+              <p className="text-[11px] font-black uppercase text-muted-foreground">Carlos total</p>
+              <p className="mt-1 text-2xl font-black">{formatMoney(total)}</p>
+            </div>
+            <div className="flex gap-2">
+              {row ? <Button size="sm" variant="outline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, paid ? "pending" : "paid")}>{paid ? "Pending" : "Paid"}</Button> : null}
+              <Button size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)}><Save className="size-4" /> Save</Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -2754,7 +2807,7 @@ export function SimpleOperationsClient({
                   Overtime hours
                   <input className="h-9 rounded-md border border-emerald-200 bg-white px-2 text-sm font-black text-slate-950" inputMode="decimal" min="0" step="0.5" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
                 </label>
-                <Button className="self-end" size="sm" disabled={savingPaymentKey === "carlos-overtime"} onClick={() => saveCarlosOvertime(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
+                <Button className="self-end" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
               </div>
             ) : null}
             {mixed && summary.rows.length > 0 ? (
@@ -2959,11 +3012,25 @@ export function SimpleOperationsClient({
             <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft className="size-4" /></Button>
             <div className="min-w-64 text-center text-sm font-black">{dateRangeLabel(commercialRange.start, commercialRange.end)}</div>
             <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7)))}><ChevronRight className="size-4" /></Button>
-            <Button variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
+            <Button variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setCommercialDateMenuOpen(false); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
-            <label className="grid gap-1 text-xs font-black uppercase text-muted-foreground">From<input className="h-10 rounded-md border bg-background px-3 text-sm font-bold normal-case text-foreground" type="date" value={commercialCustomStart} onChange={(event) => setCommercialCustomStart(event.target.value)} /></label>
-            <label className="grid gap-1 text-xs font-black uppercase text-muted-foreground">To<input className="h-10 rounded-md border bg-background px-3 text-sm font-bold normal-case text-foreground" type="date" value={commercialCustomEnd} onChange={(event) => setCommercialCustomEnd(event.target.value)} /></label>
-            {(commercialCustomStart || commercialCustomEnd) ? <Button variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear calendar</Button> : null}
+            <div className="relative">
+              <Button variant="outline" size="sm" onClick={() => setCommercialDateMenuOpen((open) => !open)}>
+                <CalendarDays className="size-4" /> Date range
+              </Button>
+              {commercialDateMenuOpen ? (
+                <div className="absolute right-0 z-20 mt-2 w-[290px] rounded-md border border-border bg-card p-3 shadow-xl">
+                  <div className="grid gap-3">
+                    <label className="grid gap-1 text-xs font-black uppercase text-muted-foreground">From<input className="h-10 rounded-md border bg-background px-3 text-sm font-bold normal-case text-foreground" type="date" value={commercialCustomStart} onChange={(event) => setCommercialCustomStart(event.target.value)} /></label>
+                    <label className="grid gap-1 text-xs font-black uppercase text-muted-foreground">To<input className="h-10 rounded-md border bg-background px-3 text-sm font-bold normal-case text-foreground" type="date" value={commercialCustomEnd} onChange={(event) => setCommercialCustomEnd(event.target.value)} /></label>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" type="button" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear</Button>
+                      <Button size="sm" type="button" onClick={() => setCommercialDateMenuOpen(false)}>Apply</Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
