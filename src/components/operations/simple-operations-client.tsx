@@ -16,9 +16,9 @@ import {
   FileDown,
   FileSpreadsheet,
   FileText,
-  Filter,
   Mail,
   PauseCircle,
+  Pencil,
   Plus,
   RotateCcw,
   Save,
@@ -550,7 +550,7 @@ function makeTeamEmail(name: string) {
 function messageClass(tone: MessageTone) {
   if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-50";
   if (tone === "error") return "border-rose-200 bg-rose-50 text-rose-950 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-50";
-  return "border-border bg-muted/35 text-foreground";
+  return "border-border bg-muted/30 text-foreground";
 }
 
 function actionLabel(action: string) {
@@ -592,15 +592,29 @@ function monthLabel(value: string) {
 }
 
 function statusBadgeClass(status: string | null | undefined) {
-  if (status === "paid" || status === "verified") return "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
-  if (status === "needs_review") return "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
-  if (status === "skipped" || status === "no_jobs") return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/25 dark:text-slate-200";
+  if (status === "paid" || status === "verified" || status === "completed" || status === "active" || status === "approved") return "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
+  if (status === "needs_review" || status === "pending_payment" || status === "pending") return "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
+  if (status === "overdue" || status === "urgent") return "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-100";
+  if (status === "skipped" || status === "no_jobs" || status === "inactive") return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/25 dark:text-slate-200";
   return "border-border bg-background text-muted-foreground";
 }
 
 function statusLabel(status: string | null | undefined) {
+  if (status === "pending") return "Pending";
+  if (status === "paid") return "Paid";
+  if (status === "verified") return "Verified";
+  if (status === "completed") return "Completed";
+  if (status === "active") return "Active";
+  if (status === "inactive") return "Inactive";
+  if (status === "approved") return "Approved";
+  if (status === "scheduled") return "Scheduled";
+  if (status === "pending_payment") return "Pending payment";
+  if (status === "needs_review") return "Needs review";
+  if (status === "no_jobs") return "No jobs";
+  if (status === "overdue") return "Overdue";
   if (status === "skipped") return "No eligible service";
-  return status ?? "pending";
+  if (!status) return "Pending";
+  return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function dateOutsideRange(value: string, start: string, end: string) {
@@ -639,7 +653,7 @@ function commercialRuleMatchesDate(rule: CommercialScheduleRuleRow, dateKey: str
 
 function commercialScheduleSummary(rules: CommercialScheduleRuleRow[]) {
   const activeRules = rules.filter((rule) => rule.active !== false).sort((a, b) => Number(a.day_of_week) - Number(b.day_of_week));
-  if (!activeRules.length) return "No structured schedule";
+  if (!activeRules.length) return "No schedule configured yet";
   const frequency = commercialFrequencyLabel(commercialRuleFrequency(activeRules[0]));
   const days = activeRules.map((rule) => `${WEEKDAY_NAMES[Number(rule.day_of_week)] ?? "Day"} ${formatHours(toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours))}h`).join(" + ");
   return `${frequency} · ${days}`;
@@ -664,14 +678,18 @@ function MetricCard({
   tone?: "neutral" | "good" | "warn";
 }) {
   return (
-    <Card className={tone === "warn" ? "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/20" : tone === "good" ? "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/20" : ""}>
-      <CardContent className="flex items-start justify-between gap-3 p-4">
+    <Card className={cn(
+      "rounded-[16px] border-border/70 shadow-[0_16px_42px_-44px_hsl(215_40%_20%)]",
+      tone === "warn" ? "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15" : "",
+      tone === "good" ? "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900 dark:bg-emerald-950/15" : "",
+    )}>
+      <CardContent className="flex min-h-[96px] items-start justify-between gap-3 p-4">
         <div className="min-w-0">
-          <p className="text-[11px] font-black uppercase text-muted-foreground">{label}</p>
-          <p className="mt-2 text-2xl font-black leading-none">{value}</p>
-          {note ? <p className="mt-2 text-xs font-semibold text-muted-foreground">{note}</p> : null}
+          <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+          <p className="mt-3 text-2xl font-semibold leading-none tracking-normal">{value}</p>
+          {note ? <p className="mt-2 text-xs font-medium text-muted-foreground">{note}</p> : null}
         </div>
-        <div className="grid size-9 shrink-0 place-items-center rounded-md border border-border/80 bg-background text-primary">
+        <div className="grid size-8 shrink-0 place-items-center rounded-md border border-border/70 bg-background/80 text-primary">
           <Icon className="size-4" />
         </div>
       </CardContent>
@@ -687,12 +705,12 @@ function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (valu
   ];
 
   return (
-    <div className="inline-flex rounded-md border border-border bg-background/80 p-1" aria-label="Calculation period">
+    <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1 shadow-sm" aria-label="Calculation period">
       {options.map((option) => (
         <button
           type="button"
           className={cn(
-            "rounded px-3 py-1.5 text-xs font-black text-muted-foreground transition hover:bg-accent hover:text-foreground",
+            "whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground",
             value === option.value && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
           )}
           key={option.value}
@@ -704,6 +722,18 @@ function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (valu
     </div>
   );
 }
+
+const PAYMENT_PANEL_CLASS = "rounded-[18px] border border-border/70 bg-card/95 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]";
+const PAYMENT_FIELD_CLASS = "h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm font-semibold text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10";
+const PAYMENT_LABEL_CLASS = "grid min-w-0 gap-1.5 text-xs font-semibold uppercase text-muted-foreground";
+const PAYMENT_ICON_BUTTON_CLASS = "inline-grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-45";
+const PAYMENT_MODAL_PANEL_CLASS = "max-h-[90dvh] w-full overflow-auto rounded-[18px] border border-border/70 bg-card shadow-[0_28px_80px_-42px_hsl(215_40%_18%)]";
+const SOP_PANEL_CLASS = "rounded-[18px] border border-border/70 bg-card/95 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]";
+const SOP_TABLE_WRAP_CLASS = "overflow-hidden rounded-xl border border-border/70 bg-background/60";
+const SOP_ACTION_BUTTON_CLASS = "h-9 rounded-md px-3 text-sm font-semibold";
+const SOP_EMPTY_CLASS = "rounded-xl border border-dashed border-border/70 bg-background/55 p-6 text-center text-sm font-semibold text-muted-foreground";
+const SOP_ROW_CLASS = "rounded-xl border border-border/70 bg-background/65 p-3 transition hover:border-primary/30 hover:bg-accent/25";
+const SOP_CLOSE_BUTTON_CLASS = "grid size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-50";
 
 export function SimpleOperationsClient({
   view,
@@ -2062,12 +2092,12 @@ export function SimpleOperationsClient({
       <div className="space-y-5">
         {view === "residential" ? null : renderHeader()}
         {message ? (
-          <div className={cn("flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-sm font-bold", messageClass(message.tone))}>
+          <div className={cn("flex items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm font-semibold shadow-sm", messageClass(message.tone))}>
             <span>{message.text}</span>
-            <button type="button" aria-label="Dismiss message" onClick={() => setMessage(null)}><X className="size-4" /></button>
+            <button type="button" className="grid size-6 place-items-center rounded-md transition hover:bg-background/60" aria-label="Dismiss message" onClick={() => setMessage(null)}><X className="size-4" /></button>
           </div>
         ) : null}
-        {loading ? <Card><CardContent className="p-8 text-center text-sm font-bold text-muted-foreground">Loading operations tracker...</CardContent></Card> : null}
+        {loading ? <Card className={SOP_PANEL_CLASS}><CardContent className="p-8 text-center text-sm font-semibold text-muted-foreground">Loading operations tracker...</CardContent></Card> : null}
         {!loading && view === "dashboard" ? renderDashboard() : null}
         {!loading && view === "tasks" ? renderTasks() : null}
         {!loading && view === "residential" ? renderResidential() : null}
@@ -2084,37 +2114,37 @@ export function SimpleOperationsClient({
 
   function renderHeader() {
     const headers: Record<SimpleOperationsView, { title: string; sub: string; icon: typeof CheckCircle2 }> = {
-      dashboard: { title: "Operations Dashboard", sub: "Reminders, residential payments, and commercial hours.", icon: CheckCircle2 },
-      tasks: { title: "Task Reminders", sub: "Simple reminders for Jake Ivan-Pal and Carlos Lopez.", icon: Clock },
+      dashboard: { title: "Operations dashboard", sub: "Daily reminders, residential payments, and commercial hours.", icon: CheckCircle2 },
+      tasks: { title: "Task reminders", sub: "Simple reminders for Jake Ivan-Pal and Carlos Lopez.", icon: Clock },
       residential: { title: "Residential payments / commercial hours", sub: "Weekly residential payments and commercial team hours tracking.", icon: WalletCards },
       staff: { title: "Staff / Teams", sub: "Residential teams, rates, hours, and payment status.", icon: Users },
-      reports: { title: "Reports", sub: "Task, hours, and residential weekly payment exports.", icon: FileText },
-      settings: { title: "Settings", sub: "Notification configuration and residential operations defaults.", icon: Settings2 },
+      reports: { title: "Reports", sub: "Task, hours, and weekly payment exports.", icon: FileText },
+      settings: { title: "Settings", sub: "Notification setup and residential operations defaults.", icon: Settings2 },
     };
     const meta = headers[view];
     const Icon = meta.icon;
     return (
-      <section className="rounded-lg border border-border/80 bg-card p-5 shadow-[0_22px_60px_-52px_hsl(210_40%_20%)]">
+      <section className={cn(SOP_PANEL_CLASS, "px-4 py-4 sm:px-5")}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="flex items-center gap-2 text-xs font-black uppercase tracking-normal text-primary"><Icon className="size-4" /> Pristine Cleaners</p>
-            <h1 className="mt-3 text-3xl font-black tracking-normal">{meta.title}</h1>
-            <p className="mt-2 text-sm font-semibold text-muted-foreground">{meta.sub}</p>
+            <p className="flex items-center gap-2 text-xs font-semibold text-primary"><Icon className="size-4" /> Pristine Cleaners SOP</p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-normal sm:text-[1.7rem]">{meta.title}</h1>
+            <p className="mt-1.5 text-sm font-medium text-muted-foreground">{meta.sub}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {view === "tasks" ? <Button onClick={() => openTaskDraft()}><Plus className="size-4" /> Create task</Button> : null}
+          <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+            {view === "tasks" ? <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openTaskDraft()}><Plus className="size-4" /> Add reminder</Button> : null}
             {view === "residential" ? (
               <>
-                <Button onClick={() => {
+                <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => {
                   setCommercialPanelOpen(false);
                   const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary));
                   if (first) openPaymentModal(first, "residential");
                 }}><Plus className="size-4" /> Add residential payment</Button>
-                <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
-                <Button variant="outline" onClick={commercialPanelOpen ? exportCommercialHours : exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
+                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
+                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={commercialPanelOpen ? exportCommercialHours : exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
               </>
             ) : null}
-            {view === "staff" ? <Button onClick={() => openStaffDraft()}><Plus className="size-4" /> Create team</Button> : null}
+            {view === "staff" ? <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add team</Button> : null}
           </div>
         </div>
       </section>
@@ -2145,62 +2175,62 @@ export function SimpleOperationsClient({
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0">
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
               <CardTitle>Today&apos;s reminders</CardTitle>
-              <Button asChild variant="outline" size="sm"><Link href="/tasks">Open reminders</Link></Button>
+              <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/tasks">Open reminders</Link></Button>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {taskStats.dueToday.length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">No reminders due today.</div> : null}
+              {taskStats.dueToday.length === 0 ? <div className={SOP_EMPTY_CLASS}>No reminders due today.</div> : null}
               {taskStats.dueToday.slice(0, 6).map((task) => renderCompactTaskRow(task))}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0">
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
               <CardTitle>This week residential hours</CardTitle>
-              <Button asChild variant="outline" size="sm"><Link href="/residential">Open tracker</Link></Button>
+              <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/residential">Open tracker</Link></Button>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {teamHours.length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">No work hours logged in this period.</div> : null}
+              {teamHours.length === 0 ? <div className={SOP_EMPTY_CLASS}>No work hours logged in this period.</div> : null}
               {teamHours.slice(0, 5).map((team) => (
-                <div className="flex items-center justify-between rounded-lg border border-border bg-background/70 p-3" key={team.key}>
+                <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={team.key}>
                   <div>
-                    <p className="font-black">{team.teamName}</p>
-                    <p className="text-xs font-bold text-muted-foreground">{team.accounts.size} accounts worked</p>
+                    <p className="font-semibold">{team.teamName}</p>
+                    <p className="text-xs font-medium text-muted-foreground">{team.accounts.size} accounts worked</p>
                   </div>
-                  <p className="text-lg font-black text-primary">{formatHours(team.totalHours)}h</p>
+                  <p className="text-lg font-semibold text-primary">{formatHours(team.totalHours)}h</p>
                 </div>
               ))}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="p-4 sm:p-5">
               <CardTitle>Pending payments</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {weeklyPaymentSummaries.filter((summary) => summary.paymentTotal > 0 && summary.payment?.status !== "paid").length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">No pending residential payments for the selected week.</div> : null}
+              {weeklyPaymentSummaries.filter((summary) => summary.paymentTotal > 0 && summary.payment?.status !== "paid").length === 0 ? <div className={SOP_EMPTY_CLASS}>No pending residential payments for the selected week.</div> : null}
               {weeklyPaymentSummaries.filter((summary) => summary.paymentTotal > 0 && summary.payment?.status !== "paid").slice(0, 5).map((summary) => {
                 return (
-                  <div className="flex items-center justify-between rounded-lg border border-border bg-background/70 p-3" key={summary.key}>
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={summary.key}>
                     <div>
-                      <p className="font-black">{summary.teamName}</p>
-                      <p className="text-xs font-bold text-muted-foreground">{summary.rows.length} payment rows</p>
+                      <p className="font-semibold">{summary.teamName}</p>
+                      <p className="text-xs font-medium text-muted-foreground">{summary.rows.length} payment rows</p>
                     </div>
-                    <p className="font-black text-primary">{formatMoney(summary.paymentTotal)}</p>
+                    <p className="font-semibold text-primary">{formatMoney(summary.paymentTotal)}</p>
                   </div>
                 );
               })}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="p-4 sm:p-5">
               <CardTitle>Recent completed tasks</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {recentCompleted.length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">No completed reminders this week.</div> : null}
+              {recentCompleted.length === 0 ? <div className={SOP_EMPTY_CLASS}>No completed reminders this week.</div> : null}
               {recentCompleted.map((task) => renderCompactTaskRow(task))}
             </CardContent>
           </Card>
@@ -2213,15 +2243,15 @@ export function SimpleOperationsClient({
     return (
       <button
         type="button"
-        className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background/70 p-3 text-left transition hover:border-primary/30 hover:bg-accent/25"
+        className={cn(SOP_ROW_CLASS, "flex items-start justify-between gap-3 text-left")}
         key={task.id}
         onClick={() => setSelectedTask(task)}
       >
         <div className="min-w-0">
-          <p className="truncate font-black">{task.title}</p>
-          <p className="text-xs font-bold text-muted-foreground">{task.assignee ?? "Unassigned"} · {displayDate(task.due_date)}</p>
+          <p className="truncate font-semibold">{task.title}</p>
+          <p className="text-xs font-medium text-muted-foreground">{task.assignee ?? "Unassigned"} · {displayDate(task.due_date)}</p>
         </div>
-        <Badge variant="outline">{normalizeTaskStatus(task.status)}</Badge>
+        <Badge className={statusBadgeClass(normalizeTaskStatus(task.status))} variant="outline">{statusLabel(normalizeTaskStatus(task.status))}</Badge>
       </button>
     );
   }
@@ -2256,20 +2286,20 @@ export function SimpleOperationsClient({
     function renderTaskList(rows: OperationTaskRow[], emptyText: string) {
       return (
         <div className="grid gap-2">
-          {rows.length === 0 ? <div className="rounded-md border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">{emptyText}</div> : null}
+          {rows.length === 0 ? <div className={SOP_EMPTY_CLASS}>{emptyText}</div> : null}
           {rows.map((task) => {
             const status = normalizeTaskStatus(task.status);
             const dueKey = dateKeyFromValue(task.due_date);
             const overdue = status === "pending" && Boolean(dueKey && dueKey < today);
             return (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background/70 p-3" key={task.id}>
+              <div className={cn(SOP_ROW_CLASS, "flex flex-wrap items-center justify-between gap-3")} key={task.id}>
                 <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedTask(task)}>
-                  <p className="truncate font-black">{task.title}</p>
-                  <p className="mt-1 text-xs font-bold text-muted-foreground">{task.assignee ?? "Unassigned"} · {displayDate(task.due_date)} · {TASK_FREQUENCY_LABELS[frequencyFromRecurrence(task.recurrence)]}</p>
+                  <p className="truncate font-semibold">{task.title}</p>
+                  <p className="mt-1 text-xs font-medium text-muted-foreground">{task.assignee ?? "Unassigned"} · {displayDate(task.due_date)} · {TASK_FREQUENCY_LABELS[frequencyFromRecurrence(task.recurrence)]}</p>
                 </button>
-                <Badge className={overdue ? "border-amber-200 bg-amber-50 text-amber-900" : status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : ""} variant="outline">{overdue ? "overdue" : status}</Badge>
+                <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status)}</Badge>
                 <div className="flex gap-1">
-                  <Button className="h-8 px-2 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-3.5" /> Done</Button>
+                  <Button className="h-8 rounded-md px-2.5 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-3.5" /> Mark completed</Button>
                   <Button className="size-8" size="icon" variant="outline" aria-label="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-3.5" /></Button>
                   <Button className="size-8 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-3.5" /></Button>
                 </div>
@@ -2286,16 +2316,16 @@ export function SimpleOperationsClient({
           <MetricCard icon={Clock} label="Pending" value={taskStats.pending.length} />
           <MetricCard icon={AlertTriangle} label="Overdue" value={taskStats.overdue.length} tone={taskStats.overdue.length ? "warn" : "good"} />
           <MetricCard icon={CheckCircle2} label="Completed" value={taskStats.completed.length} tone="good" />
-          <MetricCard icon={Mail} label="Assignees" value="Jake / Carlos" note="No commercial or SEO task fields" />
+          <MetricCard icon={Mail} label="Assignees" value="Jake / Carlos" note="Reminder ownership" />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
+        <div className={cn(SOP_PANEL_CLASS, "flex flex-wrap items-center justify-between gap-3 p-3")}>
           <div className="flex flex-wrap gap-2">
-            <div className="inline-flex rounded-md border border-border bg-background/80 p-1">
+            <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1 shadow-sm">
               {(["month", "day", "list"] as TaskViewMode[]).map((mode) => (
                 <button
                   type="button"
-                  className={cn("rounded px-3 py-1.5 text-xs font-black text-muted-foreground hover:bg-accent hover:text-foreground", taskViewMode === mode && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
+                  className={cn("whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground", taskViewMode === mode && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
                   key={mode}
                   onClick={() => setTaskViewMode(mode)}
                 >
@@ -2303,45 +2333,45 @@ export function SimpleOperationsClient({
                 </button>
               ))}
             </div>
-            <div className="inline-flex rounded-md border border-border bg-background/80 p-1">
+            <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1 shadow-sm">
               {(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => (
                 <button
                   type="button"
-                  className={cn("rounded px-3 py-1.5 text-xs font-black text-muted-foreground hover:bg-accent hover:text-foreground", taskTab === tab && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
+                  className={cn("whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground", taskTab === tab && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
                   key={tab}
                   onClick={() => setTaskTab(tab)}
                 >
-                  {tab.replace("_", " ")} ({tabCounts[tab]})
+                  {statusLabel(tab)} ({tabCounts[tab]})
                 </button>
               ))}
             </div>
           </div>
-          <div className="flex min-w-64 flex-1 justify-end gap-2">
-            <input className="h-10 w-full max-w-md rounded-md border bg-background px-3 text-sm font-bold" placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
-            {taskViewMode === "day" ? <input className="h-10 rounded-md border bg-background px-3 text-sm font-bold" type="date" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
-            <Button variant="outline" onClick={() => { setTaskSearch(""); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw className="size-4" /> Clear</Button>
+          <div className="flex min-w-64 flex-1 flex-wrap justify-end gap-2">
+            <input className={cn(PAYMENT_FIELD_CLASS, "w-full max-w-md")} placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
+            {taskViewMode === "day" ? <input className={PAYMENT_FIELD_CLASS} type="date" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
+            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => { setTaskSearch(""); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw className="size-4" /> Clear</Button>
           </div>
         </div>
 
-        <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+        <Card className={cn(SOP_PANEL_CLASS, "overflow-hidden")}>
+          <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
             <div>
               <CardTitle>{taskViewMode === "list" ? "Task list" : taskViewMode === "day" ? "Tasks by day" : "Task calendar"}</CardTitle>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">{taskViewMode === "day" ? displayDate(taskSelectedDay) : taskViewMode === "list" ? `${listTasks.length} reminders` : monthLabel(taskCalendarAnchor)}</p>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">{taskViewMode === "day" ? displayDate(taskSelectedDay) : taskViewMode === "list" ? `${listTasks.length} reminders` : monthLabel(taskCalendarAnchor)}</p>
             </div>
             <div className="flex gap-2">
               {taskViewMode === "month" ? (
                 <>
-                  <Button size="icon" variant="outline" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></Button>
-                  <Button variant="outline" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</Button>
-                  <Button size="icon" variant="outline" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></Button>
+                  <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></Button>
+                  <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</Button>
+                  <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></Button>
                 </>
               ) : null}
               {taskViewMode === "day" ? (
                 <>
-                  <Button size="icon" variant="outline" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-4" /></Button>
-                  <Button variant="outline" onClick={() => setTaskSelectedDay(todayKey())}>Today</Button>
-                  <Button size="icon" variant="outline" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-4" /></Button>
+                  <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-4" /></Button>
+                  <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => setTaskSelectedDay(todayKey())}>Today</Button>
+                  <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-4" /></Button>
                 </>
               ) : null}
             </div>
@@ -2351,17 +2381,17 @@ export function SimpleOperationsClient({
             {taskViewMode === "day" ? <div className="p-3">{renderTaskList(selectedDayTasks, "No reminders for this day.")}</div> : null}
             {taskViewMode === "month" ? (
               <>
-            <div className="grid grid-cols-7 border-y border-border bg-muted/35 text-center text-xs font-black uppercase text-muted-foreground">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border py-2 last:border-r-0" key={day}>{day}</div>)}
+            <div className="grid grid-cols-7 border-y border-border/70 bg-muted/25 text-center text-xs font-semibold text-muted-foreground">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border/60 py-2 last:border-r-0" key={day}>{day}</div>)}
             </div>
             <div className="grid grid-cols-7">
               {calendarDays.map(({ key, date, inMonth }) => {
                 const dayTasks = (tasksByDay.get(key) ?? []).slice().sort((a, b) => String(a.priority).localeCompare(String(b.priority)));
                 const isToday = key === today;
                 return (
-                  <section className={cn("min-h-32 border-b border-r border-border p-2 last:border-r-0", !inMonth && "bg-muted/20 text-muted-foreground", isToday && "bg-emerald-50/70 dark:bg-emerald-950/20")} key={key}>
+                  <section className={cn("min-h-32 border-b border-r border-border/60 p-2 last:border-r-0", !inMonth && "bg-muted/20 text-muted-foreground", isToday && "bg-emerald-50/55 dark:bg-emerald-950/20")} key={key}>
                     <div className="flex items-center justify-between gap-2">
-                      <button type="button" className={cn("grid size-7 place-items-center rounded-md text-sm font-black hover:bg-accent", isToday && "bg-primary text-primary-foreground hover:bg-primary")} onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>{date.getDate()}</button>
+                      <button type="button" className={cn("grid size-7 place-items-center rounded-md text-sm font-semibold hover:bg-accent", isToday && "bg-primary text-primary-foreground hover:bg-primary")} onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>{date.getDate()}</button>
                       {dayTasks.length ? <Badge variant="outline">{dayTasks.length}</Badge> : null}
                     </div>
                     <div className="mt-2 grid gap-1">
@@ -2371,16 +2401,16 @@ export function SimpleOperationsClient({
                         return (
                           <button
                             type="button"
-                            className={cn("rounded-md border px-2 py-1 text-left text-[11px] font-black leading-tight transition hover:border-primary/40 hover:bg-accent/30", overdue ? "border-amber-200 bg-amber-50 text-amber-950" : status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-border bg-background")}
+                            className={cn("rounded-md border px-2 py-1 text-left text-[11px] font-semibold leading-tight transition hover:border-primary/40 hover:bg-accent/30", overdue ? statusBadgeClass("overdue") : status === "completed" ? statusBadgeClass("completed") : "border-border/70 bg-background/80 text-foreground")}
                             key={task.id}
                             onClick={() => setSelectedTask(task)}
                           >
                             <span className="line-clamp-2">{task.title}</span>
-                            <span className="mt-1 block truncate text-[10px] font-bold opacity-70">{task.assignee ?? "Unassigned"}</span>
+                            <span className="mt-1 block truncate text-[10px] font-medium opacity-70">{task.assignee ?? "Unassigned"}</span>
                           </button>
                         );
                       })}
-                      {dayTasks.length > 3 ? <button type="button" className="text-left text-[11px] font-black text-primary" onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>+{dayTasks.length - 3} more</button> : null}
+                      {dayTasks.length > 3 ? <button type="button" className="text-left text-[11px] font-semibold text-primary" onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>+{dayTasks.length - 3} more</button> : null}
                     </div>
                   </section>
                 );
@@ -2388,7 +2418,7 @@ export function SimpleOperationsClient({
             </div>
             {unscheduledTasks.length ? (
               <div className="border-t border-border p-3">
-                <p className="text-sm font-black">No due date</p>
+                <p className="text-sm font-semibold">No due date</p>
                 <div className="mt-2 grid gap-2 md:grid-cols-3">
                   {unscheduledTasks.slice(0, 6).map((task) => renderCompactTaskRow(task))}
                 </div>
@@ -2422,15 +2452,16 @@ export function SimpleOperationsClient({
           <MetricCard icon={Clock} label="Total biweekly hours" value={formatHours(accountTotals.biweekly)} />
           <MetricCard icon={CalendarDays} label="Total monthly hours" value={formatHours(accountTotals.monthly)} note="Approximation: 4.33 weeks/month" />
         </div>
-        <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+        <Card className={SOP_PANEL_CLASS}>
+          <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
             <CardTitle>Residential recurring cleaning accounts</CardTitle>
             <Badge variant="outline">{formatHours(selectedTotal)} hours in selected period</Badge>
           </CardHeader>
-          <CardContent className="overflow-auto p-0">
+          <CardContent>
+            <div className={cn(SOP_TABLE_WRAP_CLASS, "overflow-x-auto")}>
             <table className="w-full min-w-[1080px] text-sm">
               <thead>
-                <tr className="border-b bg-muted/35 text-left text-xs font-black uppercase text-muted-foreground">
+                <tr className="border-b border-border/70 bg-muted/25 text-left text-xs font-semibold text-muted-foreground">
                   <th className="px-4 py-3">Account name</th>
                   <th>Scheduled hours</th>
                   <th>Frequency</th>
@@ -2450,8 +2481,8 @@ export function SimpleOperationsClient({
                   return (
                     <tr className="border-b border-border/70" key={account.id}>
                       <td className="px-4 py-3">
-                        <p className="font-black">{account.account_name}</p>
-                        <p className="mt-1 text-xs font-semibold text-muted-foreground">This account contributes {formatHours(totals.monthly)} hours/month.</p>
+                        <p className="font-semibold">{account.account_name}</p>
+                        <p className="mt-1 text-xs font-medium text-muted-foreground">This account contributes {formatHours(totals.monthly)} hours/month.</p>
                       </td>
                       <td>{formatHours(toNumber(account.scheduled_hours))}</td>
                       <td>
@@ -2462,7 +2493,7 @@ export function SimpleOperationsClient({
                       <td>{formatHours(totals.biweekly)}</td>
                       <td>{formatHours(totals.monthly)}</td>
                       <td>{account.assigned_team_name ?? "Unassigned"}</td>
-                      <td><Badge variant="outline">{account.active === false ? "inactive" : "active"}</Badge></td>
+                      <td><Badge className={statusBadgeClass(account.active === false ? "inactive" : "active")} variant="outline">{statusLabel(account.active === false ? "inactive" : "active")}</Badge></td>
                       <td className="pr-4">
                         <div className="flex justify-end gap-2">
                           <Button size="icon" variant="outline" aria-label="Edit account" onClick={() => openAccountDraft(account)}><Edit3 className="size-4" /></Button>
@@ -2475,6 +2506,7 @@ export function SimpleOperationsClient({
                 })}
               </tbody>
             </table>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -2491,25 +2523,25 @@ export function SimpleOperationsClient({
           <MetricCard icon={WalletCards} label="Pending payment hours" value={formatHours(logsInPeriod.filter((log) => log.status !== "paid").reduce((sum, log) => sum + toNumber(log.hours_worked), 0))} />
         </div>
 
-        <Card>
-          <CardHeader>
+        <Card className={SOP_PANEL_CLASS}>
+          <CardHeader className="p-4 sm:p-5">
             <CardTitle>Add work hours</CardTitle>
           </CardHeader>
           <CardContent>
             <form className="grid gap-3 md:grid-cols-5" onSubmit={saveWorkLog}>
-              <label className="grid gap-1 text-sm font-bold">Account<select className="h-10 rounded-md border bg-background px-3" value={workLogDraft.accountId} onChange={(event) => setWorkLogDraft((current) => ({ ...current, accountId: event.target.value }))}>
+              <label className={PAYMENT_LABEL_CLASS}>Account<select className={PAYMENT_FIELD_CLASS} value={workLogDraft.accountId} onChange={(event) => setWorkLogDraft((current) => ({ ...current, accountId: event.target.value }))}>
                 <option value="">Select account</option>
                 {activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}
               </select></label>
-              <label className="grid gap-1 text-sm font-bold">Team<select className="h-10 rounded-md border bg-background px-3" value={workLogDraft.teamId} onChange={(event) => setWorkLogDraft((current) => ({ ...current, teamId: event.target.value }))}>
+              <label className={PAYMENT_LABEL_CLASS}>Team<select className={PAYMENT_FIELD_CLASS} value={workLogDraft.teamId} onChange={(event) => setWorkLogDraft((current) => ({ ...current, teamId: event.target.value }))}>
                 <option value="">Select team</option>
                 {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
               </select></label>
-              <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={workLogDraft.workDate} onChange={(event) => setWorkLogDraft((current) => ({ ...current, workDate: event.target.value }))} /></label>
-              <label className="grid gap-1 text-sm font-bold">Hours worked<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={workLogDraft.hoursWorked} onChange={(event) => setWorkLogDraft((current) => ({ ...current, hoursWorked: event.target.value }))} /></label>
-              <div className="flex items-end"><Button className="w-full" type="submit" disabled={savingWorkLog}><Save className="size-4" /> {savingWorkLog ? "Saving..." : "Save"}</Button></div>
-              <label className="grid gap-1 text-sm font-bold md:col-span-4">Notes<input className="h-10 rounded-md border bg-background px-3" value={workLogDraft.notes} onChange={(event) => setWorkLogDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
-              <label className="grid gap-1 text-sm font-bold">Status<select className="h-10 rounded-md border bg-background px-3" value={workLogDraft.status} onChange={(event) => setWorkLogDraft((current) => ({ ...current, status: event.target.value as WorkLogStatus }))}>
+              <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={workLogDraft.workDate} onChange={(event) => setWorkLogDraft((current) => ({ ...current, workDate: event.target.value }))} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Hours worked<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={workLogDraft.hoursWorked} onChange={(event) => setWorkLogDraft((current) => ({ ...current, hoursWorked: event.target.value }))} /></label>
+              <div className="flex items-end"><Button className="h-10 w-full rounded-md" type="submit" disabled={savingWorkLog}><Save className="size-4" /> {savingWorkLog ? "Saving..." : "Save"}</Button></div>
+              <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-4")}>Notes<input className={PAYMENT_FIELD_CLASS} value={workLogDraft.notes} onChange={(event) => setWorkLogDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Status<select className={PAYMENT_FIELD_CLASS} value={workLogDraft.status} onChange={(event) => setWorkLogDraft((current) => ({ ...current, status: event.target.value as WorkLogStatus }))}>
                 <option value="pending">Pending</option>
                 <option value="approved">Approved</option>
                 <option value="paid">Paid</option>
@@ -2519,34 +2551,35 @@ export function SimpleOperationsClient({
         </Card>
 
         <div className="grid gap-4 xl:grid-cols-[.8fr_1.2fr]">
-          <Card>
-            <CardHeader>
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="p-4 sm:p-5">
               <CardTitle>Total by team</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {teamHours.length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground">No team hours in this period.</div> : null}
+              {teamHours.length === 0 ? <div className={SOP_EMPTY_CLASS}>No team hours in this period.</div> : null}
               {teamHours.map((team) => (
-                <div className="rounded-lg border border-border bg-background/70 p-3" key={team.key}>
+                <div className="rounded-xl border border-border/70 bg-background/65 p-3" key={team.key}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="font-black">{team.teamName}</p>
-                      <p className="text-xs font-bold text-muted-foreground">{team.accounts.size} accounts worked</p>
+                      <p className="font-semibold">{team.teamName}</p>
+                      <p className="text-xs font-medium text-muted-foreground">{team.accounts.size} accounts worked</p>
                     </div>
-                    <p className="text-lg font-black text-primary">{formatHours(team.totalHours)}h</p>
+                    <p className="text-lg font-semibold text-primary">{formatHours(team.totalHours)}h</p>
                   </div>
                 </div>
               ))}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="p-4 sm:p-5">
               <CardTitle>Work log entries</CardTitle>
             </CardHeader>
-            <CardContent className="overflow-auto p-0">
+            <CardContent>
+              <div className={cn(SOP_TABLE_WRAP_CLASS, "overflow-x-auto")}>
               <table className="w-full min-w-[720px] text-sm">
                 <thead>
-                  <tr className="border-b bg-muted/35 text-left text-xs font-black uppercase text-muted-foreground">
+                  <tr className="border-b border-border/70 bg-muted/25 text-left text-xs font-semibold text-muted-foreground">
                     <th className="px-4 py-3">Date</th>
                     <th>Account</th>
                     <th>Team</th>
@@ -2556,19 +2589,20 @@ export function SimpleOperationsClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {logsInPeriod.length === 0 ? <tr><td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={6}>No work logs in this period.</td></tr> : null}
+                  {logsInPeriod.length === 0 ? <tr><td className="px-4 py-8 text-center font-semibold text-muted-foreground" colSpan={6}>No work logs in this period.</td></tr> : null}
                   {logsInPeriod.map((log) => (
                     <tr className="border-b border-border/70" key={log.id}>
                       <td className="px-4 py-3">{displayDate(log.work_date)}</td>
-                      <td className="font-bold">{log.account_name}</td>
+                      <td className="font-semibold">{log.account_name}</td>
                       <td>{log.team_name}</td>
                       <td>{formatHours(toNumber(log.hours_worked))}</td>
-                      <td><Badge variant="outline">{log.status ?? "pending"}</Badge></td>
+                      <td><Badge className={statusBadgeClass(log.status ?? "pending")} variant="outline">{statusLabel(log.status ?? "pending")}</Badge></td>
                       <td className="max-w-64 truncate text-muted-foreground">{log.notes}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -2601,67 +2635,84 @@ export function SimpleOperationsClient({
     const activePaymentSummary = activePaymentSummaryKey ? weeklyPaymentSummaries.find((summary) => summary.key === activePaymentSummaryKey) : null;
     const cityFilterOptions = Array.from(new Set(paymentRowsInWeek.map(displayPaymentCity).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
+    const weeklyMetrics = [
+      { label: "Total payments", value: formatMoney(weekTotal), Icon: WalletCards, tone: "neutral" },
+      { label: "Pending", value: formatMoney(pendingTotal), Icon: Clock, tone: pendingTotal ? "warn" : "good" },
+      { label: "Paid", value: formatMoney(paidTotal), Icon: BadgeCheck, tone: "good" },
+      { label: "Total jobs", value: totalJobs, Icon: FileText, tone: "neutral" },
+    ];
+
     return (
-      <div className="space-y-4">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-black uppercase text-muted-foreground">Residential payments</p>
-              <h2 className="text-2xl font-black tracking-normal">Residential payments</h2>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">{dateRangeLabel(weekRange.start, weekRange.end)} · Excel-style cleaner cards</p>
+      <div className="space-y-5">
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="text-2xl font-semibold tracking-normal sm:text-3xl">Residential payments / commercial hours</h2>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Weekly residential payments and commercial team hours tracking.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => {
+            <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+              <Button className="h-9 rounded-md px-3 text-sm font-semibold" onClick={() => {
                 const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary) && !isCarlosLopez(summary.teamName));
                 if (first) openPaymentModal(first, "residential");
               }}><Plus className="size-4" /> Add residential payment</Button>
-              <Button variant="outline" onClick={() => openJuanPaymentModal()}><Plus className="size-4" /> Add Juan payment row</Button>
-              <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
-              <Button variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
+              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
+              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft className="size-4" /></Button>
-            <div className="min-w-64 text-center text-sm font-black">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
-            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight className="size-4" /></Button>
-            <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-[16px] border border-border/70 bg-card/80 p-2 shadow-sm">
+            <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft className="size-4" /></Button>
+            <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
+            <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight className="size-4" /></Button>
+            <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
           </div>
-        </div>
+        </section>
 
-        <div className="grid gap-2 md:grid-cols-4">
-          <MetricCard icon={WalletCards} label="Total payments" value={formatMoney(weekTotal)} />
-          <MetricCard icon={Clock} label="Pending" value={formatMoney(pendingTotal)} tone={pendingTotal ? "warn" : "good"} />
-          <MetricCard icon={BadgeCheck} label="Paid" value={formatMoney(paidTotal)} tone="good" />
-          <MetricCard icon={FileText} label="Total jobs" value={totalJobs} />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {weeklyMetrics.map(({ label, value, Icon, tone }) => (
+            <div
+              className={cn(
+                "min-h-[92px] rounded-[16px] border border-border/70 bg-card/95 p-4 shadow-[0_16px_42px_-44px_hsl(215_40%_20%)]",
+                tone === "warn" && "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15",
+                tone === "good" && "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900 dark:bg-emerald-950/15",
+              )}
+              key={label}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+                <Icon className="size-4 text-primary" />
+              </div>
+              <p className="mt-3 text-2xl font-semibold leading-none tracking-normal">{value}</p>
+            </div>
+          ))}
         </div>
 
         {carlosPaymentSummary ? renderCarlosPaymentPanel(carlosPaymentSummary) : null}
 
-        <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground"><Filter className="size-4" /> Residential payment filters</div>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-3">
-            <input className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" placeholder="Search cleaner or city" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={paymentCleanerFilter} onChange={(event) => setPaymentCleanerFilter(event.target.value)}>
+        <div className={cn(PAYMENT_PANEL_CLASS, "p-3")}>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2.5">
+            <input aria-label="Search cleaner or city" className={PAYMENT_FIELD_CLASS} placeholder="Search cleaner or city" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
+            <select className={PAYMENT_FIELD_CLASS} value={paymentCleanerFilter} onChange={(event) => setPaymentCleanerFilter(event.target.value)} aria-label="Cleaner filter">
               <option value="all">All cleaner names</option>
               {weeklyPaymentSummaries.filter((summary) => !isCarlosLopez(summary.teamName)).map((summary) => <option key={summary.key} value={summary.key}>{summary.teamName}</option>)}
             </select>
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)}>
+            <select className={PAYMENT_FIELD_CLASS} value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)} aria-label="Payment kind filter">
               <option value="all">All cleaners</option>
               <option value="residential">Residential cleaners</option>
               <option value="mixed">Juan Romero format</option>
             </select>
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)}>
+            <select className={PAYMENT_FIELD_CLASS} value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)} aria-label="Payment status filter">
               <option value="all">All statuses</option>
               <option value="pending">Pending</option>
               <option value="paid">Paid</option>
             </select>
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={paymentCityFilter} onChange={(event) => setPaymentCityFilter(event.target.value)}>
+            <select className={PAYMENT_FIELD_CLASS} value={paymentCityFilter} onChange={(event) => setPaymentCityFilter(event.target.value)} aria-label="City filter">
               <option value="all">All cities</option>
               {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
               {cityFilterOptions.filter((city) => !ORANGE_COUNTY_CITIES.includes(city as (typeof ORANGE_COUNTY_CITIES)[number])).map((city) => <option key={city} value={city}>{city}</option>)}
             </select>
-            <label className="flex h-12 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-[15px] font-black">
+            <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-semibold">
               <input type="checkbox" checked={showAllPaymentCleaners} onChange={(event) => setShowAllPaymentCleaners(event.target.checked)} />
               Show all cleaners
             </label>
@@ -2692,33 +2743,33 @@ export function SimpleOperationsClient({
     const paid = row?.status === "paid";
 
     return (
-      <Card className="rounded-md border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/15">
+      <Card className="rounded-[18px] border-emerald-200 bg-emerald-50/45 shadow-[0_18px_50px_-46px_hsl(215_40%_20%)] dark:border-emerald-900 dark:bg-emerald-950/15">
         <CardContent className="grid gap-3 p-4 lg:grid-cols-[1.1fr_.8fr_.8fr_auto]">
           <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase text-muted-foreground">Operations manager</p>
-            <h3 className="mt-1 text-lg font-black tracking-normal">Carlos Lopez</h3>
+            <p className="text-xs font-semibold text-muted-foreground">Operations manager</p>
+            <h3 className="mt-1 text-lg font-semibold tracking-normal">Carlos Lopez</h3>
             <div className="mt-2 flex flex-wrap gap-2">
-              <Badge className="border-emerald-300 bg-emerald-100 text-emerald-950" variant="outline">{paid ? "Paid" : "Pending"}</Badge>
-              <Badge variant="outline">Weekly payment</Badge>
+              <Badge className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-900" variant="outline">{paid ? "Paid" : "Pending"}</Badge>
+              <Badge className="rounded-full bg-background text-muted-foreground" variant="outline">Weekly payment</Badge>
             </div>
           </div>
-          <label className="grid min-w-0 gap-1 text-xs font-black uppercase text-muted-foreground">
+          <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
             Weekly payment
-            <input className="h-11 min-w-0 rounded-md border border-emerald-200 bg-background px-3 text-base font-black normal-case text-foreground" inputMode="decimal" min="0" type="number" value={weeklyPaymentValue} onChange={(event) => setCarlosWeeklyPayment(event.target.value)} placeholder="$0.00" />
+            <input className={cn(PAYMENT_FIELD_CLASS, "border-emerald-200 bg-background")} inputMode="decimal" min="0" type="number" value={weeklyPaymentValue} onChange={(event) => setCarlosWeeklyPayment(event.target.value)} placeholder="$0.00" />
           </label>
-          <label className="grid min-w-0 gap-1 text-xs font-black uppercase text-muted-foreground">
+          <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
             Overtime hours
-            <input className="h-11 min-w-0 rounded-md border border-emerald-200 bg-background px-3 text-base font-black normal-case text-foreground" inputMode="decimal" min="0" step="0.5" type="number" value={overtimeHoursValue} onChange={(event) => setCarlosOvertimeHours(event.target.value)} placeholder="0" />
-            <span className="text-[11px] normal-case text-muted-foreground">{formatMoney(overtimeAmount)} at $7/hr</span>
+            <input className={cn(PAYMENT_FIELD_CLASS, "border-emerald-200 bg-background")} inputMode="decimal" min="0" step="0.5" type="number" value={overtimeHoursValue} onChange={(event) => setCarlosOvertimeHours(event.target.value)} placeholder="0" />
+            <span className="text-[11px] font-medium normal-case text-muted-foreground">{formatMoney(overtimeAmount)} at $7/hr</span>
           </label>
           <div className="flex flex-wrap items-end justify-between gap-2 lg:justify-end">
             <div>
-              <p className="text-[11px] font-black uppercase text-muted-foreground">Carlos total</p>
-              <p className="mt-1 text-2xl font-black">{formatMoney(total)}</p>
+              <p className="text-xs font-semibold text-muted-foreground">Carlos total</p>
+              <p className="mt-1 text-2xl font-semibold">{formatMoney(total)}</p>
             </div>
             <div className="flex gap-2">
-              {row ? <Button size="sm" variant="outline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, paid ? "pending" : "paid")}>{paid ? "Pending" : "Paid"}</Button> : null}
-              <Button size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)}><Save className="size-4" /> Save</Button>
+              {row ? <Button className="rounded-md" size="sm" variant="outline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, paid ? "pending" : "paid")}>{paid ? "Pending" : "Paid"}</Button> : null}
+              <Button className="rounded-md" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)}><Save className="size-4" /> Save</Button>
             </div>
           </div>
         </CardContent>
@@ -2736,89 +2787,94 @@ export function SimpleOperationsClient({
     const overtimeAmount = roundHours(toNumber(carlosOvertimeHours) * CARLOS_OVERTIME_RATE);
 
     return (
-      <Card className={cn("overflow-hidden rounded-md shadow-sm", mixed ? "border-amber-300 bg-amber-50/20 dark:border-amber-900 dark:bg-amber-950/10" : carlos ? "border-emerald-300 bg-emerald-50/20 dark:border-emerald-900 dark:bg-emerald-950/10" : "border-border bg-card")} key={summary.key}>
-        <CardHeader className={cn("border-b border-border px-3 py-2", mixed ? "bg-amber-100/70 dark:bg-amber-950/20" : "bg-background/85")}>
-          <div className="flex items-center justify-between gap-2">
+      <Card className={cn("overflow-hidden rounded-[18px] border-border/70 bg-card shadow-[0_18px_50px_-46px_hsl(215_40%_20%)]", mixed ? "border-amber-200 bg-amber-50/15 dark:border-amber-900 dark:bg-amber-950/10" : carlos ? "border-emerald-200 bg-emerald-50/20 dark:border-emerald-900 dark:bg-emerald-950/10" : "")} key={summary.key}>
+        <CardHeader className="px-4 pb-3 pt-4">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <CardTitle className="truncate text-base font-black tracking-normal">{summary.teamName}</CardTitle>
-              <div className="mt-1 flex flex-wrap gap-1">
-                <Badge className={mixed ? "border-amber-300 bg-amber-100 text-amber-950" : carlos ? "border-emerald-300 bg-emerald-100 text-emerald-950" : ""} variant="outline">{mixed ? "Juan Romero" : carlos ? "Operations manager" : "Residential"}</Badge>
-                <Badge className={statusBadgeClass(paymentSummaryStatus(summary))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
+              <CardTitle className="truncate text-base font-semibold tracking-normal">{summary.teamName}</CardTitle>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Badge className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", mixed ? "border-amber-200 bg-amber-50 text-amber-800" : carlos ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-border bg-background text-muted-foreground")} variant="outline">{mixed ? "Residential + commercial" : carlos ? "Operations manager" : "Residential"}</Badge>
+                <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(paymentSummaryStatus(summary)))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
               </div>
             </div>
-            <Button className="h-9 px-3" size="sm" variant="outline" onClick={() => mixed ? openJuanPaymentModal() : openPaymentModal(summary, "residential")}><Plus className="size-4" /> Row</Button>
+            <Button className="h-8 rounded-md px-2.5 text-xs font-semibold" size="sm" variant="outline" onClick={() => mixed ? openJuanPaymentModal() : openPaymentModal(summary, "residential")}><Plus className="size-3.5" /> Row</Button>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          <div>
-            <table className={cn("w-full table-fixed border-collapse text-sm", mixed && "border-y border-slate-950/80")}>
-              <thead>
-                <tr className={cn("border-b bg-muted/35 text-left text-xs font-black text-foreground", mixed ? "border-slate-950/80" : "border-border")}>
-                  <th className={cn("w-[18%] border-r px-2 py-2", mixed ? "border-slate-950/80" : "border-border")}>Date</th>
-                  <th className={cn("border-r px-2 py-2", mixed ? "w-[34%] border-slate-950/80" : "w-[42%] border-border")}>City</th>
-                  {mixed ? <th className="w-[24%] border-r border-slate-950/80 px-2 py-2 text-right">Residential</th> : <th className="w-[40%] px-2 py-2 text-right">Payment</th>}
-                  {mixed ? <th className="w-[24%] px-2 py-2 text-right">Commercial</th> : null}
-                </tr>
-              </thead>
-              <tbody>
-                {validJobRows.length === 0 ? <tr>{mixed ? (
-                  <>
-                    <td className="h-24 border-r border-slate-950/80 px-2 py-8" />
-                    <td className="border-r border-slate-950/80 px-2 py-8 text-center font-bold text-muted-foreground">No rows yet.</td>
-                    <td className="border-r border-slate-950/80 px-2 py-8" />
-                    <td className="px-2 py-8" />
-                  </>
-                ) : <td className="px-2 py-8 text-center font-bold text-muted-foreground" colSpan={3}>No rows yet.</td>}</tr> : null}
-                {validJobRows.map((row) => (
-                  <tr className={cn("border-b", mixed ? "border-slate-950/80" : "border-border/80")} key={row.id}>
-                    <td className={cn("border-r px-2 py-2 font-bold", mixed ? "border-slate-950/80" : "border-border/70")}>{displayShortDate(row.work_date)}</td>
-                    <td className={cn("border-r px-2 py-2 font-bold", mixed ? "border-slate-950/80" : "border-border/70")}>
-                      <span className="block truncate" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
-                      <Badge className={cn("mt-1 max-w-full truncate", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
-                      <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[11px] font-black">
-                        <button type="button" className="text-primary hover:underline" onClick={() => mixed ? openJuanPaymentModal(row) : openPaymentModal(summary, "residential", row)}>Edit</button>
-                        <button type="button" className="text-muted-foreground hover:text-foreground hover:underline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}>Pending</button>
-                        <button type="button" className="text-emerald-700 hover:underline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}>Paid</button>
-                        <button type="button" className="text-rose-700 hover:underline" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}>Delete</button>
-                      </div>
-                    </td>
-                    <td className={cn("px-2 py-2 text-right font-black", mixed && "border-r border-slate-950/80")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
-                    {mixed ? <td className="px-2 py-2 text-right font-black">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
+        <CardContent className="px-4 pb-4 pt-0">
+          <div className="overflow-hidden rounded-xl border border-border/70 bg-background/60">
+            <div className="overflow-x-auto">
+              <table className={cn("w-full min-w-[360px] table-fixed border-separate border-spacing-0 text-[13px]", mixed && "min-w-[520px]")}>
+                <thead>
+                  <tr className="bg-muted/25 text-left text-[11px] font-semibold uppercase text-muted-foreground">
+                    <th className="w-[22%] border-b border-border/70 px-3 py-2">Date</th>
+                    <th className={cn("border-b border-border/70 px-3 py-2", mixed ? "w-[34%]" : "w-[43%]")}>City</th>
+                    {mixed ? <th className="w-[22%] border-b border-border/70 px-3 py-2 text-right">Residential</th> : <th className="w-[35%] border-b border-border/70 px-3 py-2 text-right">Payment</th>}
+                    {mixed ? <th className="w-[22%] border-b border-border/70 px-3 py-2 text-right">Commercial</th> : null}
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-border bg-yellow-200 text-sm font-black text-slate-950">
-                  <td className={cn("border-r px-2 py-2", mixed ? "border-slate-950/80" : "border-yellow-400")}>TOTAL</td>
-                  <td className={cn("border-r px-2 py-2 text-center", mixed ? "border-slate-950/80" : "border-yellow-400")}>{validJobRows.length}</td>
-                  <td className={cn("px-2 py-2 text-right", mixed ? "border-r border-slate-950/80" : "")}>{hasRows ? formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal) : ""}</td>
-                  {mixed ? <td className="px-2 py-2 text-right">{hasRows ? formatMoney(summary.commercialTotal) : ""}</td> : null}
-                </tr>
-                {mixed && hasRows ? <tr className="bg-yellow-200 text-sm font-black text-slate-950"><td className="px-2 py-2 text-right" colSpan={4}>GRAND TOTAL: {formatMoney(summary.paymentTotal)}</td></tr> : null}
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {validJobRows.length === 0 ? <tr><td className="px-3 py-8 text-center text-sm font-medium text-muted-foreground" colSpan={mixed ? 4 : 3}>No payments recorded for this period.</td></tr> : null}
+                  {validJobRows.map((row) => (
+                    <tr className="align-top" key={row.id}>
+                      <td className="border-b border-border/60 px-3 py-2.5 font-medium text-foreground">{displayShortDate(row.work_date)}</td>
+                      <td className="border-b border-border/60 px-3 py-2.5">
+                        <span className="block truncate font-medium text-foreground" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <Badge className={cn("rounded-full px-2 py-0 text-[10px] font-semibold", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
+                          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openJuanPaymentModal(row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-3.5" /></button>
+                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-3.5" /></button>
+                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-700")} aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><Check className="size-3.5" /></button>
+                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-rose-700")} aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-3.5" /></button>
+                          </div>
+                        </div>
+                      </td>
+                      <td className={cn("border-b border-border/60 px-3 py-2.5 text-right font-semibold text-foreground", mixed && "text-foreground")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                      {mixed ? <td className="border-b border-border/60 px-3 py-2.5 text-right font-semibold text-foreground">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-emerald-50/65 text-[13px] font-semibold text-emerald-950 dark:bg-emerald-950/20 dark:text-emerald-100">
+                    <td className="px-3 py-2.5">TOTAL</td>
+                    <td className="px-3 py-2.5 text-center">{validJobRows.length}</td>
+                    <td className="px-3 py-2.5 text-right">{hasRows ? formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal) : ""}</td>
+                    {mixed ? <td className="px-3 py-2.5 text-right">{hasRows ? formatMoney(summary.commercialTotal) : ""}</td> : null}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            {mixed && hasRows ? (
+              <div className="flex items-center justify-between gap-3 border-t border-emerald-200/70 bg-emerald-50/75 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-900/70 dark:bg-emerald-950/25 dark:text-emerald-100">
+                <span className="font-medium">Juan total</span>
+                <strong className="font-semibold">{formatMoney(summary.paymentTotal)}</strong>
+              </div>
+            ) : null}
           </div>
 
-          <div className="grid gap-2 border-t border-border bg-background/70 px-3 py-2">
-            <div className="text-xs font-black text-muted-foreground">Paid {formatMoney(paid)} · Pending {formatMoney(pending)}</div>
+          <div className="mt-3 grid gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+              <span>Paid {formatMoney(paid)}</span>
+              <span>Pending {formatMoney(pending)}</span>
+            </div>
             {carlos ? (
-              <div className="grid gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-emerald-950 md:grid-cols-[1fr_auto]">
-                <label className="grid gap-1 text-xs font-black uppercase">
+              <div className="grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-950 md:grid-cols-[1fr_auto]">
+                <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
                   Overtime hours
-                  <input className="h-9 rounded-md border border-emerald-200 bg-white px-2 text-sm font-black text-slate-950" inputMode="decimal" min="0" step="0.5" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
+                  <input className="h-9 rounded-md border border-emerald-200 bg-white px-2 text-sm font-semibold normal-case text-slate-950" inputMode="decimal" min="0" step="0.5" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
                 </label>
-                <Button className="self-end" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
+                <Button className="self-end rounded-md" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
               </div>
             ) : null}
             {mixed && summary.rows.length > 0 ? (
-              <Button className="h-9 justify-center border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
+              <Button className="h-9 justify-center rounded-md border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
                 <Trash2 className="size-3.5" /> Clear Juan total
               </Button>
             ) : null}
             <div className="grid grid-cols-3 gap-2">
-              <Button className="h-9 px-2 text-xs" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-3.5" /> Verified</Button>
-              <Button className="h-9 px-2 text-xs" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-3.5" /> Paid</Button>
-              <Button className="h-9 px-2 text-xs" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}><Clock className="size-3.5" /> Pending</Button>
+              <Button className="h-9 rounded-md px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-3.5" /> Verified</Button>
+              <Button className="h-9 rounded-md px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-3.5" /> Paid</Button>
+              <Button className="h-9 rounded-md px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}><Clock className="size-3.5" /> Pending</Button>
             </div>
           </div>
         </CardContent>
@@ -2830,13 +2886,16 @@ export function SimpleOperationsClient({
     if (!paymentModalMode) return null;
     if (paymentModalMode === "commercial_hours") {
       return (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
-          <div className="max-h-[90dvh] w-full max-w-5xl overflow-auto rounded-md border border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <h2 className="text-lg font-black">Add commercial hours</h2>
-              <button type="button" className="grid size-9 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm sm:p-6">
+          <div className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-4xl")}>
+            <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold tracking-normal">Commercial hours</h2>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">Add or update eligible commercial team hours.</p>
+              </div>
+              <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
             </div>
-            <div className="p-4">{renderCommercialHoursForm()}</div>
+            <div className="p-5">{renderCommercialHoursForm()}</div>
           </div>
         </div>
       );
@@ -2844,56 +2903,59 @@ export function SimpleOperationsClient({
     if (paymentModalMode === "commercial_schedule") {
       const commercialTeamChoices = activeTeams.filter((team) => !isJuanRomero(team.name));
       return (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
-          <div className="w-full max-w-5xl rounded-md border border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <h2 className="text-lg font-black">Configure commercial schedule</h2>
-              <button type="button" className="grid size-9 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close schedule modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm sm:p-6">
+          <div className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-5xl")}>
+            <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold tracking-normal">Configure commercial schedule</h2>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">Set structured service days and paid hours for an account.</p>
+              </div>
+              <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close schedule modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
             </div>
-            <form className="grid gap-4 p-4" onSubmit={saveCommercialSchedule}>
+            <form className="grid gap-5 p-5" onSubmit={saveCommercialSchedule}>
               <div className="grid gap-3 md:grid-cols-2">
-                <label className="grid gap-1 text-sm font-bold">Commercial account<select className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.accountId} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, accountId: event.target.value })}>
+                <label className={PAYMENT_LABEL_CLASS}>Commercial account<select className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.accountId} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, accountId: event.target.value })}>
                   <option value="">Select account</option>
                   {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
                 </select></label>
-                <label className="grid gap-1 text-sm font-bold">Assigned team<select className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.assignedTeamId} onChange={(event) => {
+                <label className={PAYMENT_LABEL_CLASS}>Assigned team<select className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.assignedTeamId} onChange={(event) => {
                   const team = activeTeams.find((item) => item.id === event.target.value);
                   setCommercialScheduleDraft({ ...commercialScheduleDraft, assignedTeamId: event.target.value, assignedTeamName: team?.name ?? "" });
                 }}>
                   <option value="">Manual name</option>
                   {commercialTeamChoices.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
                 </select></label>
-                {!commercialScheduleDraft.assignedTeamId ? <label className="grid gap-1 text-sm font-bold">Team/person<input className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.assignedTeamName} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, assignedTeamName: event.target.value })} /></label> : null}
-                <label className="grid gap-1 text-sm font-bold">Frequency<select className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.frequency} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, frequency: event.target.value as CommercialScheduleDraft["frequency"] })}>
+                {!commercialScheduleDraft.assignedTeamId ? <label className={PAYMENT_LABEL_CLASS}>Team/person<input className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.assignedTeamName} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, assignedTeamName: event.target.value })} /></label> : null}
+                <label className={PAYMENT_LABEL_CLASS}>Frequency<select className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.frequency} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, frequency: event.target.value as CommercialScheduleDraft["frequency"] })}>
                   <option value="weekly">Weekly</option>
                   <option value="every_15_days">Every 15 days</option>
                   <option value="monthly">Monthly</option>
                   <option value="custom">Custom</option>
                 </select></label>
-                <label className="grid gap-1 text-sm font-bold">Effective from<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialScheduleDraft.effectiveFrom} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveFrom: event.target.value })} /></label>
-                <label className="grid gap-1 text-sm font-bold">Effective until<input className="h-10 rounded-md border bg-background px-3" type="date" value={commercialScheduleDraft.effectiveUntil} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveUntil: event.target.value })} /></label>
+                <label className={PAYMENT_LABEL_CLASS}>Effective from<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialScheduleDraft.effectiveFrom} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveFrom: event.target.value })} /></label>
+                <label className={PAYMENT_LABEL_CLASS}>Effective until<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialScheduleDraft.effectiveUntil} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveUntil: event.target.value })} /></label>
               </div>
               <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                 {WEEKDAY_NAMES.map((day, index) => {
                   const dayKey = String(index);
                   const selected = commercialScheduleDraft.selectedDays.includes(dayKey);
                   return (
-                    <label className="grid gap-2 rounded-md border border-border bg-background p-3 text-sm font-black" key={day}>
+                    <label className="grid gap-2 rounded-xl border border-border/70 bg-background/70 p-3 text-sm font-semibold" key={day}>
                       <span className="flex items-center gap-2"><input type="checkbox" checked={selected} onChange={(event) => {
                         setCommercialScheduleDraft((current) => ({
                           ...current,
                           selectedDays: event.target.checked ? [...current.selectedDays, dayKey] : current.selectedDays.filter((item) => item !== dayKey),
                         }));
                       }} /> {day}</span>
-                      <input className="h-10 rounded-md border bg-card px-3" disabled={!selected} inputMode="decimal" min="0" placeholder="Hours" type="number" value={commercialScheduleDraft.dayHours[dayKey] ?? ""} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, dayHours: { ...commercialScheduleDraft.dayHours, [dayKey]: event.target.value } })} />
+                      <input className={cn(PAYMENT_FIELD_CLASS, "bg-card disabled:opacity-50")} disabled={!selected} inputMode="decimal" min="0" placeholder="Hours" type="number" value={commercialScheduleDraft.dayHours[dayKey] ?? ""} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, dayHours: { ...commercialScheduleDraft.dayHours, [dayKey]: event.target.value } })} />
                     </label>
                   );
                 })}
               </div>
-              <label className="grid gap-1 text-sm font-bold">Notes<input className="h-10 rounded-md border bg-background px-3" value={commercialScheduleDraft.notes} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, notes: event.target.value })} /></label>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
-                <Button disabled={savingPaymentKey === "commercial-schedule"} type="submit"><Save className="size-4" /> Save schedule</Button>
+              <label className={PAYMENT_LABEL_CLASS}>Notes<input className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.notes} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, notes: event.target.value })} /></label>
+              <div className="flex justify-end gap-2 border-t border-border/70 pt-4">
+                <Button className="rounded-md" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
+                <Button className="rounded-md" disabled={savingPaymentKey === "commercial-schedule"} type="submit"><Save className="size-4" /> Save schedule</Button>
               </div>
             </form>
           </div>
@@ -2905,42 +2967,45 @@ export function SimpleOperationsClient({
     const mixed = isMixedPaySummary(summary);
     const carlos = isCarlosLopez(summary.teamName);
     return (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
-        <div className="w-full max-w-3xl rounded-md border border-border bg-card shadow-xl">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <h2 className="text-lg font-black">{mixed ? "Add Juan payment row" : carlos ? "Add Carlos Lopez payment" : "Add residential payment"}</h2>
-            <button type="button" className="grid size-9 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-4" /></button>
+      <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm sm:p-6">
+        <div className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-2xl")}>
+          <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
+            <div>
+              <h2 className="text-lg font-semibold tracking-normal">{mixed ? "Add Juan payment row" : carlos ? "Add Carlos Lopez payment" : "Add residential payment"}</h2>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">{mixed ? "Residential and commercial amounts stay separated." : "Quick entry for a residential payment row."}</p>
+            </div>
+            <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-4" /></button>
           </div>
-          <div className="grid gap-3 p-4 md:grid-cols-2">
-            <label className="grid gap-1 text-sm font-bold">Cleaner<select className="h-10 rounded-md border bg-background px-3" value={summary.key} onChange={(event) => {
+          <div className="grid gap-3 p-5 md:grid-cols-2">
+            <label className={PAYMENT_LABEL_CLASS}>Cleaner<select className={PAYMENT_FIELD_CLASS} value={summary.key} onChange={(event) => {
               const next = weeklyPaymentSummaries.find((item) => item.key === event.target.value);
               if (next) setActivePaymentSummaryKey(next.key);
             }}>
               {weeklyPaymentSummaries.filter((item) => paymentModalMode === "juan" ? isJuanRomero(item.teamName) : !isMixedPaySummary(item)).map((item) => <option key={item.key} value={item.key}>{item.teamName}</option>)}
             </select></label>
-            <label className="grid gap-1 text-sm font-bold">Date<input className="h-10 rounded-md border bg-background px-3" type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">City<select className="h-10 rounded-md border bg-background px-3" value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? draft.customCity : "" })}>
+            <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
+            <label className={PAYMENT_LABEL_CLASS}>City<select className={PAYMENT_FIELD_CLASS} value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? draft.customCity : "" })}>
               <option value="">Select city</option>
               {carlos ? <option value="Operations">Operations</option> : null}
               {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
               <option value={OUTSIDE_OC_CITY}>{OUTSIDE_OC_CITY}</option>
             </select></label>
-            {draft.city === OUTSIDE_OC_CITY ? <label className="grid gap-1 text-sm font-bold">Custom city<input className="h-10 rounded-md border bg-background px-3" value={draft.customCity} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, customCity: event.target.value })} /></label> : null}
+            {draft.city === OUTSIDE_OC_CITY ? <label className={PAYMENT_LABEL_CLASS}>Custom city<input className={PAYMENT_FIELD_CLASS} value={draft.customCity} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, customCity: event.target.value })} /></label> : null}
             {mixed ? (
               <>
-                <label className="grid gap-1 text-sm font-bold">Residential amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label>
-                <label className="grid gap-1 text-sm font-bold">Commercial amount<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.commercialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, commercialAmount: event.target.value })} /></label>
+                <label className={PAYMENT_LABEL_CLASS}>Residential amount<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" type="number" value={draft.residentialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, residentialAmount: event.target.value })} /></label>
+                <label className={PAYMENT_LABEL_CLASS}>Commercial amount<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" type="number" value={draft.commercialAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, commercialAmount: event.target.value })} /></label>
               </>
-            ) : <label className="grid gap-1 text-sm font-bold">Payment<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>}
-            <label className="grid gap-1 text-sm font-bold">Status<select className="h-10 rounded-md border bg-background px-3" value={draft.status} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, status: event.target.value as WeeklyPaymentStatus })}>
+            ) : <label className={PAYMENT_LABEL_CLASS}>Payment<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" type="number" value={draft.paymentAmount} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, paymentAmount: event.target.value })} /></label>}
+            <label className={PAYMENT_LABEL_CLASS}>Status<select className={PAYMENT_FIELD_CLASS} value={draft.status} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, status: event.target.value as WeeklyPaymentStatus })}>
               <option value="pending">Pending</option>
               <option value="paid">Paid</option>
             </select></label>
-            <label className="grid gap-1 text-sm font-bold md:col-span-2">Notes<input className="h-10 rounded-md border bg-background px-3" value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
+            <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-2")}>Notes<input className={PAYMENT_FIELD_CLASS} value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
           </div>
-          <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-            <Button variant="outline" onClick={closePaymentModal}>Cancel</Button>
-            <Button disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Save row"}</Button>
+          <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
+            <Button className="rounded-md" variant="outline" onClick={closePaymentModal}>Cancel</Button>
+            <Button className="rounded-md" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Save row"}</Button>
           </div>
         </div>
       </div>
@@ -2952,25 +3017,25 @@ export function SimpleOperationsClient({
     const commercialTeamChoices = activeTeams.filter((team) => !isJuanRomero(team.name));
     return (
       <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" onSubmit={saveCommercialHours}>
-        <label className="grid min-w-0 gap-1 text-sm font-bold">Commercial account<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
+        <label className={PAYMENT_LABEL_CLASS}>Commercial account<select className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
           <option value="">Select account</option>
           {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
         </select></label>
-        <label className="grid min-w-0 gap-1 text-sm font-bold">Team/person<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.teamId} onChange={(event) => {
+        <label className={PAYMENT_LABEL_CLASS}>Team/person<select className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.teamId} onChange={(event) => {
           const team = activeTeams.find((item) => item.id === event.target.value);
           setCommercialHoursDraft({ ...commercialHoursDraft, teamId: event.target.value, teamName: team?.name ?? "", manualEntry: true });
         }}>
           <option value="">Manual name</option>
           {commercialTeamChoices.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
         </select></label>
-        {!commercialHoursDraft.teamId ? <label className="grid min-w-0 gap-1 text-sm font-bold">Manual name<input className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
-        <label className="grid min-w-0 gap-1 text-sm font-bold">Date<input className="h-10 min-w-0 rounded-md border bg-background px-3" type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
-        <label className="grid min-w-0 gap-1 text-sm font-bold">Hours<input className="h-10 min-w-0 rounded-md border bg-background px-3" inputMode="decimal" min="0" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
-        <label className="grid min-w-0 gap-1 text-sm font-bold">Source<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.manualEntry ? "manual" : "scheduled"} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, manualEntry: event.target.value === "manual" })}>
+        {!commercialHoursDraft.teamId ? <label className={PAYMENT_LABEL_CLASS}>Manual name<input className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
+        <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
+        <label className={PAYMENT_LABEL_CLASS}>Hours<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
+        <label className={PAYMENT_LABEL_CLASS}>Source<select className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.manualEntry ? "manual" : "scheduled"} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, manualEntry: event.target.value === "manual" })}>
           <option value="manual">Manual</option>
           <option value="scheduled">Scheduled</option>
         </select></label>
-        <label className="grid min-w-0 gap-1 text-sm font-bold">Status<select className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.status} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, status: event.target.value as CommercialHoursStatus })}>
+        <label className={PAYMENT_LABEL_CLASS}>Status<select className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.status} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, status: event.target.value as CommercialHoursStatus })}>
           <option value="scheduled">Scheduled</option>
           <option value="completed">Completed</option>
           <option value="verified">Verified</option>
@@ -2979,11 +3044,12 @@ export function SimpleOperationsClient({
           <option value="paid">Paid</option>
           <option value="skipped">No eligible service</option>
         </select></label>
-        <label className="flex h-10 items-center gap-2 self-end rounded-md border border-border bg-card px-3 text-sm font-black"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
-        <label className="grid min-w-0 gap-1 text-sm font-bold md:col-span-2 xl:col-span-3">Notes<input className="h-10 min-w-0 rounded-md border bg-background px-3" value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
-        {lucia ? <div className="self-end rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-black text-sky-950">Lucia Portillo: Manual hours</div> : null}
-        <div className="flex justify-end md:col-span-2 xl:col-span-4">
-          <Button disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
+        <label className="flex h-10 items-center gap-2 self-end rounded-md border border-input bg-background px-3 text-sm font-semibold"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
+        <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-2 xl:col-span-3")}>Notes<input className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
+        {lucia ? <div className="self-end rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
+        <div className="flex justify-end gap-2 border-t border-border/70 pt-4 md:col-span-2 xl:col-span-4">
+          <Button className="rounded-md" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
+          <Button className="rounded-md" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
         </div>
       </form>
     );
@@ -2993,60 +3059,59 @@ export function SimpleOperationsClient({
     const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
     const teamOptions = Array.from(new Set(commercialRowsInWeek.map((entry) => entry.team_name).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b));
     return (
-      <div className="space-y-4">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="space-y-5">
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase text-muted-foreground">Commercial hours</p>
-              <h2 className="text-2xl font-black tracking-normal">Commercial hours</h2>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">Track commercial team hours by account, schedule, and pay period.</p>
+              <h2 className="text-2xl font-semibold tracking-normal sm:text-3xl">Commercial hours</h2>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Track commercial team hours by account, schedule, and pay period.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
-              <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
-              <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure schedule</Button>
-              <Button variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
+            <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
+              <Button className="h-9 rounded-md px-3 text-sm font-semibold" onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
+              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure</Button>
+              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft className="size-4" /></Button>
-            <div className="min-w-64 text-center text-sm font-black">{dateRangeLabel(commercialRange.start, commercialRange.end)}</div>
-            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7)))}><ChevronRight className="size-4" /></Button>
-            <Button variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setCommercialDateMenuOpen(false); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-[16px] border border-border/70 bg-card/80 p-2 shadow-sm">
+            <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft className="size-4" /></Button>
+            <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(commercialRange.start, commercialRange.end)}</div>
+            <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7)))}><ChevronRight className="size-4" /></Button>
+            <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setCommercialDateMenuOpen(false); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
             <div className="relative">
-              <Button variant="outline" size="sm" onClick={() => setCommercialDateMenuOpen((open) => !open)}>
+              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => setCommercialDateMenuOpen((open) => !open)}>
                 <CalendarDays className="size-4" /> Date range
               </Button>
               {commercialDateMenuOpen ? (
-                <div className="absolute right-0 z-20 mt-2 w-[290px] rounded-md border border-border bg-card p-3 shadow-xl">
+                <div className="absolute right-0 z-20 mt-2 w-[290px] rounded-xl border border-border/70 bg-card p-3 shadow-xl">
                   <div className="grid gap-3">
-                    <label className="grid gap-1 text-xs font-black uppercase text-muted-foreground">From<input className="h-10 rounded-md border bg-background px-3 text-sm font-bold normal-case text-foreground" type="date" value={commercialCustomStart} onChange={(event) => setCommercialCustomStart(event.target.value)} /></label>
-                    <label className="grid gap-1 text-xs font-black uppercase text-muted-foreground">To<input className="h-10 rounded-md border bg-background px-3 text-sm font-bold normal-case text-foreground" type="date" value={commercialCustomEnd} onChange={(event) => setCommercialCustomEnd(event.target.value)} /></label>
+                    <label className={PAYMENT_LABEL_CLASS}>From<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialCustomStart} onChange={(event) => setCommercialCustomStart(event.target.value)} /></label>
+                    <label className={PAYMENT_LABEL_CLASS}>To<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialCustomEnd} onChange={(event) => setCommercialCustomEnd(event.target.value)} /></label>
                     <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" type="button" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear</Button>
-                      <Button size="sm" type="button" onClick={() => setCommercialDateMenuOpen(false)}>Apply</Button>
+                      <Button className="rounded-md" variant="outline" size="sm" type="button" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear</Button>
+                      <Button className="rounded-md" size="sm" type="button" onClick={() => setCommercialDateMenuOpen(false)}>Apply</Button>
                     </div>
                   </div>
                 </div>
               ) : null}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground"><Filter className="size-4" /> Commercial hours filters</div>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
-            <input className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" placeholder="Search account, team, note" value={commercialSearchFilter} onChange={(event) => setCommercialSearchFilter(event.target.value)} />
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={commercialAccountFilter} onChange={(event) => setCommercialAccountFilter(event.target.value)}>
+        <div className={cn(PAYMENT_PANEL_CLASS, "p-3")}>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2.5">
+            <input aria-label="Search commercial hours" className={PAYMENT_FIELD_CLASS} placeholder="Search account, team, note" value={commercialSearchFilter} onChange={(event) => setCommercialSearchFilter(event.target.value)} />
+            <select className={PAYMENT_FIELD_CLASS} value={commercialAccountFilter} onChange={(event) => setCommercialAccountFilter(event.target.value)} aria-label="Commercial account filter">
               <option value="all">All commercial accounts</option>
               {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
             </select>
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={commercialTeamFilter} onChange={(event) => setCommercialTeamFilter(event.target.value)}>
+            <select className={PAYMENT_FIELD_CLASS} value={commercialTeamFilter} onChange={(event) => setCommercialTeamFilter(event.target.value)} aria-label="Commercial team filter">
               <option value="all">All teams</option>
               {teamOptions.map((team) => <option key={team} value={team}>{team}</option>)}
             </select>
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={commercialStatusFilter} onChange={(event) => setCommercialStatusFilter(event.target.value)}>
+            <select className={PAYMENT_FIELD_CLASS} value={commercialStatusFilter} onChange={(event) => setCommercialStatusFilter(event.target.value)} aria-label="Commercial status filter">
               <option value="all">All statuses</option>
               <option value="scheduled">Scheduled</option>
               <option value="completed">Completed</option>
@@ -3056,12 +3121,12 @@ export function SimpleOperationsClient({
               <option value="needs_review">Needs review</option>
               <option value="skipped">No eligible service</option>
             </select>
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={commercialSourceFilter} onChange={(event) => setCommercialSourceFilter(event.target.value as CommercialSourceFilter)}>
+            <select className={PAYMENT_FIELD_CLASS} value={commercialSourceFilter} onChange={(event) => setCommercialSourceFilter(event.target.value as CommercialSourceFilter)} aria-label="Commercial source filter">
               <option value="all">Manual + scheduled</option>
               <option value="manual">Manual hours</option>
               <option value="scheduled">Scheduled</option>
             </select>
-            <select className="h-12 min-w-0 rounded-md border bg-background px-3 text-[15px] font-bold" value={commercialVerifiedFilter} onChange={(event) => setCommercialVerifiedFilter(event.target.value as CommercialVerifiedFilter)}>
+            <select className={PAYMENT_FIELD_CLASS} value={commercialVerifiedFilter} onChange={(event) => setCommercialVerifiedFilter(event.target.value as CommercialVerifiedFilter)} aria-label="Commercial verified filter">
               <option value="all">Verified + needs review</option>
               <option value="verified">Verified</option>
               <option value="needs_review">Needs review</option>
@@ -3078,79 +3143,99 @@ export function SimpleOperationsClient({
   function renderCommercialHoursCard(lucia: StaffMemberRow | undefined) {
     const emptyCommercialText = commercialRowsInWeek.length === 0 ? "No eligible cleanings before this pay date." : "No commercial hours match these filters.";
     return (
-      <Card className="overflow-hidden rounded-md">
-        <CardHeader className="border-b border-border bg-background/80">
+      <Card className="overflow-hidden rounded-[18px] border-border/70 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]">
+        <CardHeader className="border-b border-border/70 bg-background/55 px-5 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle className="text-2xl tracking-normal">Commercial hours</CardTitle>
-              <p className="mt-1 text-sm font-bold text-muted-foreground">Track commercial team hours by account, schedule, and pay period.</p>
+              <CardTitle className="text-xl font-semibold tracking-normal">Commercial hours</CardTitle>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Review scheduled, completed, and verified hours before closing payroll.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
+              <Badge className="rounded-full border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900" variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
             </div>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 p-4">
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {commercialAccounts.slice(0, 6).map((account) => {
               const rules = commercialScheduleRules.filter((rule) => rule.commercial_account_id === account.id);
-              return <div className="rounded-md border border-border bg-background p-3 text-sm font-bold" key={account.id}><p className="font-black">{account.name}</p><p className="mt-1 text-xs text-muted-foreground">{commercialScheduleSummary(rules)}</p></div>;
+              const hasSchedule = rules.some((rule) => rule.active !== false);
+              return (
+                <article className="rounded-[16px] border border-border/70 bg-background/70 p-3 text-sm" key={account.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-foreground" title={account.name}>{account.name}</p>
+                      <p className="mt-1 line-clamp-2 text-xs font-medium text-muted-foreground">{commercialScheduleSummary(rules)}</p>
+                    </div>
+                    <Badge className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", hasSchedule ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-border bg-card text-muted-foreground")} variant="outline">{hasSchedule ? "Scheduled" : "Needs setup"}</Badge>
+                  </div>
+                  <Button className="mt-3 h-8 w-full rounded-md text-xs font-semibold" size="sm" variant="outline" onClick={() => {
+                    setCommercialScheduleDraft({ ...EMPTY_COMMERCIAL_SCHEDULE_DRAFT, accountId: account.id, effectiveFrom: todayKey() });
+                    setPaymentModalMode("commercial_schedule");
+                  }}><Settings2 className="size-3.5" /> Configure</Button>
+                </article>
+              );
             })}
-            {lucia ? <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm font-black text-sky-950">Lucia Portillo · Manual hours</div> : null}
+            {lucia ? <div className="rounded-[16px] border border-sky-200 bg-sky-50 p-3 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
           </div>
 
-          <div className="overflow-auto rounded-md border border-border">
-            <table className="w-full min-w-[980px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/45 text-left text-xs font-black uppercase text-muted-foreground">
-                  <th className="border-r border-border px-4 py-3">Date</th>
-                  <th className="border-r border-border px-4 py-3">Commercial Account</th>
-                  <th className="border-r border-border px-4 py-3">Team</th>
-                  <th className="border-r border-border px-4 py-3">Scheduled day</th>
-                  <th className="border-r border-border px-4 py-3 text-right">Scheduled</th>
-                  <th className="border-r border-border px-4 py-3 text-right">Actual Hours</th>
-                  <th className="border-r border-border px-4 py-3 text-right">Verified payable</th>
-                  <th className="border-r border-border px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCommercialRows.length === 0 ? <tr><td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={9}>{emptyCommercialText}</td></tr> : null}
-                {filteredCommercialRows.map((entry) => {
-                  const isLucia = String(entry.team_name ?? "").toLowerCase() === "lucia portillo";
-                  const verifiedHours = entry.verified || entry.status === "verified" || entry.status === "paid" ? toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours) : 0;
-                  return (
-                    <tr className="border-b border-border/80" key={entry.id}>
-                      <td className="border-r border-border/70 px-4 py-3 font-bold">{displayDate(entry.work_date)}</td>
-                      <td className="border-r border-border/70 px-4 py-3"><p className="font-black">{entry.account_name}</p><p className="text-xs font-bold text-muted-foreground">{commercialAccounts.find((account) => account.id === entry.account_id)?.city ?? "No city"}</p></td>
-                      <td className="border-r border-border/70 px-4 py-3 font-bold">{entry.team_name ?? "Unassigned"} {isLucia ? <Badge className="ml-2 border-sky-200 bg-sky-50 text-sky-950" variant="outline">Manual hours</Badge> : null}</td>
-                      <td className="border-r border-border/70 px-4 py-3">{entry.scheduled_day ?? "-"}</td>
-                      <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(toNumber(entry.scheduled_hours))}</td>
-                      <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(toNumber(entry.completed_hours))}</td>
-                      <td className="border-r border-border/70 px-4 py-3 text-right font-black">{formatHours(verifiedHours)}</td>
-                      <td className="border-r border-border/70 px-4 py-3"><Badge className={statusBadgeClass(entry.status)} variant="outline">{statusLabel(entry.status ?? "scheduled")}</Badge></td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-2">
-                          <Button size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Edit3 className="size-4" /></Button>
-                          <Button size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-4" /></Button>
-                          <Button size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-4" /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-border bg-sky-50 text-base font-black text-sky-950">
-                  <td className="border-r border-sky-200 px-4 py-3">TOTAL</td>
-                  <td className="border-r border-sky-200 px-4 py-3" colSpan={3}>0 payable hours for this period when no cleanings are eligible.</td>
-                  <td className="border-r border-sky-200 px-4 py-3 text-right">{formatHours(commercialTotals.scheduled)}</td>
-                  <td className="border-r border-sky-200 px-4 py-3 text-right">{formatHours(commercialTotals.completed)}</td>
-                  <td className="border-r border-sky-200 px-4 py-3 text-right">{formatHours(commercialTotals.verified)}</td>
-                  <td className="px-4 py-3" colSpan={2}>{commercialTotals.needsReview} needs review</td>
-                </tr>
-              </tfoot>
-            </table>
+          <div className="overflow-hidden rounded-xl border border-border/70">
+            <div className="overflow-auto">
+              <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
+                <thead>
+                  <tr className="bg-muted/40 text-left text-[11px] font-semibold uppercase text-muted-foreground">
+                    <th className="border-b border-border/70 px-4 py-3">Date</th>
+                    <th className="border-b border-border/70 px-4 py-3">Commercial Account</th>
+                    <th className="border-b border-border/70 px-4 py-3">Team</th>
+                    <th className="border-b border-border/70 px-4 py-3">Scheduled day</th>
+                    <th className="border-b border-border/70 px-4 py-3 text-right">Scheduled</th>
+                    <th className="border-b border-border/70 px-4 py-3 text-right">Completed</th>
+                    <th className="border-b border-border/70 px-4 py-3 text-right">Verified</th>
+                    <th className="border-b border-border/70 px-4 py-3">Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCommercialRows.length === 0 ? <tr><td className="px-4 py-10 text-center font-medium text-muted-foreground" colSpan={9}>{emptyCommercialText}</td></tr> : null}
+                  {filteredCommercialRows.map((entry) => {
+                    const isLucia = String(entry.team_name ?? "").toLowerCase() === "lucia portillo";
+                    const verifiedHours = entry.verified || entry.status === "verified" || entry.status === "paid" ? toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours) : 0;
+                    return (
+                      <tr className="align-top" key={entry.id}>
+                        <td className="border-b border-border/60 px-4 py-3 font-medium">{displayDate(entry.work_date)}</td>
+                        <td className="border-b border-border/60 px-4 py-3"><p className="font-semibold">{entry.account_name}</p><p className="text-xs font-medium text-muted-foreground">{commercialAccounts.find((account) => account.id === entry.account_id)?.city ?? "No city"}</p></td>
+                        <td className="border-b border-border/60 px-4 py-3 font-medium">{entry.team_name ?? "Unassigned"} {isLucia ? <Badge className="ml-2 rounded-full border-sky-200 bg-sky-50 text-[11px] font-semibold text-sky-950" variant="outline">Manual</Badge> : null}</td>
+                        <td className="border-b border-border/60 px-4 py-3 text-muted-foreground">{entry.scheduled_day ?? "-"}</td>
+                        <td className="border-b border-border/60 px-4 py-3 text-right font-semibold">{formatHours(toNumber(entry.scheduled_hours))}</td>
+                        <td className="border-b border-border/60 px-4 py-3 text-right font-semibold">{formatHours(toNumber(entry.completed_hours))}</td>
+                        <td className="border-b border-border/60 px-4 py-3 text-right font-semibold">{formatHours(verifiedHours)}</td>
+                        <td className="border-b border-border/60 px-4 py-3"><Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">{statusLabel(entry.status ?? "scheduled")}</Badge></td>
+                        <td className="border-b border-border/60 px-4 py-3">
+                          <div className="flex justify-end gap-2">
+                            <Button className="size-8 rounded-md" size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-3.5" /></Button>
+                            <Button className="size-8 rounded-md" size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-3.5" /></Button>
+                            <Button className="size-8 rounded-md" size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-3.5" /></Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-emerald-50/65 text-sm font-semibold text-emerald-950 dark:bg-emerald-950/20 dark:text-emerald-100">
+                    <td className="px-4 py-3">TOTAL</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">Scheduled</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">Completed</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">Verified</td>
+                    <td className="px-4 py-3 text-right">{formatHours(commercialTotals.scheduled)}</td>
+                    <td className="px-4 py-3 text-right">{formatHours(commercialTotals.completed)}</td>
+                    <td className="px-4 py-3 text-right">{formatHours(commercialTotals.verified)}</td>
+                    <td className="px-4 py-3"><Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", commercialTotals.needsReview ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900")} variant="outline">{commercialTotals.needsReview} needs review</Badge></td>
+                    <td className="px-4 py-3" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -3167,52 +3252,69 @@ export function SimpleOperationsClient({
           <MetricCard icon={WalletCards} label="Paid weekly payments" value={weeklyPayments.filter((payment) => payment.status === "paid").length} />
         </div>
 
-        <Card>
-          <CardHeader>
+        <Card className={SOP_PANEL_CLASS}>
+          <CardHeader className="p-4 sm:p-5">
             <CardTitle>Jake and Carlos</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
-            {operationsLeads.map((person) => (
-              <article className="rounded-lg border border-border bg-background/70 p-4" key={person.id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-black">{person.name}</h3>
-                    <p className="mt-1 text-sm font-bold text-muted-foreground">{person.role}</p>
+            {operationsLeads.map((person) => {
+              const personStatus = staffIsActive(person) ? "active" : "inactive";
+              return (
+                <article className="rounded-[16px] border border-border/70 bg-background/65 p-4" key={person.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate font-semibold">{person.name}</h3>
+                      <p className="mt-1 text-sm font-medium text-muted-foreground">{person.role}</p>
+                      <p className="mt-2 text-xs font-medium text-muted-foreground">{person.email || "No email on file"}</p>
+                    </div>
+                    <Badge className={statusBadgeClass(personStatus)} variant="outline">{statusLabel(personStatus)}</Badge>
                   </div>
-                  <Badge variant="outline">{person.status ?? "Active"}</Badge>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+        <Card className={SOP_PANEL_CLASS}>
+          <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
             <CardTitle>Residential teams / cleaners</CardTitle>
-            <Button onClick={() => openStaffDraft()}><Plus className="size-4" /> Create team</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add team</Button>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {activeTeams.length === 0 ? <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm font-bold text-muted-foreground md:col-span-2 xl:col-span-3">No residential teams yet.</div> : null}
+            {activeTeams.length === 0 ? <div className={cn(SOP_EMPTY_CLASS, "md:col-span-2 xl:col-span-3")}>No team members found.</div> : null}
             {activeTeams.map((team) => {
               const hours = workLogs.filter((log) => log.team_id === team.id || log.team_name === team.name).reduce((sum, log) => sum + toNumber(log.hours_worked), 0);
               const paid = weeklyPaymentRows.filter((payment) => (payment.cleaner_id === team.id || payment.cleaner_name === team.name) && payment.status === "paid").reduce((sum, payment) => sum + paymentLineTotal(payment), 0);
+              const teamStatus = staffIsActive(team) ? "active" : "inactive";
               return (
-                <article className="rounded-lg border border-border bg-background/70 p-4" key={team.id}>
+                <article className="flex min-h-[188px] flex-col rounded-[16px] border border-border/70 bg-background/65 p-4" key={team.id}>
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-black">{team.name}</h3>
-                      <p className="mt-1 text-xs font-bold text-muted-foreground">{team.email || "No email"}</p>
+                    <div className="min-w-0">
+                      <h3 className="truncate font-semibold">{team.name}</h3>
+                      <p className="mt-1 text-xs font-medium text-muted-foreground">{team.email || "No email on file"}</p>
                     </div>
-                    <Badge variant="outline">{team.status ?? "Active"}</Badge>
+                    <Badge className={statusBadgeClass(teamStatus)} variant="outline">{statusLabel(teamStatus)}</Badge>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm font-bold">
-                    <span>{formatMoney(toNumber(team.hourly_rate))}/hr</span>
-                    <span>{formatHours(hours)} hours</span>
-                    <span>{formatMoney(paid)} paid</span>
-                    <span>{isMixedPayCleaner(team) ? "Mixed pay" : "Residential only"}</span>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">Rate</p>
+                      <p className="mt-1 font-semibold">{formatMoney(toNumber(team.hourly_rate))}/hr</p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">Hours</p>
+                      <p className="mt-1 font-semibold">{formatHours(hours)}</p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">Paid</p>
+                      <p className="mt-1 font-semibold">{formatMoney(paid)}</p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">Area</p>
+                      <p className="mt-1 font-semibold">{isMixedPayCleaner(team) ? "Mixed route" : "Residential"}</p>
+                    </div>
                   </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openStaffDraft(team)}><Edit3 className="size-4" /> Edit</Button>
+                  <div className="mt-auto flex gap-2 pt-4">
+                    <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(team)}><Edit3 className="size-4" /> Edit</Button>
                   </div>
                 </article>
               );
@@ -3225,19 +3327,20 @@ export function SimpleOperationsClient({
 
   function renderReports() {
     const rows = getReportRows();
+    const previewKeys = Object.keys(rows[0] ?? { report: "No rows" }).slice(0, 7);
     return (
       <div className="space-y-4">
-        <Card>
+        <Card className={SOP_PANEL_CLASS}>
           <CardContent className="flex flex-wrap items-end justify-between gap-3 p-4">
             <div className="flex flex-wrap gap-2">
-              <select className="h-10 rounded-md border bg-background px-3 text-sm font-bold" value={reportKind} onChange={(event) => setReportKind(event.target.value as ReportKind)}>
+              <select className={PAYMENT_FIELD_CLASS} value={reportKind} onChange={(event) => setReportKind(event.target.value as ReportKind)}>
                 <option value="tasks">Task report</option>
                 <option value="hours">Hours report</option>
                 <option value="weekly_payments">Weekly payment report</option>
               </select>
               <PeriodSegment value={periodMode} onChange={setPeriodMode} />
             </div>
-            <Button onClick={exportCurrentReport}><FileSpreadsheet className="size-4" /> Export XLSX</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} onClick={exportCurrentReport}><FileSpreadsheet className="size-4" /> Export current report</Button>
           </CardContent>
         </Card>
         <div className="grid gap-3 md:grid-cols-4">
@@ -3246,26 +3349,28 @@ export function SimpleOperationsClient({
           <MetricCard icon={Download} label="Format" value="XLSX" />
           <MetricCard icon={WalletCards} label="Payment week" value={dateRangeLabel(weekRange.start, weekRange.end)} />
         </div>
-        <Card>
-          <CardHeader>
+        <Card className={SOP_PANEL_CLASS}>
+          <CardHeader className="p-4 sm:p-5">
             <CardTitle>Preview</CardTitle>
           </CardHeader>
-          <CardContent className="overflow-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs font-black uppercase text-muted-foreground">
-                  {Object.keys(rows[0] ?? { report: "No rows" }).slice(0, 7).map((key) => <th className="py-2" key={key}>{key.replace(/_/g, " ")}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? <tr><td className="py-8 text-center font-bold text-muted-foreground">No report rows for the current filters.</td></tr> : null}
-                {rows.slice(0, 20).map((row, index) => (
-                  <tr className="border-b border-border/70" key={index}>
-                    {Object.values(row).slice(0, 7).map((value, valueIndex) => <td className="py-2 pr-3" key={valueIndex}>{String(value ?? "")}</td>)}
+          <CardContent>
+            <div className={cn(SOP_TABLE_WRAP_CLASS, "overflow-x-auto")}>
+              <table className="w-full min-w-[860px] text-sm">
+                <thead>
+                  <tr className="border-b border-border/70 bg-muted/25 text-left text-xs font-semibold text-muted-foreground">
+                    {previewKeys.map((key) => <th className="px-4 py-3" key={key}>{key.replace(/_/g, " ")}</th>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? <tr><td className="px-4 py-8 text-center font-semibold text-muted-foreground" colSpan={previewKeys.length}>No report data for this period.</td></tr> : null}
+                  {rows.slice(0, 20).map((row, index) => (
+                    <tr className="border-b border-border/60 last:border-b-0" key={index}>
+                      {Object.values(row).slice(0, 7).map((value, valueIndex) => <td className="px-4 py-3 font-medium" key={valueIndex}>{String(value ?? "")}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -3282,25 +3387,25 @@ export function SimpleOperationsClient({
     ];
     return (
       <div className="grid gap-4 xl:grid-cols-[1fr_.85fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Notification configuration</CardTitle>
+        <Card className={SOP_PANEL_CLASS}>
+          <CardHeader className="p-4 sm:p-5">
+            <CardTitle>Notification setup</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
             {rows.map((row) => (
-              <div className="flex items-center justify-between rounded-md border border-border bg-background/70 px-3 py-2" key={row.env}>
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/65 px-3 py-2.5" key={row.env}>
                 <div>
-                  <p className="text-sm font-black">{row.label}</p>
-                  <p className="text-xs font-bold text-muted-foreground">{row.env}</p>
+                  <p className="text-sm font-semibold">{row.label}</p>
+                  <p className="text-xs font-medium text-muted-foreground">{row.env}</p>
                 </div>
-                <Badge className={row.configured ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}>{row.configured ? "Configured" : "Missing"}</Badge>
+                <Badge className={statusBadgeClass(row.configured ? "active" : "needs_review")} variant="outline">{row.configured ? "Configured" : "Missing"}</Badge>
               </div>
             ))}
           </CardContent>
         </Card>
         <div className="space-y-4">
-          <Card>
-            <CardHeader>
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="p-4 sm:p-5">
               <CardTitle>Residential operations defaults</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2">
@@ -3312,17 +3417,17 @@ export function SimpleOperationsClient({
                 "Soft-delete/archive behavior: enabled for tasks, accounts, logs, and payments",
                 "Default hourly rate: managed per team in Staff / Teams",
                 "Payment mode: Residential only by default; Juan Romero is mixed pay",
-              ].map((row) => <div className="rounded-md border border-border bg-background/70 px-3 py-2 text-sm font-bold text-muted-foreground" key={row}>{row}</div>)}
+              ].map((row) => <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5 text-sm font-medium text-muted-foreground" key={row}>{row}</div>)}
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Legacy scope</CardTitle>
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="p-4 sm:p-5">
+              <CardTitle>System scope</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-2 text-sm font-bold text-muted-foreground">
-              <div className="rounded-md border border-border bg-background/70 px-3 py-2">Commercial and SEO modules are hidden from navigation.</div>
-              <div className="rounded-md border border-border bg-background/70 px-3 py-2">Old routes redirect to the dashboard where safe.</div>
-              <div className="rounded-md border border-border bg-background/70 px-3 py-2">No secrets are displayed in this settings view.</div>
+            <CardContent className="grid gap-2 text-sm font-medium text-muted-foreground">
+              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">Commercial and SEO modules are hidden from navigation.</div>
+              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">Old routes redirect to the dashboard where safe.</div>
+              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">No secrets are displayed in this settings view.</div>
             </CardContent>
           </Card>
         </div>
@@ -3333,37 +3438,42 @@ export function SimpleOperationsClient({
   function renderTaskModal() {
     if (!taskDraft) return null;
     return (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm" onClick={() => savingTask ? undefined : setTaskDraft(null)}>
-        <form className="grid w-full max-w-2xl gap-3 rounded-lg border border-border bg-card p-5 shadow-2xl" onSubmit={saveTask} onClick={(event) => event.stopPropagation()}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-black">{taskDraft.id ? "Edit task" : "Create task"}</h2>
-            <button type="button" aria-label="Close task modal" disabled={savingTask} onClick={() => setTaskDraft(null)}><X className="size-5" /></button>
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => savingTask ? undefined : setTaskDraft(null)}>
+        <form className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-2xl")} onSubmit={saveTask} onClick={(event) => event.stopPropagation()}>
+          <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
+            <div>
+              <h2 className="text-lg font-semibold tracking-normal">{taskDraft.id ? "Edit reminder" : "Add reminder"}</h2>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Keep operational follow-ups clear and assigned.</p>
+            </div>
+            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close task modal" disabled={savingTask} onClick={() => setTaskDraft(null)}><X className="size-4" /></button>
           </div>
-          <label className="grid gap-1 text-sm font-bold">Title<input className="h-10 rounded-md border bg-background px-3" value={taskDraft.title} onChange={(event) => setTaskDraft({ ...taskDraft, title: event.target.value })} /></label>
-          <label className="grid gap-1 text-sm font-bold">Notes<textarea className="min-h-24 rounded-md border bg-background p-3" value={taskDraft.description} onChange={(event) => setTaskDraft({ ...taskDraft, description: event.target.value })} /></label>
-          <div className="grid gap-3 md:grid-cols-3">
-            <label className="grid gap-1 text-sm font-bold">Assigned to<select className="h-10 rounded-md border bg-background px-3" value={taskDraft.assignee} onChange={(event) => setTaskDraft({ ...taskDraft, assignee: event.target.value as ResidentialAssignee })}>
-              {RESIDENTIAL_ASSIGNEES.map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
-            </select></label>
-            <label className="grid gap-1 text-sm font-bold">Due date<input className="h-10 rounded-md border bg-background px-3" type="date" value={taskDraft.dueDate} onChange={(event) => setTaskDraft({ ...taskDraft, dueDate: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">Priority<select className="h-10 rounded-md border bg-background px-3" value={taskDraft.priority} onChange={(event) => setTaskDraft({ ...taskDraft, priority: event.target.value as TaskDraft["priority"] })}>
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select></label>
-            <label className="grid gap-1 text-sm font-bold">Frequency<select className="h-10 rounded-md border bg-background px-3" value={taskDraft.frequency} onChange={(event) => setTaskDraft({ ...taskDraft, frequency: event.target.value as TaskReminderFrequency })}>
-              {Object.entries(TASK_FREQUENCY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select></label>
-            {taskDraft.frequency === "custom" ? <label className="grid gap-1 text-sm font-bold">Custom days<input className="h-10 rounded-md border bg-background px-3" inputMode="numeric" value={taskDraft.customIntervalDays} onChange={(event) => setTaskDraft({ ...taskDraft, customIntervalDays: event.target.value })} /></label> : null}
+          <div className="grid gap-4 p-5">
+            <label className={PAYMENT_LABEL_CLASS}>Title<input className={PAYMENT_FIELD_CLASS} value={taskDraft.title} onChange={(event) => setTaskDraft({ ...taskDraft, title: event.target.value })} /></label>
+            <label className={PAYMENT_LABEL_CLASS}>Notes<textarea className={cn(PAYMENT_FIELD_CLASS, "h-auto min-h-24 py-2 font-medium normal-case")} value={taskDraft.description} onChange={(event) => setTaskDraft({ ...taskDraft, description: event.target.value })} /></label>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className={PAYMENT_LABEL_CLASS}>Assigned to<select className={PAYMENT_FIELD_CLASS} value={taskDraft.assignee} onChange={(event) => setTaskDraft({ ...taskDraft, assignee: event.target.value as ResidentialAssignee })}>
+                {RESIDENTIAL_ASSIGNEES.map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
+              </select></label>
+              <label className={PAYMENT_LABEL_CLASS}>Due date<input className={PAYMENT_FIELD_CLASS} type="date" value={taskDraft.dueDate} onChange={(event) => setTaskDraft({ ...taskDraft, dueDate: event.target.value })} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Priority<select className={PAYMENT_FIELD_CLASS} value={taskDraft.priority} onChange={(event) => setTaskDraft({ ...taskDraft, priority: event.target.value as TaskDraft["priority"] })}>
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select></label>
+              <label className={PAYMENT_LABEL_CLASS}>Frequency<select className={PAYMENT_FIELD_CLASS} value={taskDraft.frequency} onChange={(event) => setTaskDraft({ ...taskDraft, frequency: event.target.value as TaskReminderFrequency })}>
+                {Object.entries(TASK_FREQUENCY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select></label>
+              {taskDraft.frequency === "custom" ? <label className={PAYMENT_LABEL_CLASS}>Custom days<input className={PAYMENT_FIELD_CLASS} inputMode="numeric" value={taskDraft.customIntervalDays} onChange={(event) => setTaskDraft({ ...taskDraft, customIntervalDays: event.target.value })} /></label> : null}
+            </div>
+            <div className="flex flex-wrap gap-3 text-sm font-semibold text-foreground">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={taskDraft.notifyAssignee} onChange={(event) => setTaskDraft({ ...taskDraft, notifyAssignee: event.target.checked })} /> Notify assignee</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={taskDraft.notifyOwnerOnCompletion} onChange={(event) => setTaskDraft({ ...taskDraft, notifyOwnerOnCompletion: event.target.checked })} /> Notify owner on completion</label>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-3 text-sm font-bold">
-            <label className="flex items-center gap-2"><input type="checkbox" checked={taskDraft.notifyAssignee} onChange={(event) => setTaskDraft({ ...taskDraft, notifyAssignee: event.target.checked })} /> Notify assignee</label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={taskDraft.notifyOwnerOnCompletion} onChange={(event) => setTaskDraft({ ...taskDraft, notifyOwnerOnCompletion: event.target.checked })} /> Notify owner on completion</label>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={savingTask} onClick={() => setTaskDraft(null)}>Cancel</Button>
-            <Button type="submit" disabled={savingTask}><Save className="size-4" /> {savingTask ? "Saving..." : "Save task"}</Button>
+          <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingTask} onClick={() => setTaskDraft(null)}>Cancel</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingTask}><Save className="size-4" /> {savingTask ? "Saving..." : "Save reminder"}</Button>
           </div>
         </form>
       </div>
@@ -3373,42 +3483,43 @@ export function SimpleOperationsClient({
   function renderTaskDetail() {
     if (!selectedTask) return null;
     const taskActivity = activity.filter((item) => item.task_id === selectedTask.id);
+    const selectedStatus = normalizeTaskStatus(selectedTask.status);
     return (
-      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-xl overflow-auto border-l border-border bg-card shadow-2xl">
-        <div className="sticky top-0 z-10 border-b border-border bg-card/95 p-5 backdrop-blur">
+      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-xl overflow-auto border-l border-border/70 bg-card/95 shadow-[0_28px_80px_-42px_hsl(215_40%_18%)] backdrop-blur-xl">
+        <div className="sticky top-0 z-10 border-b border-border/70 bg-card/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-black uppercase text-primary">Task reminder</p>
-              <h2 className="mt-2 text-2xl font-black">{selectedTask.title}</h2>
-              <p className="mt-1 text-sm font-semibold text-muted-foreground">{selectedTask.assignee ?? "Unassigned"} · {displayDate(selectedTask.due_date)}</p>
+              <p className="text-xs font-semibold text-primary">Task reminder</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-normal">{selectedTask.title}</h2>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">{selectedTask.assignee ?? "Unassigned"} · {displayDate(selectedTask.due_date)}</p>
             </div>
-            <button type="button" className="grid size-9 place-items-center rounded-md border border-border bg-background" aria-label="Close task detail" onClick={() => setSelectedTask(null)}><X className="size-5" /></button>
+            <button type="button" className={SOP_CLOSE_BUTTON_CLASS} aria-label="Close task detail" onClick={() => setSelectedTask(null)}><X className="size-4" /></button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Badge variant="outline">{normalizeTaskStatus(selectedTask.status)}</Badge>
+            <Badge className={statusBadgeClass(selectedStatus)} variant="outline">{statusLabel(selectedStatus)}</Badge>
             <Badge variant="outline">{TASK_FREQUENCY_LABELS[frequencyFromRecurrence(selectedTask.recurrence)]}</Badge>
-            <Badge variant="outline">{selectedTask.priority ?? "normal"}</Badge>
+            <Badge className={statusBadgeClass(selectedTask.priority)} variant="outline">{statusLabel(selectedTask.priority ?? "normal")}</Badge>
           </div>
         </div>
         <div className="space-y-5 p-5">
-          <section className="rounded-lg border border-border bg-background/70 p-4 text-sm font-semibold text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
+          <section className="rounded-xl border border-border/70 bg-background/65 p-4 text-sm font-medium text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
           <div className="flex flex-wrap gap-2">
-            <Button disabled={normalizeTaskStatus(selectedTask.status) === "completed" || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-4" /> {completingTaskId === selectedTask.id ? "Completing..." : "Complete"}</Button>
-            <Button variant="outline" onClick={() => openTaskDraft(selectedTask)}><Edit3 className="size-4" /> Edit</Button>
-            <Button variant="outline" disabled={deletingTaskId === selectedTask.id} onClick={() => deleteTask(selectedTask)}><Trash2 className="size-4" /> Delete</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} disabled={selectedStatus === "completed" || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-4" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark completed"}</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => openTaskDraft(selectedTask)}><Edit3 className="size-4" /> Edit</Button>
+            <Button className={cn(SOP_ACTION_BUTTON_CLASS, "border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800")} variant="outline" disabled={deletingTaskId === selectedTask.id} onClick={() => deleteTask(selectedTask)}><Trash2 className="size-4" /> Delete</Button>
           </div>
           <section>
-            <h3 className="font-black">Activity log</h3>
+            <h3 className="font-semibold">Activity log</h3>
             <div className="mt-3 grid gap-2">
-              {taskActivity.length === 0 ? <p className="rounded-md border border-dashed border-border p-3 text-sm font-bold text-muted-foreground">No activity yet.</p> : null}
+              {taskActivity.length === 0 ? <p className={cn(SOP_EMPTY_CLASS, "p-3 text-left")}>No activity yet.</p> : null}
               {taskActivity.slice(0, 12).map((item) => {
                 const reason = typeof item.details?.reason === "string" ? item.details.reason : null;
                 const messageText = typeof item.details?.message === "string" ? item.details.message : null;
                 return (
-                  <div className="rounded-md border border-border bg-background/70 p-3 text-sm" key={item.id}>
+                  <div className="rounded-xl border border-border/70 bg-background/65 p-3 text-sm" key={item.id}>
                     <strong>{actionLabel(item.action)}{reason ? ` - ${reason}` : ""}</strong>
-                    {messageText && !reason ? <p className="mt-1 text-xs font-bold text-muted-foreground">{messageText}</p> : null}
-                    <p className="mt-1 text-xs font-bold text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p>
+                    {messageText && !reason ? <p className="mt-1 text-xs font-medium text-muted-foreground">{messageText}</p> : null}
+                    <p className="mt-1 text-xs font-medium text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p>
                   </div>
                 );
               })}
@@ -3423,44 +3534,48 @@ export function SimpleOperationsClient({
     if (!accountDraft) return null;
     const totals = calculateResidentialHours(Number(accountDraft.scheduledHours) || 0, accountDraft.frequency);
     return (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm" onClick={() => savingAccount ? undefined : setAccountDraft(null)}>
-        <form className="grid w-full max-w-3xl gap-3 rounded-lg border border-border bg-card p-5 shadow-2xl" onSubmit={saveAccount} onClick={(event) => event.stopPropagation()}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-black">{accountDraft.id ? "Edit residential account" : "Add residential account"}</h2>
-            <button type="button" aria-label="Close account modal" disabled={savingAccount} onClick={() => setAccountDraft(null)}><X className="size-5" /></button>
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => savingAccount ? undefined : setAccountDraft(null)}>
+        <form className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-3xl")} onSubmit={saveAccount} onClick={(event) => event.stopPropagation()}>
+          <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
+            <div>
+              <h2 className="text-lg font-semibold tracking-normal">{accountDraft.id ? "Edit residential account" : "Add residential account"}</h2>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Recurring residential cleaning setup.</p>
+            </div>
+            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close account modal" disabled={savingAccount} onClick={() => setAccountDraft(null)}><X className="size-4" /></button>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-1 text-sm font-bold">Account name<input className="h-10 rounded-md border bg-background px-3" value={accountDraft.accountName} onChange={(event) => setAccountDraft({ ...accountDraft, accountName: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">Scheduled hours<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={accountDraft.scheduledHours} onChange={(event) => setAccountDraft({ ...accountDraft, scheduledHours: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">Frequency<select className="h-10 rounded-md border bg-background px-3" value={accountDraft.frequency} onChange={(event) => setAccountDraft({ ...accountDraft, frequency: event.target.value as ResidentialFrequency })}>
-              {Object.entries(RESIDENTIAL_FREQUENCY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select></label>
-            <label className="grid gap-1 text-sm font-bold">Frequency detail<input className="h-10 rounded-md border bg-background px-3" value={accountDraft.frequencyDetail} onChange={(event) => setAccountDraft({ ...accountDraft, frequencyDetail: event.target.value })} placeholder="Every Wednesday" /></label>
-            <label className="grid gap-1 text-sm font-bold">City<select className="h-10 rounded-md border bg-background px-3" value={accountDraft.city} onChange={(event) => setAccountDraft({ ...accountDraft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? accountDraft.customCity : "" })}>
-              <option value="">Select city</option>
-              {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
-              <option value={OUTSIDE_OC_CITY}>{OUTSIDE_OC_CITY}</option>
-            </select></label>
-            {accountDraft.city === OUTSIDE_OC_CITY ? <label className="grid gap-1 text-sm font-bold">Custom city<input className="h-10 rounded-md border bg-background px-3" value={accountDraft.customCity} onChange={(event) => setAccountDraft({ ...accountDraft, customCity: event.target.value })} /></label> : null}
-            <label className="grid gap-1 text-sm font-bold">Assigned team<select className="h-10 rounded-md border bg-background px-3" value={accountDraft.assignedTeamId} onChange={(event) => setAccountDraft({ ...accountDraft, assignedTeamId: event.target.value })}>
-              <option value="">Unassigned</option>
-              {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-            </select></label>
-            <label className="grid gap-1 text-sm font-bold">Status<select className="h-10 rounded-md border bg-background px-3" value={accountDraft.active ? "active" : "inactive"} onChange={(event) => setAccountDraft({ ...accountDraft, active: event.target.value === "active" })}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select></label>
+          <div className="grid gap-4 p-5">
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className={PAYMENT_LABEL_CLASS}>Account name<input className={PAYMENT_FIELD_CLASS} value={accountDraft.accountName} onChange={(event) => setAccountDraft({ ...accountDraft, accountName: event.target.value })} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Scheduled hours<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={accountDraft.scheduledHours} onChange={(event) => setAccountDraft({ ...accountDraft, scheduledHours: event.target.value })} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Frequency<select className={PAYMENT_FIELD_CLASS} value={accountDraft.frequency} onChange={(event) => setAccountDraft({ ...accountDraft, frequency: event.target.value as ResidentialFrequency })}>
+                {Object.entries(RESIDENTIAL_FREQUENCY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select></label>
+              <label className={PAYMENT_LABEL_CLASS}>Frequency detail<input className={PAYMENT_FIELD_CLASS} value={accountDraft.frequencyDetail} onChange={(event) => setAccountDraft({ ...accountDraft, frequencyDetail: event.target.value })} placeholder="Every Wednesday" /></label>
+              <label className={PAYMENT_LABEL_CLASS}>City<select className={PAYMENT_FIELD_CLASS} value={accountDraft.city} onChange={(event) => setAccountDraft({ ...accountDraft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? accountDraft.customCity : "" })}>
+                <option value="">Select city</option>
+                {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
+                <option value={OUTSIDE_OC_CITY}>{OUTSIDE_OC_CITY}</option>
+              </select></label>
+              {accountDraft.city === OUTSIDE_OC_CITY ? <label className={PAYMENT_LABEL_CLASS}>Custom city<input className={PAYMENT_FIELD_CLASS} value={accountDraft.customCity} onChange={(event) => setAccountDraft({ ...accountDraft, customCity: event.target.value })} /></label> : null}
+              <label className={PAYMENT_LABEL_CLASS}>Assigned team<select className={PAYMENT_FIELD_CLASS} value={accountDraft.assignedTeamId} onChange={(event) => setAccountDraft({ ...accountDraft, assignedTeamId: event.target.value })}>
+                <option value="">Unassigned</option>
+                {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select></label>
+              <label className={PAYMENT_LABEL_CLASS}>Status<select className={PAYMENT_FIELD_CLASS} value={accountDraft.active ? "active" : "inactive"} onChange={(event) => setAccountDraft({ ...accountDraft, active: event.target.value === "active" })}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select></label>
+            </div>
+            <label className={PAYMENT_LABEL_CLASS}>Notes<textarea className={cn(PAYMENT_FIELD_CLASS, "h-auto min-h-20 py-2 font-medium normal-case")} value={accountDraft.notes} onChange={(event) => setAccountDraft({ ...accountDraft, notes: event.target.value })} /></label>
+            <div className="grid gap-2 rounded-xl border border-border/70 bg-background/65 p-3 text-sm md:grid-cols-3">
+              <span className="font-semibold">{formatHours(totals.weekly)} hours/week</span>
+              <span className="font-semibold">{formatHours(totals.biweekly)} hours/2 weeks</span>
+              <span className="font-semibold">{formatHours(totals.monthly)} hours/month</span>
+            </div>
           </div>
-          <p className="text-sm font-bold text-muted-foreground">Use this to track recurring residential cleanings and weekly payment rows.</p>
-          <label className="grid gap-1 text-sm font-bold">Notes<textarea className="min-h-20 rounded-md border bg-background p-3" value={accountDraft.notes} onChange={(event) => setAccountDraft({ ...accountDraft, notes: event.target.value })} /></label>
-          <div className="grid gap-2 rounded-lg border border-border bg-background/70 p-3 text-sm font-bold md:grid-cols-3">
-            <span>{formatHours(totals.weekly)} hours/week</span>
-            <span>{formatHours(totals.biweekly)} hours/2 weeks</span>
-            <span>{formatHours(totals.monthly)} hours/month</span>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={savingAccount} onClick={() => setAccountDraft(null)}>Cancel</Button>
-            <Button type="submit" disabled={savingAccount}><Save className="size-4" /> {savingAccount ? "Saving..." : "Save account"}</Button>
+          <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingAccount} onClick={() => setAccountDraft(null)}>Cancel</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingAccount}><Save className="size-4" /> {savingAccount ? "Saving..." : "Save account"}</Button>
           </div>
         </form>
       </div>
@@ -3470,27 +3585,32 @@ export function SimpleOperationsClient({
   function renderStaffModal() {
     if (!staffDraft) return null;
     return (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm" onClick={() => savingStaff ? undefined : setStaffDraft(null)}>
-        <form className="grid w-full max-w-xl gap-3 rounded-lg border border-border bg-card p-5 shadow-2xl" onSubmit={saveStaff} onClick={(event) => event.stopPropagation()}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-black">{staffDraft.id ? "Edit team" : "Create team"}</h2>
-            <button type="button" aria-label="Close team modal" disabled={savingStaff} onClick={() => setStaffDraft(null)}><X className="size-5" /></button>
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => savingStaff ? undefined : setStaffDraft(null)}>
+        <form className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-xl")} onSubmit={saveStaff} onClick={(event) => event.stopPropagation()}>
+          <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
+            <div>
+              <h2 className="text-lg font-semibold tracking-normal">{staffDraft.id ? "Edit team" : "Add team"}</h2>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Cleaner profile and payment setup.</p>
+            </div>
+            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close team modal" disabled={savingStaff} onClick={() => setStaffDraft(null)}><X className="size-4" /></button>
           </div>
-          <label className="grid gap-1 text-sm font-bold">Team name<input className="h-10 rounded-md border bg-background px-3" value={staffDraft.name} onChange={(event) => setStaffDraft({ ...staffDraft, name: event.target.value })} /></label>
-          <label className="grid gap-1 text-sm font-bold">Email optional<input className="h-10 rounded-md border bg-background px-3" type="email" value={staffDraft.email} onChange={(event) => setStaffDraft({ ...staffDraft, email: event.target.value })} /></label>
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-1 text-sm font-bold">Role<input className="h-10 rounded-md border bg-background px-3" value={staffDraft.role} onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">Hourly rate<input className="h-10 rounded-md border bg-background px-3" inputMode="decimal" value={staffDraft.hourlyRate} onChange={(event) => setStaffDraft({ ...staffDraft, hourlyRate: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">Payment mode<select className="h-10 rounded-md border bg-background px-3" value={staffDraft.paymentMode} disabled={isJuanRomero(staffDraft.name)} onChange={(event) => setStaffDraft({ ...staffDraft, paymentMode: event.target.value as PaymentMode })}>
-              <option value="residential_only">Residential only</option>
-              <option value="mixed">Mixed pay</option>
-            </select></label>
-            {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950">Juan Romero is always mixed pay.</div> : null}
+          <div className="grid gap-4 p-5">
+            <label className={PAYMENT_LABEL_CLASS}>Team name<input className={PAYMENT_FIELD_CLASS} value={staffDraft.name} onChange={(event) => setStaffDraft({ ...staffDraft, name: event.target.value })} /></label>
+            <label className={PAYMENT_LABEL_CLASS}>Email optional<input className={PAYMENT_FIELD_CLASS} type="email" value={staffDraft.email} onChange={(event) => setStaffDraft({ ...staffDraft, email: event.target.value })} /></label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className={PAYMENT_LABEL_CLASS}>Role<input className={PAYMENT_FIELD_CLASS} value={staffDraft.role} onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value })} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Hourly rate<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={staffDraft.hourlyRate} onChange={(event) => setStaffDraft({ ...staffDraft, hourlyRate: event.target.value })} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Payment mode<select className={PAYMENT_FIELD_CLASS} value={staffDraft.paymentMode} disabled={isJuanRomero(staffDraft.name)} onChange={(event) => setStaffDraft({ ...staffDraft, paymentMode: event.target.value as PaymentMode })}>
+                <option value="residential_only">Residential only</option>
+                <option value="mixed">Mixed pay</option>
+              </select></label>
+              {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
+            </div>
+            <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={staffDraft.active} onChange={(event) => setStaffDraft({ ...staffDraft, active: event.target.checked })} /> Active</label>
           </div>
-          <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={staffDraft.active} onChange={(event) => setStaffDraft({ ...staffDraft, active: event.target.checked })} /> Active</label>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={savingStaff} onClick={() => setStaffDraft(null)}>Cancel</Button>
-            <Button type="submit" disabled={savingStaff}><Save className="size-4" /> {savingStaff ? "Saving..." : "Save team"}</Button>
+          <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingStaff} onClick={() => setStaffDraft(null)}>Cancel</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingStaff}><Save className="size-4" /> {savingStaff ? "Saving..." : "Save team"}</Button>
           </div>
         </form>
       </div>
