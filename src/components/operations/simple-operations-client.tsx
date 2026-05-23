@@ -293,9 +293,12 @@ type StaffMemberRow = {
   name: string;
   email: string | null;
   role: string | null;
+  display_role?: string | null;
+  team_scope?: string | null;
   status: string | null;
   hourly_rate?: number | string | null;
   payment_mode?: PaymentMode | string | null;
+  commercial_payroll_eligible?: boolean | null;
   active?: boolean | null;
   deleted_at?: string | null;
   created_at?: string | null;
@@ -344,10 +347,15 @@ type StaffDraft = {
   name: string;
   email: string;
   role: string;
+  teamScope: StaffTeamScope;
+  status: StaffPipelineStatus;
   hourlyRate: string;
   paymentMode: PaymentMode;
   active: boolean;
 };
+
+type StaffTeamScope = "residential" | "commercial" | "mixed";
+type StaffPipelineStatus = "Active" | "Potential" | "Inactive";
 
 type PaymentRowDraft = {
   id?: string;
@@ -428,6 +436,8 @@ const EMPTY_STAFF_DRAFT: StaffDraft = {
   name: "",
   email: "",
   role: "Residential Cleaner / Team",
+  teamScope: "residential",
+  status: "Active",
   hourlyRate: "",
   paymentMode: "residential_only",
   active: true,
@@ -508,10 +518,6 @@ function taskIsOperationsReminder(task: OperationTaskRow) {
   return panel !== "seo" && panel !== "commercial" && unit !== "seo" && unit !== "commercial" && !task.deleted_at;
 }
 
-function staffIsActive(person: StaffMemberRow) {
-  return person.active !== false && person.status !== "Inactive" && !person.deleted_at;
-}
-
 function isJuanRomero(name: string | null | undefined) {
   const normalized = String(name ?? "").trim().toLowerCase();
   return normalized === "juan romero" || normalized === "juan";
@@ -519,6 +525,52 @@ function isJuanRomero(name: string | null | undefined) {
 
 function isCarlosLopez(name: string | null | undefined) {
   return String(name ?? "").trim().toLowerCase() === "carlos lopez";
+}
+
+function normalizeStaffStatus(person: Pick<StaffMemberRow, "active" | "deleted_at" | "status">): "active" | "potential" | "inactive" {
+  const status = String(person.status ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  if (person.deleted_at || status === "inactive" || status === "removed") return "inactive";
+  if (status === "potential" || status === "candidate" || status === "prospect" || status === "applicant") return "potential";
+  if (person.active === false) return "inactive";
+  return "active";
+}
+
+function staffIsActive(person: StaffMemberRow) {
+  return normalizeStaffStatus(person) === "active";
+}
+
+function staffIsPotentialCleaner(person: StaffMemberRow) {
+  return normalizeStaffStatus(person) === "potential" && !["owner", "operations manager"].includes(String(person.role ?? "").toLowerCase());
+}
+
+function staffScope(person: Pick<StaffMemberRow, "role" | "team_scope">): StaffTeamScope {
+  const source = `${person.team_scope ?? ""} ${person.role ?? ""}`.toLowerCase();
+  if (source.includes("mixed")) return "mixed";
+  if (source.includes("commercial") || source.includes("janitorial") || source.includes("porter") || source.includes("office") || source.includes("restaurant") || source.includes("construction") || source.includes("account manager")) return "commercial";
+  return "residential";
+}
+
+function staffScopeLabel(scope: StaffTeamScope) {
+  if (scope === "commercial") return "Commercial";
+  if (scope === "mixed") return "Mixed route";
+  return "Residential";
+}
+
+function roleForStaffScope(scope: StaffTeamScope) {
+  if (scope === "commercial") return "Commercial Cleaner";
+  if (scope === "mixed") return "Mixed Route Cleaner";
+  return "Residential Cleaner / Team";
+}
+
+function displayStaffRole(person: StaffMemberRow) {
+  return person.display_role || person.role || roleForStaffScope(staffScope(person));
+}
+
+function staffDraftStatus(person: StaffMemberRow): StaffPipelineStatus {
+  const status = normalizeStaffStatus(person);
+  if (status === "potential") return "Potential";
+  if (status === "inactive") return "Inactive";
+  return "Active";
 }
 
 function normalizePaymentMode(value: string | null | undefined, name: string | null | undefined): PaymentMode {
@@ -593,7 +645,7 @@ function monthLabel(value: string) {
 
 function statusBadgeClass(status: string | null | undefined) {
   if (status === "paid" || status === "verified" || status === "completed" || status === "active" || status === "approved") return "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
-  if (status === "needs_review" || status === "pending_payment" || status === "pending") return "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
+  if (status === "needs_review" || status === "pending_payment" || status === "pending" || status === "potential") return "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
   if (status === "overdue" || status === "urgent") return "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-100";
   if (status === "skipped" || status === "no_jobs" || status === "inactive") return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/25 dark:text-slate-200";
   return "border-border bg-background text-muted-foreground";
@@ -605,6 +657,7 @@ function statusLabel(status: string | null | undefined) {
   if (status === "verified") return "Verified";
   if (status === "completed") return "Completed";
   if (status === "active") return "Active";
+  if (status === "potential") return "Potential";
   if (status === "inactive") return "Inactive";
   if (status === "approved") return "Approved";
   if (status === "scheduled") return "Scheduled";
@@ -874,6 +927,9 @@ export function SimpleOperationsClient({
   const periodRange = getPeriodRange(periodMode, periodAnchor);
   const activeAccounts = useMemo(() => accounts.filter((account) => account.active !== false), [accounts]);
   const activeTeams = useMemo(() => staff.filter((person) => staffIsActive(person) && !["owner", "operations manager"].includes(String(person.role ?? "").toLowerCase()) && !["jake ivan-pal", "carlos lopez"].includes(person.name.toLowerCase())), [staff]);
+  const potentialCleaners = useMemo(() => staff.filter((person) => staffIsPotentialCleaner(person) && !["jake ivan-pal", "carlos lopez"].includes(person.name.toLowerCase())), [staff]);
+  const potentialResidentialCleaners = useMemo(() => potentialCleaners.filter((person) => staffScope(person) !== "commercial"), [potentialCleaners]);
+  const potentialCommercialCleaners = useMemo(() => potentialCleaners.filter((person) => staffScope(person) !== "residential"), [potentialCleaners]);
   const teamByKey = useMemo(() => {
     const map = new Map<string, StaffMemberRow>();
     for (const team of activeTeams) {
@@ -1475,10 +1531,23 @@ export function SimpleOperationsClient({
       id: person.id,
       name: person.name,
       email: person.email ?? "",
-      role: person.role ?? "Residential Cleaner / Team",
+      role: displayStaffRole(person),
+      teamScope: staffScope(person),
+      status: staffDraftStatus(person),
       hourlyRate: String(person.hourly_rate ?? ""),
       paymentMode: normalizePaymentMode(person.payment_mode, person.name),
       active: staffIsActive(person),
+    });
+  }
+
+  function openPotentialCleanerDraft(teamScope: StaffTeamScope) {
+    setStaffDraft({
+      ...EMPTY_STAFF_DRAFT,
+      role: roleForStaffScope(teamScope),
+      teamScope,
+      status: "Potential",
+      active: false,
+      paymentMode: teamScope === "mixed" ? "mixed" : "residential_only",
     });
   }
 
@@ -1486,22 +1555,26 @@ export function SimpleOperationsClient({
     event.preventDefault();
     if (!staffDraft || !userId || savingStaff) return;
     if (!staffDraft.name.trim()) {
-      setMessage({ tone: "error", text: "Team could not be saved: name is required." });
+      setMessage({ tone: "error", text: "Cleaner could not be saved: name is required." });
       return;
     }
     const now = new Date().toISOString();
+    const status = staffDraft.status;
+    const teamScope = staffDraft.teamScope;
+    const role = staffDraft.role.trim() || roleForStaffScope(teamScope);
+    const isActiveStatus = status === "Active";
     const payload = {
       user_id: userId,
       name: staffDraft.name.trim(),
       email: staffDraft.email.trim() || makeTeamEmail(staffDraft.name),
-      role: staffDraft.role.trim() || "Residential Cleaner / Team",
-      display_role: staffDraft.role.trim() || "Residential Cleaner / Team",
-      team_scope: "residential",
+      role,
+      display_role: role,
+      team_scope: teamScope,
       hourly_rate: Number(staffDraft.hourlyRate) || null,
       payment_mode: isJuanRomero(staffDraft.name) ? "mixed" : staffDraft.paymentMode,
-      active: staffDraft.active,
-      status: staffDraft.active ? "Active" : "Inactive",
-      commercial_payroll_eligible: false,
+      active: isActiveStatus ? staffDraft.active : false,
+      status,
+      commercial_payroll_eligible: isActiveStatus && (teamScope === "commercial" || teamScope === "mixed") && !isJuanRomero(staffDraft.name),
       updated_at: now,
     };
     setSavingStaff(true);
@@ -1511,10 +1584,10 @@ export function SimpleOperationsClient({
         : await supabase.from("staff_members").insert({ ...payload, created_at: now });
       if (result.error) throw new Error(result.error.message);
       setStaffDraft(null);
-      setMessage({ tone: "success", text: "Team saved." });
+      setMessage({ tone: "success", text: "Cleaner saved." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Team could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Cleaner could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
     } finally {
       setSavingStaff(false);
     }
@@ -2117,7 +2190,7 @@ export function SimpleOperationsClient({
       dashboard: { title: "Operations dashboard", sub: "Daily reminders, residential payments, and commercial hours.", icon: CheckCircle2 },
       tasks: { title: "Task reminders", sub: "Simple reminders for Jake Ivan-Pal and Carlos Lopez.", icon: Clock },
       residential: { title: "Residential payments / commercial hours", sub: "Weekly residential payments and commercial team hours tracking.", icon: WalletCards },
-      staff: { title: "Staff / Teams", sub: "Residential teams, rates, hours, and payment status.", icon: Users },
+      staff: { title: "Staff / Teams", sub: "Active teams, rates, and residential/commercial cleaner pipeline.", icon: Users },
       reports: { title: "Reports", sub: "Task, hours, and weekly payment exports.", icon: FileText },
       settings: { title: "Settings", sub: "Notification setup and residential operations defaults.", icon: Settings2 },
     };
@@ -2144,7 +2217,7 @@ export function SimpleOperationsClient({
                 <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={commercialPanelOpen ? exportCommercialHours : exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
               </>
             ) : null}
-            {view === "staff" ? <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add team</Button> : null}
+            {view === "staff" ? <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add cleaner</Button> : null}
           </div>
         </div>
       </section>
@@ -3242,12 +3315,48 @@ export function SimpleOperationsClient({
     );
   }
 
+  function renderPotentialCleanerColumn(title: string, people: StaffMemberRow[], teamScope: StaffTeamScope) {
+    return (
+      <div className="rounded-xl border border-border/70 bg-background/60 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold">{title}</h3>
+            <p className="mt-1 text-xs font-medium text-muted-foreground">{people.length} potential cleaner{people.length === 1 ? "" : "s"}</p>
+          </div>
+          <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openPotentialCleanerDraft(teamScope)}><Plus className="size-4" /> Add</Button>
+        </div>
+        <div className="mt-3 grid gap-2">
+          {people.length === 0 ? <div className={SOP_EMPTY_CLASS}>No potential cleaners listed.</div> : null}
+          {people.map((person) => (
+            <article className="rounded-xl border border-border/60 bg-card/70 p-3" key={person.id}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="truncate font-semibold">{person.name}</h4>
+                  <p className="mt-1 truncate text-xs font-medium text-muted-foreground">{person.email || "No email on file"}</p>
+                </div>
+                <Badge className={statusBadgeClass("potential")} variant="outline">Potential</Badge>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <Badge variant="outline">{displayStaffRole(person)}</Badge>
+                <Badge variant="outline">{staffScopeLabel(staffScope(person))}</Badge>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(person)}><Edit3 className="size-4" /> Edit</Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   function renderStaff() {
     return (
       <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <MetricCard icon={UserRoundCheck} label="Operations leads" value={operationsLeads.length} />
-          <MetricCard icon={Users} label="Residential teams" value={activeTeams.length} />
+          <MetricCard icon={Users} label="Active teams" value={activeTeams.length} />
+          <MetricCard icon={BadgeCheck} label="Potential cleaners" value={potentialCleaners.length} note="Residential and commercial" />
           <MetricCard icon={Clock} label="Logged hours" value={formatHours(workLogs.reduce((sum, log) => sum + toNumber(log.hours_worked), 0))} />
           <MetricCard icon={WalletCards} label="Paid weekly payments" value={weeklyPayments.filter((payment) => payment.status === "paid").length} />
         </div>
@@ -3276,9 +3385,19 @@ export function SimpleOperationsClient({
         </Card>
 
         <Card className={SOP_PANEL_CLASS}>
+          <CardHeader className="p-4 sm:p-5">
+            <CardTitle>Potential cleaners</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 lg:grid-cols-2">
+            {renderPotentialCleanerColumn("Residential candidates", potentialResidentialCleaners, "residential")}
+            {renderPotentialCleanerColumn("Commercial candidates", potentialCommercialCleaners, "commercial")}
+          </CardContent>
+        </Card>
+
+        <Card className={SOP_PANEL_CLASS}>
           <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
             <CardTitle>Residential teams / cleaners</CardTitle>
-            <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add team</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add cleaner</Button>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {activeTeams.length === 0 ? <div className={cn(SOP_EMPTY_CLASS, "md:col-span-2 xl:col-span-3")}>No team members found.</div> : null}
@@ -3589,15 +3708,37 @@ export function SimpleOperationsClient({
         <form className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-xl")} onSubmit={saveStaff} onClick={(event) => event.stopPropagation()}>
           <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
             <div>
-              <h2 className="text-lg font-semibold tracking-normal">{staffDraft.id ? "Edit team" : "Add team"}</h2>
-              <p className="mt-1 text-sm font-medium text-muted-foreground">Cleaner profile and payment setup.</p>
+              <h2 className="text-lg font-semibold tracking-normal">{staffDraft.id ? "Edit cleaner" : "Add cleaner"}</h2>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Cleaner profile, status, and payment setup.</p>
             </div>
-            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close team modal" disabled={savingStaff} onClick={() => setStaffDraft(null)}><X className="size-4" /></button>
+            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close cleaner modal" disabled={savingStaff} onClick={() => setStaffDraft(null)}><X className="size-4" /></button>
           </div>
           <div className="grid gap-4 p-5">
-            <label className={PAYMENT_LABEL_CLASS}>Team name<input className={PAYMENT_FIELD_CLASS} value={staffDraft.name} onChange={(event) => setStaffDraft({ ...staffDraft, name: event.target.value })} /></label>
+            <label className={PAYMENT_LABEL_CLASS}>Cleaner name<input className={PAYMENT_FIELD_CLASS} value={staffDraft.name} onChange={(event) => setStaffDraft({ ...staffDraft, name: event.target.value })} /></label>
             <label className={PAYMENT_LABEL_CLASS}>Email optional<input className={PAYMENT_FIELD_CLASS} type="email" value={staffDraft.email} onChange={(event) => setStaffDraft({ ...staffDraft, email: event.target.value })} /></label>
             <div className="grid gap-3 md:grid-cols-2">
+              <label className={PAYMENT_LABEL_CLASS}>Status<select className={PAYMENT_FIELD_CLASS} value={staffDraft.status} onChange={(event) => {
+                const status = event.target.value as StaffPipelineStatus;
+                setStaffDraft({ ...staffDraft, status, active: status === "Active" });
+              }}>
+                <option value="Active">Active</option>
+                <option value="Potential">Potential</option>
+                <option value="Inactive">Inactive</option>
+              </select></label>
+              <label className={PAYMENT_LABEL_CLASS}>Cleaner area<select className={PAYMENT_FIELD_CLASS} value={staffDraft.teamScope} onChange={(event) => {
+                const teamScope = event.target.value as StaffTeamScope;
+                const scopeRoles = ["Residential Cleaner / Team", "Commercial Cleaner", "Mixed Route Cleaner"];
+                setStaffDraft({
+                  ...staffDraft,
+                  teamScope,
+                  role: scopeRoles.includes(staffDraft.role) ? roleForStaffScope(teamScope) : staffDraft.role,
+                  paymentMode: teamScope === "mixed" ? "mixed" : staffDraft.paymentMode,
+                });
+              }}>
+                <option value="residential">Residential</option>
+                <option value="commercial">Commercial</option>
+                <option value="mixed">Mixed route</option>
+              </select></label>
               <label className={PAYMENT_LABEL_CLASS}>Role<input className={PAYMENT_FIELD_CLASS} value={staffDraft.role} onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value })} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Hourly rate<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={staffDraft.hourlyRate} onChange={(event) => setStaffDraft({ ...staffDraft, hourlyRate: event.target.value })} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Payment mode<select className={PAYMENT_FIELD_CLASS} value={staffDraft.paymentMode} disabled={isJuanRomero(staffDraft.name)} onChange={(event) => setStaffDraft({ ...staffDraft, paymentMode: event.target.value as PaymentMode })}>
@@ -3606,11 +3747,10 @@ export function SimpleOperationsClient({
               </select></label>
               {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
             </div>
-            <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={staffDraft.active} onChange={(event) => setStaffDraft({ ...staffDraft, active: event.target.checked })} /> Active</label>
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
             <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingStaff} onClick={() => setStaffDraft(null)}>Cancel</Button>
-            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingStaff}><Save className="size-4" /> {savingStaff ? "Saving..." : "Save team"}</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingStaff}><Save className="size-4" /> {savingStaff ? "Saving..." : "Save cleaner"}</Button>
           </div>
         </form>
       </div>
