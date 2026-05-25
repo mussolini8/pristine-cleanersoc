@@ -7,28 +7,7 @@ export type StaffRoleDefinition = {
   note?: string;
 };
 
-export const COMMERCIAL_STAFF_ROLES = [
-  "Owner",
-  "Operations Manager",
-  "Commercial Cleaner",
-  "Janitorial Cleaner",
-  "Mixed Route Cleaner",
-  "Day Porter",
-  "Office Cleaning Crew",
-  "Restaurant Cleaning Crew",
-  "Post Construction Crew",
-  "Commercial Supervisor",
-  "Account Manager",
-] as const;
-
-export const RESIDENTIAL_STAFF_ROLES = [
-  "Owner",
-  "Operations Manager",
-  "Residential Cleaner",
-  "Deep Cleaning Specialist",
-  "Move In/Move Out Cleaner",
-  "Mixed Route Cleaner",
-] as const;
+export { COMMERCIAL_STAFF_ROLES, RESIDENTIAL_STAFF_ROLES } from "@/lib/operations/constants";
 
 export const MIXED_ROUTE_COMMERCIAL_PAYROLL_EXCLUDED = [
   "Juan Romero",

@@ -140,15 +140,6 @@ function plainRows(rows: Record<string, string | null | undefined>) {
   return Object.entries(rows).map(([key, value]) => `${key}: ${formatValue(value)}`).join("\n");
 }
 
-function safeEnvStatus(recipientConfigured: boolean) {
-  return {
-    gmailUserConfigured: Boolean(process.env.GMAIL_USER),
-    gmailPasswordConfigured: Boolean(process.env.GMAIL_APP_PASSWORD),
-    appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL),
-    recipientConfigured,
-  };
-}
-
 export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_EMAIL" | "OWNER_EMAIL" | "SEO_USER_EMAIL") {
   const missing = [
     !process.env.GMAIL_USER ? "GMAIL_USER" : null,
@@ -247,22 +238,13 @@ function classifyMailerError(error: unknown): EmailSendResult {
   };
 }
 
-async function sendEmail({ to, recipientEnvName, subject, html, text, event, recipientType }: SendEmailInput): Promise<EmailSendResult> {
+async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmailInput): Promise<EmailSendResult> {
   const missing = [
     !process.env.GMAIL_USER ? "GMAIL_USER" : null,
     !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
     !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
     !to && recipientEnvName ? recipientEnvName : null,
   ].filter((item): item is string => Boolean(item));
-
-  if (process.env.NODE_ENV !== "production") {
-    console.info("[email] task assignment notification", {
-      event,
-      enabled: true,
-      recipientType,
-      ...safeEnvStatus(Boolean(to)),
-    });
-  }
 
   if (missing.length > 0) {
     return {

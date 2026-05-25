@@ -1669,7 +1669,7 @@ export default function DashboardPage() {
           <div className="sop-head">
             <div>
               <p className="sop-kicker"><CalendarDays size={14} /> Residential SOP Tasks</p>
-              <h2 className="sop-title">Monthly recurring operations templates</h2>
+              <h2 className="sop-title">June SOP Checklist</h2>
               <p className="sop-sub">Assigned to Carlos Lopez as Operations Manager. Templates do not send assignment emails until real task instances are created.</p>
             </div>
             <div className="sop-count">{filteredSopTemplates.length} shown / {activeSopCount} active</div>

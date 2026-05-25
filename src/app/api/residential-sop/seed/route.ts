@@ -18,6 +18,8 @@ type SopTaskSeed = {
 };
 
 const tasks = residentialSopTasks as SopTaskSeed[];
+const currentNaturalKeys = new Set(tasks.map((task) => task.natural_key));
+const sopMonth = "June 2026";
 
 function staffPayload(userId: string, email: string) {
   return {
@@ -50,7 +52,7 @@ function templatePayload(task: SopTaskSeed, userId: string) {
     priority: task.priority,
     status: "active",
     source: "monthly_sop",
-    metadata: { notification: "template_seed_no_email" },
+    metadata: { sourceFile: "Monthly SOP.docx", sopMonth, notification: "template_seed_no_email" },
     updated_at: new Date().toISOString(),
   };
 }
@@ -95,9 +97,40 @@ export async function POST() {
     return NextResponse.json({ ok: false, error: templateError.message }, { status: 500 });
   }
 
+  const { data: existingTemplates, error: existingTemplateError } = await supabase
+    .from("operation_task_templates")
+    .select("natural_key")
+    .eq("user_id", user.id)
+    .eq("panel", "Residential")
+    .eq("source", "monthly_sop");
+
+  if (existingTemplateError) {
+    return NextResponse.json({ ok: false, error: existingTemplateError.message }, { status: 500 });
+  }
+
+  const staleNaturalKeys = (existingTemplates ?? [])
+    .map((template) => template.natural_key)
+    .filter((naturalKey): naturalKey is string => Boolean(naturalKey) && !currentNaturalKeys.has(naturalKey));
+
+  if (staleNaturalKeys.length > 0) {
+    const { error } = await supabase
+      .from("operation_task_templates")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("panel", "Residential")
+      .eq("source", "monthly_sop")
+      .in("natural_key", staleNaturalKeys);
+
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     seeded: tasks.length,
+    removedStale: staleNaturalKeys.length,
+    sopMonth,
     assignedTo: "Carlos Lopez",
     notifications: "not_sent_for_templates",
   });

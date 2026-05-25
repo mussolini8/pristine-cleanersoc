@@ -1,3 +1,16 @@
+import {
+  addDays,
+  dateKeyFromValue,
+  formatDateOnly,
+  formatDisplayDate,
+  getPeriodRange,
+  isDateWithinPeriod,
+  parseDateOnly,
+  startOfWeek,
+  todayDateOnly,
+  weekRangeFromStart,
+} from "@/lib/dates/periods";
+
 export const RESIDENTIAL_ASSIGNEES = ["Carlos Lopez", "Jake Ivan-Pal"] as const;
 
 export type ResidentialAssignee = (typeof RESIDENTIAL_ASSIGNEES)[number];
@@ -84,73 +97,19 @@ export function calculateResidentialHours(scheduledHours: number, frequency: Res
   };
 }
 
-export function formatDateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
+export const formatDateKey = formatDateOnly;
+export const parseDateKey = parseDateOnly;
+export const todayKey = todayDateOnly;
+export const isDateInRange = isDateWithinPeriod;
+export const displayDate = formatDisplayDate;
 
-export function parseDateKey(value: string | null | undefined) {
-  if (!value) return null;
-  const [datePart] = value.split("T");
-  const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
-export function startOfWeek(date: Date) {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  start.setDate(start.getDate() - start.getDay());
-  return start;
-}
-
-export function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-export function todayKey() {
-  return formatDateKey(new Date());
-}
-
-export function dateKeyFromValue(value: string | null | undefined) {
-  const date = parseDateKey(value);
-  return date ? formatDateKey(date) : "";
-}
-
-export function getPeriodRange(mode: PeriodMode, anchorKey: string) {
-  const anchor = parseDateKey(anchorKey) ?? new Date();
-  if (mode === "week") {
-    const start = startOfWeek(anchor);
-    return { start: formatDateKey(start), end: formatDateKey(addDays(start, 6)), label: "This week" };
-  }
-
-  if (mode === "biweekly") {
-    const start = startOfWeek(anchor);
-    return { start: formatDateKey(start), end: formatDateKey(addDays(start, 14)), label: "Every 15 days" };
-  }
-
-  return {
-    start: formatDateKey(new Date(anchor.getFullYear(), anchor.getMonth(), 1)),
-    end: formatDateKey(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)),
-    label: "This month",
-  };
-}
-
-export function isDateInRange(value: string | null | undefined, start: string, end: string) {
-  const key = dateKeyFromValue(value);
-  return Boolean(key && key >= start && key <= end);
-}
-
-export function displayDate(value: string | null | undefined) {
-  const date = parseDateKey(value);
-  if (!date) return "No date";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-export function weekRangeFromStart(weekStartKey: string) {
-  const start = parseDateKey(weekStartKey) ?? startOfWeek(new Date());
-  return { start: formatDateKey(start), end: formatDateKey(addDays(start, 6)) };
-}
+export {
+  addDays,
+  dateKeyFromValue,
+  getPeriodRange,
+  startOfWeek,
+  weekRangeFromStart,
+};
 
 export function toNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === "") return 0;

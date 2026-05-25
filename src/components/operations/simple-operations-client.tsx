@@ -33,6 +33,68 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { exportRows, exportWorkbook } from "@/lib/export/workbook";
+import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
+import {
+  buildCommercialOccurrences,
+  calculateCommercialHoursForPeriod,
+  commercialScheduleSummary,
+  getPayableCommercialHours,
+} from "@/lib/operations/commercial-hours";
+import {
+  CARLOS_LOPEZ_NAME,
+  CARLOS_OVERTIME_RATE,
+  JUAN_ROMERO_NAME,
+  ORANGE_COUNTY_CITIES,
+  OUTSIDE_OC_CITY,
+  WEEKDAY_NAMES,
+} from "@/lib/operations/constants";
+import { OPERATION_TASK_COLUMNS, loadOperationsData } from "@/lib/operations/data";
+import { errorMessage, isMissingSchemaTableError, parseSupabaseError } from "@/lib/operations/errors";
+import type {
+  AccountDraft,
+  ActivityRow,
+  CommercialAccountRow,
+  CommercialHoursDraft,
+  CommercialHoursEntryRow,
+  CommercialHoursStatus,
+  CommercialScheduleDraft,
+  CommercialScheduleRuleRow,
+  CommercialSourceFilter,
+  CommercialVerifiedFilter,
+  EnvStatus,
+  MessageTone,
+  OperationTaskRow,
+  PaymentKindFilter,
+  PaymentModalMode,
+  PaymentMode,
+  PaymentRowDraft,
+  ReportKind,
+  ResidentialAccountRow,
+  ResidentialWeeklyPaymentLineRow,
+  ResidentialWeeklyPaymentRow,
+  ResidentialWorkLogRow,
+  SimpleOperationsView,
+  StaffDraft,
+  StaffMemberRow,
+  StaffPipelineStatus,
+  StaffTeamScope,
+  TaskDraft,
+  TaskTab,
+  TaskViewMode,
+  WeeklyPaymentStatus,
+  WorkLogDraft,
+  WorkLogStatus,
+} from "@/lib/operations/types";
+import {
+  commercialHoursEntrySchema,
+  commercialScheduleSchema,
+  residentialPaymentRowSchema,
+  staffMemberSchema,
+  taskReminderSchema,
+  validateInput,
+  workLogSchema,
+} from "@/lib/operations/validation";
 import {
   RESIDENTIAL_ASSIGNEES,
   RESIDENTIAL_FREQUENCY_LABELS,
@@ -60,342 +122,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
-export type SimpleOperationsView = "dashboard" | "tasks" | "residential" | "staff" | "reports" | "settings";
-type TaskTab = "pending" | "completed" | "overdue" | "all";
-type TaskViewMode = "month" | "day" | "list";
-type ReportKind = "tasks" | "hours" | "weekly_payments";
-type WorkLogStatus = "pending" | "approved" | "paid";
-type WeeklyPaymentStatus = "pending" | "verified" | "needs_review" | "paid" | "no_jobs";
-type CommercialHoursStatus = "scheduled" | "completed" | "verified" | "pending_payment" | "paid" | "needs_review" | "skipped";
-type PaymentKindFilter = "all" | "residential" | "mixed";
-type PaymentMode = "residential_only" | "mixed";
-type MessageTone = "success" | "error" | "info";
-type PaymentModalMode = "residential" | "juan" | "commercial_hours" | "commercial_schedule";
-type CommercialSourceFilter = "all" | "manual" | "scheduled";
-type CommercialVerifiedFilter = "all" | "verified" | "needs_review";
-
-const ORANGE_COUNTY_CITIES = [
-  "Aliso Viejo",
-  "Anaheim",
-  "Brea",
-  "Buena Park",
-  "Costa Mesa",
-  "Cypress",
-  "Dana Point",
-  "Fountain Valley",
-  "Fullerton",
-  "Garden Grove",
-  "Huntington Beach",
-  "Irvine",
-  "La Habra",
-  "La Palma",
-  "Laguna Beach",
-  "Laguna Hills",
-  "Laguna Niguel",
-  "Laguna Woods",
-  "Lake Forest",
-  "Los Alamitos",
-  "Mission Viejo",
-  "Newport Beach",
-  "Orange",
-  "Placentia",
-  "Rancho Santa Margarita",
-  "San Clemente",
-  "San Juan Capistrano",
-  "Santa Ana",
-  "Seal Beach",
-  "Stanton",
-  "Tustin",
-  "Villa Park",
-  "Westminster",
-  "Yorba Linda",
-] as const;
-
-const OUTSIDE_OC_CITY = "Other / Outside Orange County";
-const JUAN_ROMERO_NAME = "Juan Romero";
-const CARLOS_LOPEZ_NAME = "Carlos Lopez";
-const CARLOS_OVERTIME_RATE = 7;
-const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
-
-type EnvStatus = {
-  appBaseUrl: boolean;
-  gmailUser: boolean;
-  gmailPassword: boolean;
-  ownerEmail: boolean;
-  operationsManagerEmail: boolean;
-};
-
-type OperationTaskRow = {
-  id: string;
-  user_id?: string | null;
-  title: string;
-  description: string | null;
-  priority: string | null;
-  status: string | null;
-  category: string | null;
-  due_date: string | null;
-  assignee: string | null;
-  reminder?: boolean | null;
-  recurrence?: string | null;
-  custom_interval_days?: number | null;
-  assigned_by?: string | null;
-  panel?: string | null;
-  business_unit?: string | null;
-  completion_notes?: string | null;
-  completed_at?: string | null;
-  created_by?: string | null;
-  completed_by?: string | null;
-  deleted_at?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type ActivityRow = {
-  id: string;
-  task_id: string | null;
-  action: string;
-  details: Record<string, unknown> | null;
-  created_at: string;
-};
-
-type ResidentialAccountRow = {
-  id: string;
-  user_id?: string | null;
-  account_name: string;
-  scheduled_hours: number | string | null;
-  frequency: ResidentialFrequency | string | null;
-  frequency_detail: string | null;
-  day_of_week: string | null;
-  city?: string | null;
-  custom_city?: string | null;
-  assigned_team_id: string | null;
-  assigned_team_name: string | null;
-  active: boolean | null;
-  notes: string | null;
-  deleted_at?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type ResidentialWorkLogRow = {
-  id: string;
-  user_id?: string | null;
-  account_id: string | null;
-  account_name: string;
-  team_id: string | null;
-  team_name: string;
-  work_date: string;
-  hours_worked: number | string | null;
-  notes: string | null;
-  status: WorkLogStatus | string | null;
-  deleted_at?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type ResidentialWeeklyPaymentRow = {
-  id: string;
-  user_id?: string | null;
-  team_id: string | null;
-  team_name: string;
-  week_start: string;
-  week_end: string;
-  total_hours: number | string | null;
-  hourly_rate: number | string | null;
-  total_payment: number | string | null;
-  status: WeeklyPaymentStatus | string | null;
-  paid_at: string | null;
-  notes: string | null;
-  deleted_at?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type ResidentialWeeklyPaymentLineRow = {
-  id: string;
-  user_id?: string | null;
-  cleaner_id: string | null;
-  cleaner_name: string;
-  work_date: string;
-  city: string | null;
-  custom_city?: string | null;
-  payment_amount: number | string | null;
-  residential_amount: number | string | null;
-  commercial_amount: number | string | null;
-  payment_type: "residential" | "commercial" | "mixed" | string | null;
-  payment_mode?: PaymentMode | string | null;
-  week_start: string;
-  week_end: string;
-  status: WeeklyPaymentStatus | string | null;
-  notes: string | null;
-  deleted_at?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type CommercialAccountRow = {
-  id: string;
-  user_id?: string | null;
-  name: string;
-  city: string | null;
-  cleaner_name: string | null;
-  hours: number | string | null;
-  frequency: string | null;
-  contract_start?: string | null;
-  contract_end?: string | null;
-};
-
-type CommercialScheduleRuleRow = {
-  id: string;
-  user_id?: string | null;
-  commercial_account_id: string | null;
-  day_of_week: number | null;
-  paid_hours: number | string | null;
-  assigned_cleaner_name: string | null;
-  active: boolean | null;
-  effective_start_date: string | null;
-  effective_end_date: string | null;
-  notes?: string | null;
-  frequency_type?: string | null;
-  frequency_interval?: number | null;
-  anchor_date?: string | null;
-  scheduled_hours?: number | string | null;
-  effective_from?: string | null;
-  effective_until?: string | null;
-};
-
-type CommercialHoursEntryRow = {
-  id: string;
-  user_id?: string | null;
-  account_id: string | null;
-  account_name: string;
-  team_id: string | null;
-  team_name: string | null;
-  work_date: string;
-  scheduled_day: string | null;
-  scheduled_hours: number | string | null;
-  completed_hours: number | string | null;
-  verified_hours: number | string | null;
-  status: CommercialHoursStatus | string | null;
-  verified: boolean | null;
-  paid_at?: string | null;
-  notes: string | null;
-  manual_entry?: boolean | null;
-  deleted_at?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type StaffMemberRow = {
-  id: string;
-  user_id?: string | null;
-  name: string;
-  email: string | null;
-  role: string | null;
-  display_role?: string | null;
-  team_scope?: string | null;
-  status: string | null;
-  hourly_rate?: number | string | null;
-  payment_mode?: PaymentMode | string | null;
-  commercial_payroll_eligible?: boolean | null;
-  active?: boolean | null;
-  deleted_at?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type TaskDraft = {
-  id?: string;
-  title: string;
-  description: string;
-  assignee: ResidentialAssignee;
-  dueDate: string;
-  frequency: TaskReminderFrequency;
-  customIntervalDays: string;
-  priority: "low" | "normal" | "high" | "urgent";
-  notifyAssignee: boolean;
-  notifyOwnerOnCompletion: boolean;
-};
-
-type AccountDraft = {
-  id?: string;
-  accountName: string;
-  scheduledHours: string;
-  frequency: ResidentialFrequency;
-  frequencyDetail: string;
-  dayOfWeek: string;
-  city: string;
-  customCity: string;
-  assignedTeamId: string;
-  assignedTeamName: string;
-  active: boolean;
-  notes: string;
-};
-
-type WorkLogDraft = {
-  accountId: string;
-  teamId: string;
-  workDate: string;
-  hoursWorked: string;
-  notes: string;
-  status: WorkLogStatus;
-};
-
-type StaffDraft = {
-  id?: string;
-  name: string;
-  email: string;
-  role: string;
-  teamScope: StaffTeamScope;
-  status: StaffPipelineStatus;
-  hourlyRate: string;
-  paymentMode: PaymentMode;
-  active: boolean;
-};
-
-type StaffTeamScope = "residential" | "commercial" | "mixed";
-type StaffPipelineStatus = "Active" | "Potential" | "Inactive";
-
-type PaymentRowDraft = {
-  id?: string;
-  cleanerId: string;
-  cleanerName: string;
-  workDate: string;
-  city: string;
-  customCity: string;
-  paymentAmount: string;
-  residentialAmount: string;
-  commercialAmount: string;
-  notes: string;
-  status: WeeklyPaymentStatus;
-};
-
-type CommercialHoursDraft = {
-  id?: string;
-  accountId: string;
-  teamId: string;
-  teamName: string;
-  workDate: string;
-  hours: string;
-  status: CommercialHoursStatus;
-  verified: boolean;
-  notes: string;
-  manualEntry: boolean;
-};
-
-type CommercialScheduleDraft = {
-  accountId: string;
-  assignedTeamId: string;
-  assignedTeamName: string;
-  frequency: "weekly" | "every_15_days" | "monthly" | "custom";
-  selectedDays: string[];
-  dayHours: Record<string, string>;
-  effectiveFrom: string;
-  effectiveUntil: string;
-  active: boolean;
-  notes: string;
-};
+export type { SimpleOperationsView } from "@/lib/operations/types";
 
 const EMPTY_TASK_DRAFT: TaskDraft = {
   title: "",
@@ -579,10 +306,6 @@ function normalizePaymentMode(value: string | null | undefined, name: string | n
   return "residential_only";
 }
 
-function isMixedPayCleaner(person: StaffMemberRow | null | undefined) {
-  return normalizePaymentMode(person?.payment_mode, person?.name) === "mixed";
-}
-
 function isMixedPaySummary(summary: { team?: StaffMemberRow; teamName: string }) {
   void summary.team;
   return isJuanRomero(summary.teamName);
@@ -644,11 +367,11 @@ function monthLabel(value: string) {
 }
 
 function statusBadgeClass(status: string | null | undefined) {
-  if (status === "paid" || status === "verified" || status === "completed" || status === "active" || status === "approved") return "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
-  if (status === "needs_review" || status === "pending_payment" || status === "pending" || status === "potential") return "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
-  if (status === "overdue" || status === "urgent") return "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-100";
-  if (status === "skipped" || status === "no_jobs" || status === "inactive") return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/25 dark:text-slate-200";
-  return "border-border bg-background text-muted-foreground";
+  if (status === "paid" || status === "verified" || status === "completed" || status === "active" || status === "approved") return "border-emerald-200/80 bg-emerald-50/80 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
+  if (status === "needs_review" || status === "pending_payment" || status === "pending" || status === "potential") return "border-amber-200/80 bg-amber-50/80 text-amber-800 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100";
+  if (status === "overdue" || status === "urgent") return "border-rose-200/80 bg-rose-50/80 text-rose-800 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-100";
+  if (status === "skipped" || status === "no_jobs" || status === "inactive") return "border-slate-200/80 bg-slate-50/80 text-slate-600 dark:border-slate-800 dark:bg-slate-900/25 dark:text-slate-200";
+  return "border-border/75 bg-card/70 text-muted-foreground";
 }
 
 function statusLabel(status: string | null | undefined) {
@@ -674,49 +397,6 @@ function dateOutsideRange(value: string, start: string, end: string) {
   return Boolean(value && (value < start || value > end));
 }
 
-function minDateKey(a: string, b: string) {
-  return a < b ? a : b;
-}
-
-function commercialFrequencyLabel(value: string | null | undefined) {
-  if (value === "every_15_days" || value === "biweekly" || value === "every_2_weeks") return "Every 15 days";
-  if (value === "monthly") return "Monthly";
-  if (value === "custom") return "Custom";
-  return "Weekly";
-}
-
-function commercialRuleFrequency(rule: Pick<CommercialScheduleRuleRow, "frequency_type" | "frequency_interval">) {
-  if (rule.frequency_type === "monthly" || rule.frequency_type === "custom") return rule.frequency_type;
-  if (rule.frequency_type === "every_15_days" || rule.frequency_type === "biweekly" || rule.frequency_interval === 15 || rule.frequency_interval === 2) return "every_15_days";
-  return "weekly";
-}
-
-function commercialRuleMatchesDate(rule: CommercialScheduleRuleRow, dateKey: string) {
-  const date = parseDateKey(dateKey);
-  if (!date) return false;
-  const frequency = commercialRuleFrequency(rule);
-  const anchor = parseDateKey(rule.anchor_date ?? rule.effective_start_date ?? rule.effective_from ?? dateKey);
-  if (!anchor) return true;
-  const days = Math.floor((date.getTime() - anchor.getTime()) / 86400000);
-  if (days < 0) return false;
-  if (frequency === "every_15_days") return days % 15 === 0;
-  if (frequency === "monthly") return date.getDate() === anchor.getDate() || date.getDay() === Number(rule.day_of_week);
-  return true;
-}
-
-function commercialScheduleSummary(rules: CommercialScheduleRuleRow[]) {
-  const activeRules = rules.filter((rule) => rule.active !== false).sort((a, b) => Number(a.day_of_week) - Number(b.day_of_week));
-  if (!activeRules.length) return "No schedule configured yet";
-  const frequency = commercialFrequencyLabel(commercialRuleFrequency(activeRules[0]));
-  const days = activeRules.map((rule) => `${WEEKDAY_NAMES[Number(rule.day_of_week)] ?? "Day"} ${formatHours(toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours))}h`).join(" + ");
-  return `${frequency} · ${days}`;
-}
-
-function isMissingSchemaTableError(error: { message?: string; code?: string } | null | undefined) {
-  const message = String(error?.message ?? "").toLowerCase();
-  return error?.code === "PGRST205" || (message.includes("schema cache") && message.includes("could not find the table"));
-}
-
 function MetricCard({
   icon: Icon,
   label,
@@ -732,7 +412,7 @@ function MetricCard({
 }) {
   return (
     <Card className={cn(
-      "rounded-[16px] border-border/70 shadow-[0_16px_42px_-44px_hsl(215_40%_20%)]",
+      "rounded-lg border-border/70 shadow-[0_16px_42px_-44px_hsl(215_40%_20%)]",
       tone === "warn" ? "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15" : "",
       tone === "good" ? "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900 dark:bg-emerald-950/15" : "",
     )}>
@@ -742,7 +422,7 @@ function MetricCard({
           <p className="mt-3 text-2xl font-semibold leading-none tracking-normal">{value}</p>
           {note ? <p className="mt-2 text-xs font-medium text-muted-foreground">{note}</p> : null}
         </div>
-        <div className="grid size-8 shrink-0 place-items-center rounded-md border border-border/70 bg-background/80 text-primary">
+        <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-border/70 bg-background/80 text-primary">
           <Icon className="size-4" />
         </div>
       </CardContent>
@@ -758,7 +438,7 @@ function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (valu
   ];
 
   return (
-    <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1 shadow-sm" aria-label="Calculation period">
+    <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/70 bg-background/80 p-1 shadow-sm" aria-label="Calculation period">
       {options.map((option) => (
         <button
           type="button"
@@ -776,17 +456,17 @@ function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (valu
   );
 }
 
-const PAYMENT_PANEL_CLASS = "rounded-[18px] border border-border/70 bg-card/95 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]";
-const PAYMENT_FIELD_CLASS = "h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm font-semibold text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10";
-const PAYMENT_LABEL_CLASS = "grid min-w-0 gap-1.5 text-xs font-semibold uppercase text-muted-foreground";
-const PAYMENT_ICON_BUTTON_CLASS = "inline-grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-45";
-const PAYMENT_MODAL_PANEL_CLASS = "max-h-[90dvh] w-full overflow-auto rounded-[18px] border border-border/70 bg-card shadow-[0_28px_80px_-42px_hsl(215_40%_18%)]";
-const SOP_PANEL_CLASS = "rounded-[18px] border border-border/70 bg-card/95 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]";
-const SOP_TABLE_WRAP_CLASS = "overflow-hidden rounded-xl border border-border/70 bg-background/60";
-const SOP_ACTION_BUTTON_CLASS = "h-9 rounded-md px-3 text-sm font-semibold";
-const SOP_EMPTY_CLASS = "rounded-xl border border-dashed border-border/70 bg-background/55 p-6 text-center text-sm font-semibold text-muted-foreground";
-const SOP_ROW_CLASS = "rounded-xl border border-border/70 bg-background/65 p-3 transition hover:border-primary/30 hover:bg-accent/25";
-const SOP_CLOSE_BUTTON_CLASS = "grid size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:opacity-50";
+const PAYMENT_PANEL_CLASS = "sop-toolbar";
+const PAYMENT_FIELD_CLASS = "h-9 min-w-0 rounded-lg border border-input bg-card/80 px-3 text-sm font-medium text-foreground outline-none shadow-sm transition placeholder:text-muted-foreground focus:border-primary/45 focus:ring-2 focus:ring-primary/10";
+const PAYMENT_LABEL_CLASS = "grid min-w-0 gap-1.5 text-[11px] font-semibold uppercase text-muted-foreground";
+const PAYMENT_ICON_BUTTON_CLASS = "inline-grid size-7 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent/55 hover:text-foreground disabled:opacity-45";
+const PAYMENT_MODAL_PANEL_CLASS = "max-h-[90dvh] w-full overflow-auto rounded-lg border border-border/70 bg-card shadow-[0_28px_80px_-42px_hsl(215_40%_18%)]";
+const SOP_PANEL_CLASS = "sop-card";
+const SOP_TABLE_WRAP_CLASS = "overflow-hidden rounded-lg border border-border/70 bg-card/70";
+const SOP_ACTION_BUTTON_CLASS = "h-9 rounded-lg px-3 text-sm font-semibold";
+const SOP_EMPTY_CLASS = "rounded-lg border border-dashed border-border/70 bg-background/50 p-6 text-center text-sm font-medium text-muted-foreground";
+const SOP_ROW_CLASS = "rounded-lg border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20";
+const SOP_CLOSE_BUTTON_CLASS = "grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent/55 hover:text-foreground disabled:opacity-50";
 
 export function SimpleOperationsClient({
   view,
@@ -854,41 +534,42 @@ export function SimpleOperationsClient({
   const [commercialDateMenuOpen, setCommercialDateMenuOpen] = useState(false);
   const [carlosWeeklyPayment, setCarlosWeeklyPayment] = useState("");
   const [carlosOvertimeHours, setCarlosOvertimeHours] = useState("");
+  const [staffSearch, setStaffSearch] = useState("");
+  const [staffScopeFilter, setStaffScopeFilter] = useState<"all" | StaffTeamScope>("all");
+  const [staffStatusFilter, setStaffStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [reportKind, setReportKind] = useState<ReportKind>("tasks");
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setMessage(null);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    if (!user) {
-      setLoading(false);
-      return;
-    }
+      if (!user) return;
 
-    setUserId(user.id);
-    setUserEmail(user.email ?? null);
+      setUserId(user.id);
+      setUserEmail(user.email ?? null);
 
-    const [taskResult, activityResult, accountResult, workLogResult, weeklyPaymentResult, weeklyPaymentRowResult, staffResult, commercialAccountResult, commercialScheduleResult, commercialHoursResult] = await Promise.all([
-      supabase.from("operation_tasks").select("*").order("due_date", { ascending: true, nullsFirst: false }).limit(1000),
-      supabase.from("operation_task_audit_log").select("*").order("created_at", { ascending: false }).limit(1200),
-      supabase.from("residential_recurring_cleaning_accounts").select("*").order("account_name").limit(1000),
-      supabase.from("residential_work_logs").select("*").order("work_date", { ascending: false }).limit(1500),
-      supabase.from("residential_weekly_payments").select("*").order("week_start", { ascending: false }).limit(800),
-      supabase.from("residential_weekly_payment_rows").select("*").order("work_date", { ascending: true }).order("created_at", { ascending: true }).limit(2000),
-      supabase.from("staff_members").select("*").order("name").limit(700),
-      supabase.from("commercial_accounts").select("id,user_id,name,city,cleaner_name,hours,frequency,contract_start,contract_end").order("name").limit(1000),
-      supabase.from("commercial_account_schedule_rules").select("*").order("day_of_week").limit(2000),
-      supabase.from("commercial_hours_entries").select("*").order("work_date", { ascending: true }).limit(2000),
-    ]);
+      const {
+        taskResult,
+        activityResult,
+        accountResult,
+        workLogResult,
+        weeklyPaymentResult,
+        weeklyPaymentRowResult,
+        staffResult,
+        commercialAccountResult,
+        commercialScheduleResult,
+        commercialHoursResult,
+      } = await loadOperationsData(supabase);
 
     const requiredErrors = [taskResult.error, activityResult.error, staffResult.error].filter(Boolean);
     const residentialTableErrors = [accountResult.error, workLogResult.error, weeklyPaymentResult.error, weeklyPaymentRowResult.error, commercialHoursResult.error].filter(Boolean);
     const commercialOptionalErrors = [commercialAccountResult.error, commercialScheduleResult.error].filter(Boolean);
     const nonSetupResidentialErrors = residentialTableErrors.filter((error) => !isMissingSchemaTableError(error));
-    const errors = [...requiredErrors, ...nonSetupResidentialErrors, ...commercialOptionalErrors.filter((error) => !isMissingSchemaTableError(error))].map((error) => error?.message).filter(Boolean);
+    const errors = [...requiredErrors, ...nonSetupResidentialErrors, ...commercialOptionalErrors.filter((error) => !isMissingSchemaTableError(error))].map((error) => parseSupabaseError(error)).filter(Boolean);
     const setupPending = residentialTableErrors.some(isMissingSchemaTableError);
 
     if (errors.length) {
@@ -899,21 +580,25 @@ export function SimpleOperationsClient({
     } else if (setupPending) {
       setMessage({
         tone: "info",
-        text: "Residential payments database setup is pending. Apply the additive Supabase schema for residential accounts, work logs, weekly payments, and payment rows.",
+        text: "Residential payments setup needs a database update before new entries can appear.",
       });
     }
 
-    setTasks(((taskResult.data ?? []) as OperationTaskRow[]).filter(taskIsOperationsReminder));
-    setActivity((activityResult.data ?? []) as ActivityRow[]);
-    setAccounts(isMissingSchemaTableError(accountResult.error) ? [] : ((accountResult.data ?? []) as ResidentialAccountRow[]).filter((account) => !account.deleted_at));
-    setWorkLogs(isMissingSchemaTableError(workLogResult.error) ? [] : ((workLogResult.data ?? []) as ResidentialWorkLogRow[]).filter((log) => !log.deleted_at));
-    setWeeklyPayments(isMissingSchemaTableError(weeklyPaymentResult.error) ? [] : ((weeklyPaymentResult.data ?? []) as ResidentialWeeklyPaymentRow[]).filter((payment) => !payment.deleted_at));
-    setWeeklyPaymentRows(isMissingSchemaTableError(weeklyPaymentRowResult.error) ? [] : ((weeklyPaymentRowResult.data ?? []) as ResidentialWeeklyPaymentLineRow[]).filter((row) => !row.deleted_at));
-    setCommercialAccounts(isMissingSchemaTableError(commercialAccountResult.error) ? [] : (commercialAccountResult.data ?? []) as CommercialAccountRow[]);
-    setCommercialScheduleRules(isMissingSchemaTableError(commercialScheduleResult.error) ? [] : ((commercialScheduleResult.data ?? []) as CommercialScheduleRuleRow[]).filter((rule) => rule.active !== false));
-    setCommercialHoursEntries(isMissingSchemaTableError(commercialHoursResult.error) ? [] : ((commercialHoursResult.data ?? []) as CommercialHoursEntryRow[]).filter((entry) => !entry.deleted_at));
-    setStaff((staffResult.data ?? []) as StaffMemberRow[]);
-    setLoading(false);
+      setTasks(((taskResult.data ?? []) as unknown as OperationTaskRow[]).filter(taskIsOperationsReminder));
+      setActivity((activityResult.data ?? []) as unknown as ActivityRow[]);
+      setAccounts(isMissingSchemaTableError(accountResult.error) ? [] : (accountResult.data ?? []) as unknown as ResidentialAccountRow[]);
+      setWorkLogs(isMissingSchemaTableError(workLogResult.error) ? [] : (workLogResult.data ?? []) as unknown as ResidentialWorkLogRow[]);
+      setWeeklyPayments(isMissingSchemaTableError(weeklyPaymentResult.error) ? [] : (weeklyPaymentResult.data ?? []) as unknown as ResidentialWeeklyPaymentRow[]);
+      setWeeklyPaymentRows(isMissingSchemaTableError(weeklyPaymentRowResult.error) ? [] : (weeklyPaymentRowResult.data ?? []) as unknown as ResidentialWeeklyPaymentLineRow[]);
+      setCommercialAccounts(isMissingSchemaTableError(commercialAccountResult.error) ? [] : (commercialAccountResult.data ?? []) as unknown as CommercialAccountRow[]);
+      setCommercialScheduleRules(isMissingSchemaTableError(commercialScheduleResult.error) ? [] : (commercialScheduleResult.data ?? []) as unknown as CommercialScheduleRuleRow[]);
+      setCommercialHoursEntries(isMissingSchemaTableError(commercialHoursResult.error) ? [] : (commercialHoursResult.data ?? []) as unknown as CommercialHoursEntryRow[]);
+      setStaff((staffResult.data ?? []) as unknown as StaffMemberRow[]);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Operations data could not load: ${errorMessage(error)}` });
+    } finally {
+      setLoading(false);
+    }
   }, [supabase]);
 
   useEffect(() => {
@@ -1119,53 +804,13 @@ export function SimpleOperationsClient({
   const carlosPaymentSummary = useMemo(() => weeklyPaymentSummaries.find((summary) => isCarlosLopez(summary.teamName)), [weeklyPaymentSummaries]);
 
   const commercialRowsInWeek = useMemo(() => {
-    const cutoff = minDateKey(commercialRange.end, today);
-    if (commercialRange.start > cutoff) return [];
-    const stored = commercialHoursEntries.filter((entry) => isDateInRange(entry.work_date, commercialRange.start, cutoff) && !isJuanRomero(entry.team_name));
-    const storedKeys = new Set(stored.map((entry) => `${entry.account_id ?? entry.account_name}:${entry.team_name ?? ""}:${entry.work_date}`));
-    const generated: CommercialHoursEntryRow[] = [];
-
-    for (const account of commercialAccounts) {
-      const rules = commercialScheduleRules.filter((rule) => rule.commercial_account_id === account.id && rule.active !== false);
-      for (const rule of rules) {
-        if (isJuanRomero(rule.assigned_cleaner_name ?? account.cleaner_name)) continue;
-        const day = Number(rule.day_of_week);
-        if (!Number.isFinite(day)) continue;
-        const cursor = parseDateKey(commercialRange.start);
-        const end = parseDateKey(cutoff);
-        if (!cursor || !end) continue;
-        while (cursor <= end) {
-          const key = formatDateKey(cursor);
-          const effectiveFrom = rule.effective_from ?? rule.effective_start_date ?? account.contract_start;
-          const effectiveUntil = rule.effective_until ?? rule.effective_end_date ?? account.contract_end;
-          if (cursor.getDay() === day && (!effectiveFrom || key >= effectiveFrom) && (!effectiveUntil || key <= effectiveUntil) && commercialRuleMatchesDate(rule, key)) {
-            const generatedKey = `${account.id}:${rule.assigned_cleaner_name ?? account.cleaner_name ?? ""}:${key}`;
-            if (!storedKeys.has(generatedKey)) {
-              const scheduledHours = toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours);
-              generated.push({
-                id: `scheduled-${rule.id}-${key}`,
-                account_id: account.id,
-                account_name: account.name,
-                team_id: null,
-                team_name: rule.assigned_cleaner_name ?? account.cleaner_name,
-                work_date: key,
-                scheduled_day: WEEKDAY_NAMES[cursor.getDay()],
-                scheduled_hours: scheduledHours,
-                completed_hours: 0,
-                verified_hours: 0,
-                status: scheduledHours > 0 ? "needs_review" : "scheduled",
-                verified: false,
-                notes: rule.notes ?? commercialScheduleSummary([rule]),
-                manual_entry: false,
-              });
-            }
-          }
-          cursor.setDate(cursor.getDate() + 1);
-        }
-      }
-    }
-
-    return [...stored, ...generated].sort((a, b) => `${a.work_date}${a.account_name}`.localeCompare(`${b.work_date}${b.account_name}`));
+    return buildCommercialOccurrences({
+      accounts: commercialAccounts,
+      scheduleRules: commercialScheduleRules,
+      storedEntries: commercialHoursEntries,
+      period: { start: commercialRange.start, end: commercialRange.end },
+      cutoffDate: today,
+    });
   }, [commercialAccounts, commercialHoursEntries, commercialRange.end, commercialRange.start, commercialScheduleRules, today]);
 
   const filteredCommercialRows = useMemo(() => {
@@ -1186,28 +831,10 @@ export function SimpleOperationsClient({
     });
   }, [commercialAccountFilter, commercialRowsInWeek, commercialSearchFilter, commercialSourceFilter, commercialStatusFilter, commercialTeamFilter, commercialVerifiedFilter]);
 
-  const commercialTotals = useMemo(() => {
-    return commercialRowsInWeek.reduce((totals, entry) => {
-      const scheduled = toNumber(entry.scheduled_hours);
-      const completed = toNumber(entry.completed_hours);
-      const verified = entry.verified || entry.status === "verified" || entry.status === "paid" ? toNumber(entry.verified_hours) || completed || scheduled : 0;
-      return {
-        scheduled: roundHours(totals.scheduled + scheduled),
-        completed: roundHours(totals.completed + completed),
-        verified: roundHours(totals.verified + verified),
-        pending: roundHours(totals.pending + (entry.status === "paid" ? 0 : verified)),
-        needsReview: totals.needsReview + (entry.status === "needs_review" ? 1 : 0),
-      };
-    }, { scheduled: 0, completed: 0, verified: 0, pending: 0, needsReview: 0 });
-  }, [commercialRowsInWeek]);
+  const commercialTotals = useMemo(() => calculateCommercialHoursForPeriod(commercialRowsInWeek), [commercialRowsInWeek]);
 
   async function writeTaskAudit(taskId: string, action: string, details: Record<string, unknown>) {
-    const { error } = await supabase.from("operation_task_audit_log").insert({
-      task_id: taskId,
-      action,
-      details,
-    });
-    if (error) console.warn("Task audit write failed", error.message);
+    await writeOperationTaskAudit(supabase, taskId, action, details);
   }
 
   async function notifyTask(
@@ -1283,8 +910,19 @@ export function SimpleOperationsClient({
   async function saveTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!taskDraft || !userId || savingTask) return;
-    if (!taskDraft.title.trim()) {
-      setMessage({ tone: "error", text: "Task could not be saved: title is required." });
+
+    const validation = validateInput(taskReminderSchema, {
+      title: taskDraft.title,
+      description: taskDraft.description,
+      assignee: taskDraft.assignee,
+      dueDate: taskDraft.dueDate || null,
+      priority: taskDraft.priority,
+      status: "pending",
+      frequency: taskDraft.frequency,
+      customIntervalDays: taskDraft.frequency === "custom" ? Number(taskDraft.customIntervalDays) || null : null,
+    });
+    if (!validation.ok) {
+      setMessage({ tone: "error", text: `Task could not be saved: ${validation.message}` });
       return;
     }
 
@@ -1318,12 +956,16 @@ export function SimpleOperationsClient({
 
     try {
       const result = taskDraft.id
-        ? await supabase.from("operation_tasks").update(payload).eq("id", taskDraft.id).select("*").single()
-        : await supabase.from("operation_tasks").insert({ ...payload, created_at: now }).select("*").single();
+        ? await supabase.from("operation_tasks").update(payload).eq("id", taskDraft.id).select(OPERATION_TASK_COLUMNS).single()
+        : await supabase.from("operation_tasks").insert({ ...payload, created_at: now }).select(OPERATION_TASK_COLUMNS).single();
 
       if (result.error) throw new Error(result.error.message);
-      const savedTask = result.data as OperationTaskRow;
+      const savedTask = result.data as unknown as OperationTaskRow;
       const assigneeChanged = !previousTask || normalizeAssignee(previousTask.assignee) !== taskDraft.assignee;
+      await writeTaskAudit(savedTask.id, taskDraft.id ? "task_updated" : "task_created", {
+        before: previousTask,
+        after: savedTask,
+      });
 
       let feedback = "Task saved.";
       if (assigneeChanged) {
@@ -1337,7 +979,7 @@ export function SimpleOperationsClient({
       setMessage({ tone: feedback.includes("failed") ? "error" : "success", text: feedback });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Task could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Task could not be saved: ${errorMessage(error)}` });
     } finally {
       setSavingTask(false);
     }
@@ -1372,7 +1014,7 @@ export function SimpleOperationsClient({
       setMessage({ tone: notifyOwner && !notification.sent ? "error" : "success", text: `Task completed.${notificationText}` });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Task could not be completed: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Task could not be completed: ${errorMessage(error)}` });
     } finally {
       setCompletingTaskId(null);
     }
@@ -1392,7 +1034,7 @@ export function SimpleOperationsClient({
       setMessage({ tone: "success", text: "Task deleted." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Task could not be deleted: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Task could not be deleted: ${errorMessage(error)}` });
     } finally {
       setDeletingTaskId(null);
     }
@@ -1450,11 +1092,19 @@ export function SimpleOperationsClient({
         ? await supabase.from("residential_recurring_cleaning_accounts").update(payload).eq("id", accountDraft.id)
         : await supabase.from("residential_recurring_cleaning_accounts").insert({ ...payload, created_at: now });
       if (result.error) throw new Error(result.error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "residential_recurring_cleaning_accounts",
+        entityId: accountDraft.id ?? null,
+        action: accountDraft.id ? "residential_account_updated" : "residential_account_created",
+        before: accountDraft.id ? accounts.find((account) => account.id === accountDraft.id) : null,
+        after: payload,
+        actorId: userId,
+      });
       setAccountDraft(null);
       setMessage({ tone: "success", text: "Residential account saved." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Residential account could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Residential account could not be saved: ${errorMessage(error)}` });
     } finally {
       setSavingAccount(false);
     }
@@ -1467,7 +1117,7 @@ export function SimpleOperationsClient({
       .update({ active: account.active === false, updated_at: now })
       .eq("id", account.id);
     if (error) {
-      setMessage({ tone: "error", text: `Account status could not be updated: ${error.message}` });
+      setMessage({ tone: "error", text: `Account status could not be updated: ${parseSupabaseError(error)}` });
       return;
     }
     setMessage({ tone: "success", text: account.active === false ? "Account activated." : "Account paused." });
@@ -1479,7 +1129,7 @@ export function SimpleOperationsClient({
     const now = new Date().toISOString();
     const { error } = await supabase.from("residential_recurring_cleaning_accounts").update({ deleted_at: now, updated_at: now }).eq("id", account.id);
     if (error) {
-      setMessage({ tone: "error", text: `Residential account could not be deleted: ${error.message}` });
+      setMessage({ tone: "error", text: `Residential account could not be deleted: ${parseSupabaseError(error)}` });
       return;
     }
     setMessage({ tone: "success", text: "Residential account deleted." });
@@ -1491,8 +1141,15 @@ export function SimpleOperationsClient({
     if (!userId || savingWorkLog) return;
     const account = accounts.find((item) => item.id === workLogDraft.accountId);
     const team = activeTeams.find((item) => item.id === workLogDraft.teamId);
-    if (!account || !team || !workLogDraft.workDate || !Number(workLogDraft.hoursWorked)) {
-      setMessage({ tone: "error", text: "Hours could not be saved: account, team, date, and hours are required." });
+    const validation = validateInput(workLogSchema, {
+      accountId: workLogDraft.accountId,
+      teamId: workLogDraft.teamId,
+      workDate: workLogDraft.workDate,
+      hoursWorked: Number(workLogDraft.hoursWorked),
+      status: workLogDraft.status,
+    });
+    if (!account || !team || !validation.ok) {
+      setMessage({ tone: "error", text: `Hours could not be saved: ${validation.ok ? "account and team are required." : validation.message}` });
       return;
     }
     const now = new Date().toISOString();
@@ -1512,11 +1169,25 @@ export function SimpleOperationsClient({
         updated_at: now,
       });
       if (error) throw new Error(error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "residential_work_logs",
+        action: "work_log_created",
+        after: {
+          account_id: account.id,
+          account_name: account.account_name,
+          team_id: team.id,
+          team_name: team.name,
+          work_date: workLogDraft.workDate,
+          hours_worked: Number(workLogDraft.hoursWorked),
+          status: workLogDraft.status,
+        },
+        actorId: userId,
+      });
       setWorkLogDraft({ ...EMPTY_WORK_LOG_DRAFT, workDate: workLogDraft.workDate });
       setMessage({ tone: "success", text: "Hours saved." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Hours could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Hours could not be saved: ${errorMessage(error)}` });
     } finally {
       setSavingWorkLog(false);
     }
@@ -1554,15 +1225,25 @@ export function SimpleOperationsClient({
   async function saveStaff(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!staffDraft || !userId || savingStaff) return;
-    if (!staffDraft.name.trim()) {
-      setMessage({ tone: "error", text: "Cleaner could not be saved: name is required." });
-      return;
-    }
     const now = new Date().toISOString();
     const status = staffDraft.status;
     const teamScope = staffDraft.teamScope;
     const role = staffDraft.role.trim() || roleForStaffScope(teamScope);
     const isActiveStatus = status === "Active";
+    const validation = validateInput(staffMemberSchema, {
+      name: staffDraft.name,
+      email: staffDraft.email,
+      role,
+      teamScope,
+      status,
+      hourlyRate: staffDraft.hourlyRate ? Number(staffDraft.hourlyRate) : null,
+      paymentMode: staffDraft.paymentMode,
+      active: staffDraft.active,
+    });
+    if (!validation.ok) {
+      setMessage({ tone: "error", text: `Cleaner could not be saved: ${validation.message}` });
+      return;
+    }
     const payload = {
       user_id: userId,
       name: staffDraft.name.trim(),
@@ -1583,11 +1264,19 @@ export function SimpleOperationsClient({
         ? await supabase.from("staff_members").update(payload).eq("id", staffDraft.id)
         : await supabase.from("staff_members").insert({ ...payload, created_at: now });
       if (result.error) throw new Error(result.error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "staff_members",
+        entityId: staffDraft.id ?? null,
+        action: staffDraft.id ? "staff_updated" : "staff_created",
+        before: staffDraft.id ? staff.find((person) => person.id === staffDraft.id) : null,
+        after: payload,
+        actorId: userId,
+      });
       setStaffDraft(null);
       setMessage({ tone: "success", text: "Cleaner saved." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Cleaner could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Cleaner could not be saved: ${errorMessage(error)}` });
     } finally {
       setSavingStaff(false);
     }
@@ -1656,24 +1345,20 @@ export function SimpleOperationsClient({
     const commercialAmount = toNumber(draft.commercialAmount);
     const resolvedCity = draft.city === OUTSIDE_OC_CITY ? draft.customCity.trim() : draft.city.trim();
 
-    if (!draft.workDate) {
-      setMessage({ tone: "error", text: "Payment row could not be saved: date is required." });
-      return;
-    }
-    if (!resolvedCity) {
-      setMessage({ tone: "error", text: "Payment row could not be saved: city is required." });
-      return;
-    }
-    if (!mixed && paymentAmount <= 0) {
-      setMessage({ tone: "error", text: "Payment row could not be saved: payment must be greater than 0." });
-      return;
-    }
-    if (paymentAmount < 0 || residentialAmount < 0 || commercialAmount < 0) {
-      setMessage({ tone: "error", text: "Payment row could not be saved: amounts cannot be negative." });
-      return;
-    }
-    if (mixed && residentialAmount === 0 && commercialAmount === 0) {
-      setMessage({ tone: "error", text: "Juan Romero's payment row needs a residential or commercial amount." });
+    const validation = validateInput(residentialPaymentRowSchema, {
+      cleanerId: summary.teamId,
+      cleanerName: summary.teamName,
+      workDate: draft.workDate,
+      city: draft.city,
+      customCity: draft.customCity,
+      paymentAmount,
+      residentialAmount,
+      commercialAmount,
+      paymentMode: mixed ? "mixed" : "residential_only",
+      status: draft.status || "pending",
+    });
+    if (!validation.ok) {
+      setMessage({ tone: "error", text: `Payment row could not be saved: ${validation.message}` });
       return;
     }
     if (dateOutsideRange(draft.workDate, weekRange.start, weekRange.end) && !window.confirm("This date is outside the selected pay period. Save it anyway?")) {
@@ -1727,12 +1412,20 @@ export function SimpleOperationsClient({
           : await supabase.from("residential_weekly_payment_rows").insert({ ...fallbackPayload, created_at: now });
       }
       if (result.error) throw new Error(result.error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "residential_weekly_payment_rows",
+        entityId: draft.id ?? null,
+        action: draft.id ? "payment_row_updated" : "payment_row_created",
+        before: existing,
+        after: payload,
+        actorId: userId,
+      });
       setPaymentRowDrafts((current) => ({ ...current, [summary.key]: { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start, city: isCarlosLopez(summary.teamName) ? "Operations" : "" } }));
       closePaymentModal();
       setMessage({ tone: "success", text: "Payment row saved." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Payment row could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Payment row could not be saved: ${errorMessage(error)}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -1746,11 +1439,19 @@ export function SimpleOperationsClient({
     try {
       const { error } = await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).eq("id", row.id);
       if (error) throw new Error(error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "residential_weekly_payment_rows",
+        entityId: row.id,
+        action: "payment_row_deleted",
+        before: row,
+        after: { deleted_at: now },
+        actorId: userId,
+      });
       setWeeklyPaymentRows((current) => current.filter((item) => item.id !== row.id));
       setMessage({ tone: "success", text: "Payment row deleted." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Payment row could not be deleted: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Payment row could not be deleted: ${errorMessage(error)}` });
     } finally {
       setDeletingPaymentRowId(null);
     }
@@ -1768,11 +1469,18 @@ export function SimpleOperationsClient({
     try {
       const { error } = await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).in("id", juanRows.map((row) => row.id));
       if (error) throw new Error(error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "residential_weekly_payment_rows",
+        action: "juan_payment_rows_cleared",
+        before: juanRows,
+        after: { deleted_at: now, row_count: juanRows.length },
+        actorId: userId,
+      });
       setWeeklyPaymentRows((current) => current.filter((row) => !juanRows.some((juanRow) => juanRow.id === row.id)));
       setMessage({ tone: "success", text: "Juan Romero payment total cleared for this period." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Juan Romero payment rows could not be deleted: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Juan Romero payment rows could not be deleted: ${errorMessage(error)}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -1820,10 +1528,18 @@ export function SimpleOperationsClient({
         const { error: cleanupError } = await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).in("id", extraRows.map((row) => row.id));
         if (cleanupError) throw new Error(cleanupError.message);
       }
+      await writePayrollAudit(supabase, {
+        entityType: "residential_weekly_payment_rows",
+        entityId: existingRow?.id ?? null,
+        action: existingRow ? "carlos_weekly_payment_updated" : "carlos_weekly_payment_created",
+        before: existingRow,
+        after: payload,
+        actorId: userId,
+      });
       setMessage({ tone: "success", text: `Carlos Lopez weekly payment saved: ${formatMoney(weeklyPayment + overtimeAmount)}.` });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Carlos Lopez weekly payment could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Carlos Lopez weekly payment could not be saved: ${errorMessage(error)}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -1837,16 +1553,17 @@ export function SimpleOperationsClient({
       const paidPayload = status === "paid" ? { status, paid_at: now, updated_at: now } : { status, updated_at: now };
       const { error } = await supabase.from("residential_weekly_payment_rows").update(paidPayload).in("id", summary.rows.map((row) => row.id));
       if (error) throw new Error(error.message);
-      await supabase.from("payroll_audit_log").insert({
-        entity_type: "residential_weekly_payment_rows",
+      await writePayrollAudit(supabase, {
+        entityType: "residential_weekly_payment_rows",
         action: `rows_marked_${status}`,
-        new_value: JSON.stringify({ cleaner: summary.teamName, row_count: summary.rows.length, status }),
-        changed_by: userId,
+        before: summary.rows.map((row) => ({ id: row.id, status: row.status, paid_at: row.paid_at })),
+        after: { cleaner: summary.teamName, row_count: summary.rows.length, status },
+        actorId: userId,
       });
       setMessage({ tone: "success", text: status === "paid" ? "Selected cleaner rows marked paid." : `Rows marked ${status.replace("_", " ")}.` });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Payment status could not be updated: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Payment status could not be updated: ${errorMessage(error)}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -1861,10 +1578,18 @@ export function SimpleOperationsClient({
       const payload = status === "paid" ? { status, paid_at: now, updated_at: now } : { status, updated_at: now };
       const { error } = await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", row.id);
       if (error) throw new Error(error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "residential_weekly_payment_rows",
+        entityId: row.id,
+        action: `row_marked_${status}`,
+        before: { status: row.status, paid_at: row.paid_at },
+        after: payload,
+        actorId: userId,
+      });
       setMessage({ tone: "success", text: `Payment row marked ${status.replace("_", " ")}.` });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Payment row status could not be updated: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Payment row status could not be updated: ${errorMessage(error)}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -1908,8 +1633,18 @@ export function SimpleOperationsClient({
     const team = activeTeams.find((item) => item.id === commercialHoursDraft.teamId);
     const teamName = team?.name ?? commercialHoursDraft.teamName.trim();
     const hours = toNumber(commercialHoursDraft.hours);
-    if (!account || !commercialHoursDraft.workDate || !teamName || hours <= 0) {
-      setMessage({ tone: "error", text: "Commercial hours could not be saved: account, team/person, date, and hours are required." });
+    const verified = commercialHoursDraft.verified || commercialHoursDraft.status === "verified" || commercialHoursDraft.status === "paid";
+    const validation = validateInput(commercialHoursEntrySchema, {
+      commercialAccountId: commercialHoursDraft.accountId,
+      teamName,
+      workDate: commercialHoursDraft.workDate,
+      hours,
+      status: commercialHoursDraft.status,
+      source: commercialHoursDraft.manualEntry ? "manual" : "scheduled",
+      verified,
+    });
+    if (!account || !validation.ok) {
+      setMessage({ tone: "error", text: `Commercial hours could not be saved: ${validation.ok ? "account is required." : validation.message}` });
       return;
     }
     if (dateOutsideRange(commercialHoursDraft.workDate, commercialRange.start, commercialRange.end) && !window.confirm("This commercial hours date is outside the selected commercial calculation range. Save it anyway?")) {
@@ -1928,9 +1663,9 @@ export function SimpleOperationsClient({
         scheduled_day: WEEKDAY_NAMES[(parseDateKey(commercialHoursDraft.workDate) ?? new Date()).getDay()],
         scheduled_hours: hours,
         completed_hours: hours,
-        verified_hours: commercialHoursDraft.verified || commercialHoursDraft.status === "verified" || commercialHoursDraft.status === "paid" ? hours : 0,
+        verified_hours: verified ? hours : 0,
         status: commercialHoursDraft.status,
-        verified: commercialHoursDraft.verified || commercialHoursDraft.status === "verified" || commercialHoursDraft.status === "paid",
+        verified,
         notes: commercialHoursDraft.notes.trim() || null,
         manual_entry: commercialHoursDraft.manualEntry,
         updated_at: now,
@@ -1939,12 +1674,20 @@ export function SimpleOperationsClient({
         ? await supabase.from("commercial_hours_entries").update(payload).eq("id", commercialHoursDraft.id)
         : await supabase.from("commercial_hours_entries").insert({ ...payload, created_at: now });
       if (result.error) throw new Error(result.error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "commercial_hours_entries",
+        entityId: commercialHoursDraft.id ?? null,
+        action: commercialHoursDraft.id ? "commercial_hours_updated" : "commercial_hours_created",
+        before: commercialHoursDraft.id ? commercialHoursEntries.find((entry) => entry.id === commercialHoursDraft.id) : null,
+        after: payload,
+        actorId: userId,
+      });
       setCommercialHoursDraft({ ...EMPTY_COMMERCIAL_HOURS_DRAFT, workDate: commercialHoursDraft.workDate });
       setPaymentModalMode(null);
       setMessage({ tone: "success", text: "Commercial hours saved." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Commercial hours could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Commercial hours could not be saved: ${errorMessage(error)}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -1956,16 +1699,22 @@ export function SimpleOperationsClient({
     const account = commercialAccounts.find((item) => item.id === commercialScheduleDraft.accountId);
     const team = activeTeams.find((item) => item.id === commercialScheduleDraft.assignedTeamId);
     const assignedName = team?.name ?? commercialScheduleDraft.assignedTeamName.trim();
-    if (!account || !assignedName || !commercialScheduleDraft.effectiveFrom || commercialScheduleDraft.selectedDays.length === 0) {
-      setMessage({ tone: "error", text: "Commercial schedule could not be saved: account, team, effective date, and service days are required." });
-      return;
-    }
     const dayPayloads = commercialScheduleDraft.selectedDays.map((day) => {
       const hours = toNumber(commercialScheduleDraft.dayHours[day]);
       return { day: Number(day), hours };
     });
-    if (dayPayloads.some((item) => !Number.isFinite(item.day) || item.hours <= 0)) {
-      setMessage({ tone: "error", text: "Commercial schedule could not be saved: each selected day needs hours greater than 0." });
+    const validation = validateInput(commercialScheduleSchema, {
+      commercialAccountId: commercialScheduleDraft.accountId,
+      assignedName,
+      frequency: commercialScheduleDraft.frequency,
+      selectedDays: commercialScheduleDraft.selectedDays,
+      dayHours: Object.fromEntries(dayPayloads.map((item) => [String(item.day), item.hours])),
+      effectiveFrom: commercialScheduleDraft.effectiveFrom,
+      effectiveUntil: commercialScheduleDraft.effectiveUntil,
+      active: commercialScheduleDraft.active,
+    });
+    if (!account || !validation.ok || dayPayloads.some((item) => !Number.isFinite(item.day))) {
+      setMessage({ tone: "error", text: `Commercial schedule could not be saved: ${validation.ok ? "account is required." : validation.message}` });
       return;
     }
     const now = new Date().toISOString();
@@ -1992,12 +1741,18 @@ export function SimpleOperationsClient({
       }));
       const { error } = await supabase.from("commercial_account_schedule_rules").insert(rows);
       if (error) throw new Error(error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "commercial_account_schedule_rules",
+        action: "commercial_schedule_created",
+        after: { account_id: account.id, account_name: account.name, rows },
+        actorId: userId,
+      });
       setCommercialScheduleDraft({ ...EMPTY_COMMERCIAL_SCHEDULE_DRAFT, effectiveFrom: todayKey() });
       setPaymentModalMode(null);
       setMessage({ tone: "success", text: "Commercial schedule saved. The hours table now uses those structured service days." });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Commercial schedule could not be saved: ${error instanceof Error ? error.message : "unexpected error"}` });
+      setMessage({ tone: "error", text: `Commercial schedule could not be saved: ${errorMessage(error)}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -2012,36 +1767,28 @@ export function SimpleOperationsClient({
     if (entry.status === "paid" && status !== "paid" && !window.confirm("This record is already marked as paid. Editing it may affect payroll history.")) return;
     const now = new Date().toISOString();
     const hours = toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours);
-    const { error } = await supabase.from("commercial_hours_entries").update({
+    const payload = {
       status,
       verified: status === "verified" || status === "paid" ? true : entry.verified,
       verified_hours: status === "verified" || status === "paid" ? hours : entry.verified_hours,
       paid_at: status === "paid" ? now : entry.paid_at ?? null,
       updated_at: now,
-    }).eq("id", entry.id);
+    };
+    const { error } = await supabase.from("commercial_hours_entries").update(payload).eq("id", entry.id);
     if (error) {
-      setMessage({ tone: "error", text: `Commercial hours status could not be updated: ${error.message}` });
+      setMessage({ tone: "error", text: `Commercial hours status could not be updated: ${parseSupabaseError(error)}` });
       return;
     }
+    await writePayrollAudit(supabase, {
+      entityType: "commercial_hours_entries",
+      entityId: entry.id,
+      action: `commercial_hours_marked_${status}`,
+      before: { status: entry.status, verified: entry.verified, paid_at: entry.paid_at },
+      after: payload,
+      actorId: userId,
+    });
     setMessage({ tone: "success", text: `Commercial hours marked ${status.replace("_", " ")}.` });
     await loadData();
-  }
-
-  async function exportRows(filename: string, rows: Record<string, string | number | null | undefined>[]) {
-    const XLSX = await import("xlsx");
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
-    XLSX.writeFile(workbook, filename);
-  }
-
-  async function exportWorkbook(filename: string, sheets: { name: string; rows: Record<string, string | number | null | undefined>[] }[]) {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.utils.book_new();
-    for (const sheet of sheets) {
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sheet.rows), sheet.name);
-    }
-    XLSX.writeFile(workbook, filename);
   }
 
   async function exportCurrentReport() {
@@ -2101,7 +1848,6 @@ export function SimpleOperationsClient({
 
   async function exportCommercialHours() {
     await exportRows(`commercial-hours-${commercialRange.start}.xlsx`, filteredCommercialRows.map((entry) => {
-      const verifiedHours = entry.verified || entry.status === "verified" || entry.status === "paid" ? toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours) : 0;
       return {
         Date: entry.work_date,
         "Commercial Account": entry.account_name,
@@ -2109,7 +1855,7 @@ export function SimpleOperationsClient({
         "Scheduled Day": entry.scheduled_day,
         "Scheduled Hours": toNumber(entry.scheduled_hours),
         "Actual Hours": toNumber(entry.completed_hours),
-        "Verified Payable": verifiedHours,
+        "Verified Payable": getPayableCommercialHours(entry),
         Status: entry.status,
         Source: entry.manual_entry === false ? "scheduled" : "manual",
       };
@@ -2165,9 +1911,9 @@ export function SimpleOperationsClient({
       <div className="space-y-5">
         {view === "residential" ? null : renderHeader()}
         {message ? (
-          <div className={cn("flex items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm font-semibold shadow-sm", messageClass(message.tone))}>
+          <div className={cn("flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm font-semibold shadow-sm", messageClass(message.tone))}>
             <span>{message.text}</span>
-            <button type="button" className="grid size-6 place-items-center rounded-md transition hover:bg-background/60" aria-label="Dismiss message" onClick={() => setMessage(null)}><X className="size-4" /></button>
+            <button type="button" className="grid size-6 place-items-center rounded-lg transition hover:bg-background/60" aria-label="Dismiss message" onClick={() => setMessage(null)}><X className="size-4" /></button>
           </div>
         ) : null}
         {loading ? <Card className={SOP_PANEL_CLASS}><CardContent className="p-8 text-center text-sm font-semibold text-muted-foreground">Loading operations tracker...</CardContent></Card> : null}
@@ -2233,24 +1979,29 @@ export function SimpleOperationsClient({
       .slice()
       .sort((a, b) => String(b.completed_at ?? b.updated_at).localeCompare(String(a.completed_at ?? a.updated_at)))
       .slice(0, 5);
+    const pendingSummaries = weeklyPaymentSummaries.filter((summary) => summary.paymentTotal > 0 && summary.payment?.status !== "paid");
+    const focusItems = [
+      { label: "Review overdue tasks", value: taskStats.overdue.length, href: "/tasks", tone: taskStats.overdue.length ? "warn" : "good" },
+      { label: "Close pending payments", value: pendingSummaries.length, href: "/residential", tone: pendingSummaries.length ? "warn" : "good" },
+      { label: "Verify commercial hours", value: commercialTotals.needsReview, href: "/residential", tone: commercialTotals.needsReview ? "warn" : "good" },
+    ];
 
     return (
       <div className="space-y-5">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard icon={Clock} label="Tasks due today" value={taskStats.dueToday.length} note={taskStats.dueToday.length ? "Needs attention today" : "No reminders due today."} tone={taskStats.dueToday.length ? "warn" : "good"} />
           <MetricCard icon={AlertTriangle} label="Overdue tasks" value={taskStats.overdue.length} note="Pending past due date" tone={taskStats.overdue.length ? "warn" : "good"} />
-          <MetricCard icon={CheckCircle2} label="Completed this week" value={taskStats.completedThisWeek.length} note="Closed reminders" tone="good" />
-          <MetricCard icon={BadgeCheck} label="Residential cleaners active" value={activeTeams.length} note="Cleaner payment profiles" />
-          <MetricCard icon={CalendarDays} label="Weekly scheduled hours" value={formatHours(accountTotals.weekly)} note="Approximate recurring hours" />
-          <MetricCard icon={CalendarDays} label="Monthly scheduled hours" value={formatHours(accountTotals.monthly)} note="Uses 4.33 weeks/month" />
-          <MetricCard icon={Users} label="This week worked hours" value={formatHours(workedThisWeek)} note={dateRangeLabel(currentWeek.start, currentWeek.end)} />
           <MetricCard icon={WalletCards} label="Pending residential payments" value={formatMoney(pendingPaymentTotal)} note="Open weekly payments" tone={pendingPaymentTotal ? "warn" : "good"} />
+          <MetricCard icon={Users} label="Active teams" value={activeTeams.length} note={`${formatHours(workedThisWeek)}h logged this week`} />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
+        <div className="grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
           <Card className={SOP_PANEL_CLASS}>
             <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
-              <CardTitle>Today&apos;s reminders</CardTitle>
+              <div>
+                <CardTitle>Today&apos;s operating queue</CardTitle>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">Reminders that need a person, a date, or a close-out today.</p>
+              </div>
               <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/tasks">Open reminders</Link></Button>
             </CardHeader>
             <CardContent className="grid gap-2">
@@ -2260,33 +2011,33 @@ export function SimpleOperationsClient({
           </Card>
 
           <Card className={SOP_PANEL_CLASS}>
-            <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
-              <CardTitle>This week residential hours</CardTitle>
-              <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/residential">Open tracker</Link></Button>
+            <CardHeader className="p-4 sm:p-5">
+              <CardTitle>Quick focus</CardTitle>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">The few checks that protect payroll and daily follow-up.</p>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {teamHours.length === 0 ? <div className={SOP_EMPTY_CLASS}>No work hours logged in this period.</div> : null}
-              {teamHours.slice(0, 5).map((team) => (
-                <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={team.key}>
+              {focusItems.map((item) => (
+                <Link className="flex items-center justify-between rounded-lg border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20" href={item.href} key={item.label}>
                   <div>
-                    <p className="font-semibold">{team.teamName}</p>
-                    <p className="text-xs font-medium text-muted-foreground">{team.accounts.size} accounts worked</p>
+                    <p className="font-semibold">{item.label}</p>
+                    <p className="text-xs font-medium text-muted-foreground">{item.tone === "warn" ? "Needs review before the day closes." : "No action needed right now."}</p>
                   </div>
-                  <p className="text-lg font-semibold text-primary">{formatHours(team.totalHours)}h</p>
-                </div>
+                  <Badge className={statusBadgeClass(item.tone === "warn" ? "needs_review" : "active")} variant="outline">{item.value}</Badge>
+                </Link>
               ))}
             </CardContent>
           </Card>
 
           <Card className={SOP_PANEL_CLASS}>
             <CardHeader className="p-4 sm:p-5">
-              <CardTitle>Pending payments</CardTitle>
+              <CardTitle>Payments to close</CardTitle>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Residential cleaner payments that are still open for this period.</p>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {weeklyPaymentSummaries.filter((summary) => summary.paymentTotal > 0 && summary.payment?.status !== "paid").length === 0 ? <div className={SOP_EMPTY_CLASS}>No pending residential payments for the selected week.</div> : null}
-              {weeklyPaymentSummaries.filter((summary) => summary.paymentTotal > 0 && summary.payment?.status !== "paid").slice(0, 5).map((summary) => {
+              {pendingSummaries.length === 0 ? <div className={SOP_EMPTY_CLASS}>No pending residential payments for the selected week.</div> : null}
+              {pendingSummaries.slice(0, 5).map((summary) => {
                 return (
-                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={summary.key}>
+                  <div className="flex items-center justify-between rounded-lg border border-border/70 bg-background/65 p-3" key={summary.key}>
                     <div>
                       <p className="font-semibold">{summary.teamName}</p>
                       <p className="text-xs font-medium text-muted-foreground">{summary.rows.length} payment rows</p>
@@ -2299,15 +2050,37 @@ export function SimpleOperationsClient({
           </Card>
 
           <Card className={SOP_PANEL_CLASS}>
-            <CardHeader className="p-4 sm:p-5">
-              <CardTitle>Recent completed tasks</CardTitle>
+            <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
+              <div>
+                <CardTitle>This week residential hours</CardTitle>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">{dateRangeLabel(currentWeek.start, currentWeek.end)}</p>
+              </div>
+              <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/residential">Open tracker</Link></Button>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {recentCompleted.length === 0 ? <div className={SOP_EMPTY_CLASS}>No completed reminders this week.</div> : null}
-              {recentCompleted.map((task) => renderCompactTaskRow(task))}
+              {teamHours.length === 0 ? <div className={SOP_EMPTY_CLASS}>No work hours logged in this period.</div> : null}
+              {teamHours.slice(0, 5).map((team) => (
+                <div className="flex items-center justify-between rounded-lg border border-border/70 bg-background/65 p-3" key={team.key}>
+                  <div>
+                    <p className="font-semibold">{team.teamName}</p>
+                    <p className="text-xs font-medium text-muted-foreground">{team.accounts.size} accounts worked</p>
+                  </div>
+                  <p className="text-lg font-semibold text-primary">{formatHours(team.totalHours)}h</p>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </div>
+        {recentCompleted.length > 0 ? (
+          <Card className={SOP_PANEL_CLASS}>
+            <CardHeader className="p-4 sm:p-5">
+              <CardTitle>Recently completed</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 md:grid-cols-2">
+              {recentCompleted.map((task) => renderCompactTaskRow(task))}
+            </CardContent>
+          </Card>
+        ) : null}
       </div>
     );
   }
@@ -2372,7 +2145,7 @@ export function SimpleOperationsClient({
                 </button>
                 <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status)}</Badge>
                 <div className="flex gap-1">
-                  <Button className="h-8 rounded-md px-2.5 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-3.5" /> Mark completed</Button>
+                  <Button className="h-8 rounded-lg px-2.5 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-3.5" /> Mark completed</Button>
                   <Button className="size-8" size="icon" variant="outline" aria-label="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-3.5" /></Button>
                   <Button className="size-8 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-3.5" /></Button>
                 </div>
@@ -2394,7 +2167,7 @@ export function SimpleOperationsClient({
 
         <div className={cn(SOP_PANEL_CLASS, "flex flex-wrap items-center justify-between gap-3 p-3")}>
           <div className="flex flex-wrap gap-2">
-            <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1 shadow-sm">
+            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/70 bg-background/80 p-1 shadow-sm">
               {(["month", "day", "list"] as TaskViewMode[]).map((mode) => (
                 <button
                   type="button"
@@ -2406,7 +2179,7 @@ export function SimpleOperationsClient({
                 </button>
               ))}
             </div>
-            <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1 shadow-sm">
+            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/70 bg-background/80 p-1 shadow-sm">
               {(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => (
                 <button
                   type="button"
@@ -2435,16 +2208,16 @@ export function SimpleOperationsClient({
             <div className="flex gap-2">
               {taskViewMode === "month" ? (
                 <>
-                  <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></Button>
+                  <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></Button>
                   <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</Button>
-                  <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></Button>
+                  <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></Button>
                 </>
               ) : null}
               {taskViewMode === "day" ? (
                 <>
-                  <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-4" /></Button>
+                  <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-4" /></Button>
                   <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => setTaskSelectedDay(todayKey())}>Today</Button>
-                  <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-4" /></Button>
+                  <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-4" /></Button>
                 </>
               ) : null}
             </div>
@@ -2464,7 +2237,7 @@ export function SimpleOperationsClient({
                 return (
                   <section className={cn("min-h-32 border-b border-r border-border/60 p-2 last:border-r-0", !inMonth && "bg-muted/20 text-muted-foreground", isToday && "bg-emerald-50/55 dark:bg-emerald-950/20")} key={key}>
                     <div className="flex items-center justify-between gap-2">
-                      <button type="button" className={cn("grid size-7 place-items-center rounded-md text-sm font-semibold hover:bg-accent", isToday && "bg-primary text-primary-foreground hover:bg-primary")} onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>{date.getDate()}</button>
+                      <button type="button" className={cn("grid size-7 place-items-center rounded-lg text-sm font-semibold hover:bg-accent", isToday && "bg-primary text-primary-foreground hover:bg-primary")} onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>{date.getDate()}</button>
                       {dayTasks.length ? <Badge variant="outline">{dayTasks.length}</Badge> : null}
                     </div>
                     <div className="mt-2 grid gap-1">
@@ -2474,7 +2247,7 @@ export function SimpleOperationsClient({
                         return (
                           <button
                             type="button"
-                            className={cn("rounded-md border px-2 py-1 text-left text-[11px] font-semibold leading-tight transition hover:border-primary/40 hover:bg-accent/30", overdue ? statusBadgeClass("overdue") : status === "completed" ? statusBadgeClass("completed") : "border-border/70 bg-background/80 text-foreground")}
+                            className={cn("rounded-lg border px-2 py-1 text-left text-[11px] font-semibold leading-tight transition hover:border-primary/40 hover:bg-accent/30", overdue ? statusBadgeClass("overdue") : status === "completed" ? statusBadgeClass("completed") : "border-border/70 bg-background/80 text-foreground")}
                             key={task.id}
                             onClick={() => setSelectedTask(task)}
                           >
@@ -2532,7 +2305,7 @@ export function SimpleOperationsClient({
           </CardHeader>
           <CardContent>
             <div className={cn(SOP_TABLE_WRAP_CLASS, "overflow-x-auto")}>
-            <table className="w-full min-w-[1080px] text-sm">
+            <table className="sop-table w-full min-w-[1080px] text-sm">
               <thead>
                 <tr className="border-b border-border/70 bg-muted/25 text-left text-xs font-semibold text-muted-foreground">
                   <th className="px-4 py-3">Account name</th>
@@ -2612,7 +2385,7 @@ export function SimpleOperationsClient({
               </select></label>
               <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={workLogDraft.workDate} onChange={(event) => setWorkLogDraft((current) => ({ ...current, workDate: event.target.value }))} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Hours worked<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={workLogDraft.hoursWorked} onChange={(event) => setWorkLogDraft((current) => ({ ...current, hoursWorked: event.target.value }))} /></label>
-              <div className="flex items-end"><Button className="h-10 w-full rounded-md" type="submit" disabled={savingWorkLog}><Save className="size-4" /> {savingWorkLog ? "Saving..." : "Save"}</Button></div>
+              <div className="flex items-end"><Button className="h-10 w-full rounded-lg" type="submit" disabled={savingWorkLog}><Save className="size-4" /> {savingWorkLog ? "Saving..." : "Save"}</Button></div>
               <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-4")}>Notes<input className={PAYMENT_FIELD_CLASS} value={workLogDraft.notes} onChange={(event) => setWorkLogDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Status<select className={PAYMENT_FIELD_CLASS} value={workLogDraft.status} onChange={(event) => setWorkLogDraft((current) => ({ ...current, status: event.target.value as WorkLogStatus }))}>
                 <option value="pending">Pending</option>
@@ -2631,7 +2404,7 @@ export function SimpleOperationsClient({
             <CardContent className="grid gap-2">
               {teamHours.length === 0 ? <div className={SOP_EMPTY_CLASS}>No team hours in this period.</div> : null}
               {teamHours.map((team) => (
-                <div className="rounded-xl border border-border/70 bg-background/65 p-3" key={team.key}>
+                <div className="rounded-lg border border-border/70 bg-background/65 p-3" key={team.key}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-semibold">{team.teamName}</p>
@@ -2650,7 +2423,7 @@ export function SimpleOperationsClient({
             </CardHeader>
             <CardContent>
               <div className={cn(SOP_TABLE_WRAP_CLASS, "overflow-x-auto")}>
-              <table className="w-full min-w-[720px] text-sm">
+              <table className="sop-table w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="border-b border-border/70 bg-muted/25 text-left text-xs font-semibold text-muted-foreground">
                     <th className="px-4 py-3">Date</th>
@@ -2724,20 +2497,20 @@ export function SimpleOperationsClient({
               <p className="mt-1 text-sm font-medium text-muted-foreground">Weekly residential payments and commercial team hours tracking.</p>
             </div>
             <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-              <Button className="h-9 rounded-md px-3 text-sm font-semibold" onClick={() => {
+              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" onClick={() => {
                 const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary) && !isCarlosLopez(summary.teamName));
                 if (first) openPaymentModal(first, "residential");
               }}><Plus className="size-4" /> Add residential payment</Button>
-              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
-              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
+              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
+              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-[16px] border border-border/70 bg-card/80 p-2 shadow-sm">
-            <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft className="size-4" /></Button>
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-card/80 p-2 shadow-sm">
+            <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft className="size-4" /></Button>
             <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
-            <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight className="size-4" /></Button>
-            <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
+            <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight className="size-4" /></Button>
+            <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
           </div>
         </section>
@@ -2746,7 +2519,7 @@ export function SimpleOperationsClient({
           {weeklyMetrics.map(({ label, value, Icon, tone }) => (
             <div
               className={cn(
-                "min-h-[92px] rounded-[16px] border border-border/70 bg-card/95 p-4 shadow-[0_16px_42px_-44px_hsl(215_40%_20%)]",
+                "min-h-[92px] rounded-lg border border-border/70 bg-card/95 p-4 shadow-[0_16px_42px_-44px_hsl(215_40%_20%)]",
                 tone === "warn" && "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15",
                 tone === "good" && "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900 dark:bg-emerald-950/15",
               )}
@@ -2785,7 +2558,7 @@ export function SimpleOperationsClient({
               {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
               {cityFilterOptions.filter((city) => !ORANGE_COUNTY_CITIES.includes(city as (typeof ORANGE_COUNTY_CITIES)[number])).map((city) => <option key={city} value={city}>{city}</option>)}
             </select>
-            <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-semibold">
+            <label className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm font-semibold">
               <input type="checkbox" checked={showAllPaymentCleaners} onChange={(event) => setShowAllPaymentCleaners(event.target.checked)} />
               Show all cleaners
             </label>
@@ -2816,7 +2589,7 @@ export function SimpleOperationsClient({
     const paid = row?.status === "paid";
 
     return (
-      <Card className="rounded-[18px] border-emerald-200 bg-emerald-50/45 shadow-[0_18px_50px_-46px_hsl(215_40%_20%)] dark:border-emerald-900 dark:bg-emerald-950/15">
+      <Card className="rounded-lg border-emerald-200 bg-emerald-50/45 shadow-[0_18px_50px_-46px_hsl(215_40%_20%)] dark:border-emerald-900 dark:bg-emerald-950/15">
         <CardContent className="grid gap-3 p-4 lg:grid-cols-[1.1fr_.8fr_.8fr_auto]">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-muted-foreground">Operations manager</p>
@@ -2841,8 +2614,8 @@ export function SimpleOperationsClient({
               <p className="mt-1 text-2xl font-semibold">{formatMoney(total)}</p>
             </div>
             <div className="flex gap-2">
-              {row ? <Button className="rounded-md" size="sm" variant="outline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, paid ? "pending" : "paid")}>{paid ? "Pending" : "Paid"}</Button> : null}
-              <Button className="rounded-md" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)}><Save className="size-4" /> Save</Button>
+              {row ? <Button className="rounded-lg" size="sm" variant="outline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, paid ? "pending" : "paid")}>{paid ? "Pending" : "Paid"}</Button> : null}
+              <Button className="rounded-lg" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)}><Save className="size-4" /> Save</Button>
             </div>
           </div>
         </CardContent>
@@ -2860,7 +2633,7 @@ export function SimpleOperationsClient({
     const overtimeAmount = roundHours(toNumber(carlosOvertimeHours) * CARLOS_OVERTIME_RATE);
 
     return (
-      <Card className={cn("overflow-hidden rounded-[18px] border-border/70 bg-card shadow-[0_18px_50px_-46px_hsl(215_40%_20%)]", mixed ? "border-amber-200 bg-amber-50/15 dark:border-amber-900 dark:bg-amber-950/10" : carlos ? "border-emerald-200 bg-emerald-50/20 dark:border-emerald-900 dark:bg-emerald-950/10" : "")} key={summary.key}>
+      <Card className={cn("overflow-hidden rounded-lg border-border/70 bg-card shadow-[0_18px_50px_-46px_hsl(215_40%_20%)]", mixed ? "border-amber-200 bg-amber-50/15 dark:border-amber-900 dark:bg-amber-950/10" : carlos ? "border-emerald-200 bg-emerald-50/20 dark:border-emerald-900 dark:bg-emerald-950/10" : "")} key={summary.key}>
         <CardHeader className="px-4 pb-3 pt-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -2870,13 +2643,13 @@ export function SimpleOperationsClient({
                 <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(paymentSummaryStatus(summary)))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
               </div>
             </div>
-            <Button className="h-8 rounded-md px-2.5 text-xs font-semibold" size="sm" variant="outline" onClick={() => mixed ? openJuanPaymentModal() : openPaymentModal(summary, "residential")}><Plus className="size-3.5" /> Row</Button>
+            <Button className="h-8 rounded-lg px-2.5 text-xs font-semibold" size="sm" variant="outline" onClick={() => mixed ? openJuanPaymentModal() : openPaymentModal(summary, "residential")}><Plus className="size-3.5" /> Row</Button>
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-4 pt-0">
-          <div className="overflow-hidden rounded-xl border border-border/70 bg-background/60">
+          <div className="overflow-hidden rounded-lg border border-border/70 bg-background/60">
             <div className="overflow-x-auto">
-              <table className={cn("w-full min-w-[360px] table-fixed border-separate border-spacing-0 text-[13px]", mixed && "min-w-[520px]")}>
+              <table className={cn("sop-table w-full min-w-[360px] table-fixed border-separate border-spacing-0 text-[13px]", mixed && "min-w-[520px]")}>
                 <thead>
                   <tr className="bg-muted/25 text-left text-[11px] font-semibold uppercase text-muted-foreground">
                     <th className="w-[22%] border-b border-border/70 px-3 py-2">Date</th>
@@ -2931,23 +2704,23 @@ export function SimpleOperationsClient({
               <span>Pending {formatMoney(pending)}</span>
             </div>
             {carlos ? (
-              <div className="grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-950 md:grid-cols-[1fr_auto]">
+              <div className="grid gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-950 md:grid-cols-[1fr_auto]">
                 <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
                   Overtime hours
-                  <input className="h-9 rounded-md border border-emerald-200 bg-white px-2 text-sm font-semibold normal-case text-slate-950" inputMode="decimal" min="0" step="0.5" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
+                  <input className="h-9 rounded-lg border border-emerald-200 bg-white px-2 text-sm font-semibold normal-case text-slate-950" inputMode="decimal" min="0" step="0.5" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
                 </label>
-                <Button className="self-end rounded-md" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
+                <Button className="self-end rounded-lg" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
               </div>
             ) : null}
             {mixed && summary.rows.length > 0 ? (
-              <Button className="h-9 justify-center rounded-md border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
+              <Button className="h-9 justify-center rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
                 <Trash2 className="size-3.5" /> Clear Juan total
               </Button>
             ) : null}
             <div className="grid grid-cols-3 gap-2">
-              <Button className="h-9 rounded-md px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-3.5" /> Verified</Button>
-              <Button className="h-9 rounded-md px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-3.5" /> Paid</Button>
-              <Button className="h-9 rounded-md px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}><Clock className="size-3.5" /> Pending</Button>
+              <Button className="h-9 rounded-lg px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-3.5" /> Verified</Button>
+              <Button className="h-9 rounded-lg px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-3.5" /> Paid</Button>
+              <Button className="h-9 rounded-lg px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}><Clock className="size-3.5" /> Pending</Button>
             </div>
           </div>
         </CardContent>
@@ -2966,7 +2739,7 @@ export function SimpleOperationsClient({
                 <h2 className="text-lg font-semibold tracking-normal">Commercial hours</h2>
                 <p className="mt-1 text-sm font-medium text-muted-foreground">Add or update eligible commercial team hours.</p>
               </div>
-              <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
+              <button type="button" className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
             </div>
             <div className="p-5">{renderCommercialHoursForm()}</div>
           </div>
@@ -2983,7 +2756,7 @@ export function SimpleOperationsClient({
                 <h2 className="text-lg font-semibold tracking-normal">Configure commercial schedule</h2>
                 <p className="mt-1 text-sm font-medium text-muted-foreground">Set structured service days and paid hours for an account.</p>
               </div>
-              <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close schedule modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
+              <button type="button" className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close schedule modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
             </div>
             <form className="grid gap-5 p-5" onSubmit={saveCommercialSchedule}>
               <div className="grid gap-3 md:grid-cols-2">
@@ -3013,7 +2786,7 @@ export function SimpleOperationsClient({
                   const dayKey = String(index);
                   const selected = commercialScheduleDraft.selectedDays.includes(dayKey);
                   return (
-                    <label className="grid gap-2 rounded-xl border border-border/70 bg-background/70 p-3 text-sm font-semibold" key={day}>
+                    <label className="grid gap-2 rounded-lg border border-border/70 bg-background/70 p-3 text-sm font-semibold" key={day}>
                       <span className="flex items-center gap-2"><input type="checkbox" checked={selected} onChange={(event) => {
                         setCommercialScheduleDraft((current) => ({
                           ...current,
@@ -3027,8 +2800,8 @@ export function SimpleOperationsClient({
               </div>
               <label className={PAYMENT_LABEL_CLASS}>Notes<input className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.notes} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, notes: event.target.value })} /></label>
               <div className="flex justify-end gap-2 border-t border-border/70 pt-4">
-                <Button className="rounded-md" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
-                <Button className="rounded-md" disabled={savingPaymentKey === "commercial-schedule"} type="submit"><Save className="size-4" /> Save schedule</Button>
+                <Button className="rounded-lg" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
+                <Button className="rounded-lg" disabled={savingPaymentKey === "commercial-schedule"} type="submit"><Save className="size-4" /> Save schedule</Button>
               </div>
             </form>
           </div>
@@ -3047,7 +2820,7 @@ export function SimpleOperationsClient({
               <h2 className="text-lg font-semibold tracking-normal">{mixed ? "Add Juan payment row" : carlos ? "Add Carlos Lopez payment" : "Add residential payment"}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">{mixed ? "Residential and commercial amounts stay separated." : "Quick entry for a residential payment row."}</p>
             </div>
-            <button type="button" className="grid size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-4" /></button>
+            <button type="button" className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-4" /></button>
           </div>
           <div className="grid gap-3 p-5 md:grid-cols-2">
             <label className={PAYMENT_LABEL_CLASS}>Cleaner<select className={PAYMENT_FIELD_CLASS} value={summary.key} onChange={(event) => {
@@ -3077,8 +2850,8 @@ export function SimpleOperationsClient({
             <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-2")}>Notes<input className={PAYMENT_FIELD_CLASS} value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
-            <Button className="rounded-md" variant="outline" onClick={closePaymentModal}>Cancel</Button>
-            <Button className="rounded-md" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Save row"}</Button>
+            <Button className="rounded-lg" variant="outline" onClick={closePaymentModal}>Cancel</Button>
+            <Button className="rounded-lg" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Save row"}</Button>
           </div>
         </div>
       </div>
@@ -3117,12 +2890,12 @@ export function SimpleOperationsClient({
           <option value="paid">Paid</option>
           <option value="skipped">No eligible service</option>
         </select></label>
-        <label className="flex h-10 items-center gap-2 self-end rounded-md border border-input bg-background px-3 text-sm font-semibold"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
+        <label className="flex h-10 items-center gap-2 self-end rounded-lg border border-input bg-background px-3 text-sm font-semibold"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
         <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-2 xl:col-span-3")}>Notes<input className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
-        {lucia ? <div className="self-end rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
+        {lucia ? <div className="self-end rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
         <div className="flex justify-end gap-2 border-t border-border/70 pt-4 md:col-span-2 xl:col-span-4">
-          <Button className="rounded-md" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
-          <Button className="rounded-md" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
+          <Button className="rounded-lg" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
+          <Button className="rounded-lg" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
         </div>
       </form>
     );
@@ -3140,31 +2913,31 @@ export function SimpleOperationsClient({
               <p className="mt-1 text-sm font-medium text-muted-foreground">Track commercial team hours by account, schedule, and pay period.</p>
             </div>
             <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
-              <Button className="h-9 rounded-md px-3 text-sm font-semibold" onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
-              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure</Button>
-              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
+              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
+              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
+              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure</Button>
+              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-[16px] border border-border/70 bg-card/80 p-2 shadow-sm">
-            <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft className="size-4" /></Button>
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-card/80 p-2 shadow-sm">
+            <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft className="size-4" /></Button>
             <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(commercialRange.start, commercialRange.end)}</div>
-            <Button className="size-9 rounded-md" size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7)))}><ChevronRight className="size-4" /></Button>
-            <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setCommercialDateMenuOpen(false); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
+            <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7)))}><ChevronRight className="size-4" /></Button>
+            <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setCommercialDateMenuOpen(false); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
             <div className="relative">
-              <Button className="h-9 rounded-md px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => setCommercialDateMenuOpen((open) => !open)}>
+              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => setCommercialDateMenuOpen((open) => !open)}>
                 <CalendarDays className="size-4" /> Date range
               </Button>
               {commercialDateMenuOpen ? (
-                <div className="absolute right-0 z-20 mt-2 w-[290px] rounded-xl border border-border/70 bg-card p-3 shadow-xl">
+                <div className="absolute right-0 z-20 mt-2 w-[290px] rounded-lg border border-border/70 bg-card p-3 shadow-xl">
                   <div className="grid gap-3">
                     <label className={PAYMENT_LABEL_CLASS}>From<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialCustomStart} onChange={(event) => setCommercialCustomStart(event.target.value)} /></label>
                     <label className={PAYMENT_LABEL_CLASS}>To<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialCustomEnd} onChange={(event) => setCommercialCustomEnd(event.target.value)} /></label>
                     <div className="flex justify-end gap-2">
-                      <Button className="rounded-md" variant="outline" size="sm" type="button" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear</Button>
-                      <Button className="rounded-md" size="sm" type="button" onClick={() => setCommercialDateMenuOpen(false)}>Apply</Button>
+                      <Button className="rounded-lg" variant="outline" size="sm" type="button" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear</Button>
+                      <Button className="rounded-lg" size="sm" type="button" onClick={() => setCommercialDateMenuOpen(false)}>Apply</Button>
                     </div>
                   </div>
                 </div>
@@ -3216,7 +2989,7 @@ export function SimpleOperationsClient({
   function renderCommercialHoursCard(lucia: StaffMemberRow | undefined) {
     const emptyCommercialText = commercialRowsInWeek.length === 0 ? "No eligible cleanings before this pay date." : "No commercial hours match these filters.";
     return (
-      <Card className="overflow-hidden rounded-[18px] border-border/70 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]">
+      <Card className="overflow-hidden rounded-lg border-border/70 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]">
         <CardHeader className="border-b border-border/70 bg-background/55 px-5 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -3234,7 +3007,7 @@ export function SimpleOperationsClient({
               const rules = commercialScheduleRules.filter((rule) => rule.commercial_account_id === account.id);
               const hasSchedule = rules.some((rule) => rule.active !== false);
               return (
-                <article className="rounded-[16px] border border-border/70 bg-background/70 p-3 text-sm" key={account.id}>
+                <article className="rounded-lg border border-border/70 bg-background/70 p-3 text-sm" key={account.id}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-foreground" title={account.name}>{account.name}</p>
@@ -3242,19 +3015,19 @@ export function SimpleOperationsClient({
                     </div>
                     <Badge className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", hasSchedule ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-border bg-card text-muted-foreground")} variant="outline">{hasSchedule ? "Scheduled" : "Needs setup"}</Badge>
                   </div>
-                  <Button className="mt-3 h-8 w-full rounded-md text-xs font-semibold" size="sm" variant="outline" onClick={() => {
+                  <Button className="mt-3 h-8 w-full rounded-lg text-xs font-semibold" size="sm" variant="outline" onClick={() => {
                     setCommercialScheduleDraft({ ...EMPTY_COMMERCIAL_SCHEDULE_DRAFT, accountId: account.id, effectiveFrom: todayKey() });
                     setPaymentModalMode("commercial_schedule");
                   }}><Settings2 className="size-3.5" /> Configure</Button>
                 </article>
               );
             })}
-            {lucia ? <div className="rounded-[16px] border border-sky-200 bg-sky-50 p-3 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
+            {lucia ? <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-border/70">
+          <div className="overflow-hidden rounded-lg border border-border/70">
             <div className="overflow-auto">
-              <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
+              <table className="sop-table w-full min-w-[980px] border-separate border-spacing-0 text-sm">
                 <thead>
                   <tr className="bg-muted/40 text-left text-[11px] font-semibold uppercase text-muted-foreground">
                     <th className="border-b border-border/70 px-4 py-3">Date</th>
@@ -3285,9 +3058,9 @@ export function SimpleOperationsClient({
                         <td className="border-b border-border/60 px-4 py-3"><Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">{statusLabel(entry.status ?? "scheduled")}</Badge></td>
                         <td className="border-b border-border/60 px-4 py-3">
                           <div className="flex justify-end gap-2">
-                            <Button className="size-8 rounded-md" size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-3.5" /></Button>
-                            <Button className="size-8 rounded-md" size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-3.5" /></Button>
-                            <Button className="size-8 rounded-md" size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-3.5" /></Button>
+                            <Button className="size-8 rounded-lg" size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-3.5" /></Button>
+                            <Button className="size-8 rounded-lg" size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-3.5" /></Button>
+                            <Button className="size-8 rounded-lg" size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-3.5" /></Button>
                           </div>
                         </td>
                       </tr>
@@ -3317,7 +3090,7 @@ export function SimpleOperationsClient({
 
   function renderPotentialCleanerColumn(title: string, people: StaffMemberRow[], teamScope: StaffTeamScope) {
     return (
-      <div className="rounded-xl border border-border/70 bg-background/60 p-3">
+      <div className="rounded-lg border border-border/70 bg-background/60 p-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold">{title}</h3>
@@ -3328,7 +3101,7 @@ export function SimpleOperationsClient({
         <div className="mt-3 grid gap-2">
           {people.length === 0 ? <div className={SOP_EMPTY_CLASS}>No potential cleaners listed.</div> : null}
           {people.map((person) => (
-            <article className="rounded-xl border border-border/60 bg-card/70 p-3" key={person.id}>
+            <article className="rounded-lg border border-border/60 bg-card/70 p-3" key={person.id}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h4 className="truncate font-semibold">{person.name}</h4>
@@ -3351,6 +3124,28 @@ export function SimpleOperationsClient({
   }
 
   function renderStaff() {
+    const staffDirectory = staff.filter((person) => {
+      const name = person.name.toLowerCase();
+      return !staffIsPotentialCleaner(person) && !["jake ivan-pal", "carlos lopez"].includes(name) && !["owner", "operations manager"].includes(String(person.role ?? "").toLowerCase());
+    });
+    const filteredStaffDirectory = staffDirectory.filter((person) => {
+      const personStatus = normalizeStaffStatus(person);
+      const personScope = staffScope(person);
+      const search = staffSearch.trim().toLowerCase();
+      if (staffScopeFilter !== "all" && personScope !== staffScopeFilter) return false;
+      if (staffStatusFilter !== "all" && personStatus !== staffStatusFilter) return false;
+      if (!search) return true;
+      return [
+        person.name,
+        person.email,
+        person.role,
+        person.display_role,
+        person.team_scope,
+        staffScopeLabel(personScope),
+        person.status,
+      ].filter(Boolean).join(" ").toLowerCase().includes(search);
+    });
+
     return (
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -3369,7 +3164,7 @@ export function SimpleOperationsClient({
             {operationsLeads.map((person) => {
               const personStatus = staffIsActive(person) ? "active" : "inactive";
               return (
-                <article className="rounded-[16px] border border-border/70 bg-background/65 p-4" key={person.id}>
+                <article className="rounded-lg border border-border/70 bg-background/65 p-4" key={person.id}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h3 className="truncate font-semibold">{person.name}</h3>
@@ -3395,18 +3190,38 @@ export function SimpleOperationsClient({
         </Card>
 
         <Card className={SOP_PANEL_CLASS}>
-          <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
-            <CardTitle>Residential teams / cleaners</CardTitle>
+          <CardHeader className="flex-row items-start justify-between space-y-0 p-4 sm:p-5">
+            <div>
+              <CardTitle>Cleaner directory</CardTitle>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Role, area, status, and current payroll context for every cleaner profile.</p>
+            </div>
             <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add cleaner</Button>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {activeTeams.length === 0 ? <div className={cn(SOP_EMPTY_CLASS, "md:col-span-2 xl:col-span-3")}>No team members found.</div> : null}
-            {activeTeams.map((team) => {
+          <CardContent className="grid gap-3">
+            <div className={cn(PAYMENT_PANEL_CLASS, "grid gap-2 p-3 md:grid-cols-[1fr_160px_150px_auto]")}>
+              <input className={PAYMENT_FIELD_CLASS} placeholder="Search team member, role, email" value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} />
+              <select className={PAYMENT_FIELD_CLASS} value={staffScopeFilter} onChange={(event) => setStaffScopeFilter(event.target.value as "all" | StaffTeamScope)} aria-label="Staff area filter">
+                <option value="all">All areas</option>
+                <option value="residential">Residential</option>
+                <option value="commercial">Commercial</option>
+                <option value="mixed">Mixed route</option>
+              </select>
+              <select className={PAYMENT_FIELD_CLASS} value={staffStatusFilter} onChange={(event) => setStaffStatusFilter(event.target.value as "all" | "active" | "inactive")} aria-label="Staff status filter">
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => { setStaffSearch(""); setStaffScopeFilter("all"); setStaffStatusFilter("all"); }}><RotateCcw className="size-4" /> Clear</Button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredStaffDirectory.length === 0 ? <div className={cn(SOP_EMPTY_CLASS, "md:col-span-2 xl:col-span-3")}>No team members found.</div> : null}
+            {filteredStaffDirectory.map((team) => {
               const hours = workLogs.filter((log) => log.team_id === team.id || log.team_name === team.name).reduce((sum, log) => sum + toNumber(log.hours_worked), 0);
               const paid = weeklyPaymentRows.filter((payment) => (payment.cleaner_id === team.id || payment.cleaner_name === team.name) && payment.status === "paid").reduce((sum, payment) => sum + paymentLineTotal(payment), 0);
-              const teamStatus = staffIsActive(team) ? "active" : "inactive";
+              const teamStatus = normalizeStaffStatus(team);
+              const teamScope = staffScope(team);
               return (
-                <article className="flex min-h-[188px] flex-col rounded-[16px] border border-border/70 bg-background/65 p-4" key={team.id}>
+                <article className="flex min-h-[188px] flex-col rounded-lg border border-border/70 bg-background/65 p-4" key={team.id}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h3 className="truncate font-semibold">{team.name}</h3>
@@ -3415,21 +3230,21 @@ export function SimpleOperationsClient({
                     <Badge className={statusBadgeClass(teamStatus)} variant="outline">{statusLabel(teamStatus)}</Badge>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
-                      <p className="text-[11px] font-semibold text-muted-foreground">Rate</p>
-                      <p className="mt-1 font-semibold">{formatMoney(toNumber(team.hourly_rate))}/hr</p>
+                    <div className="rounded-lg border border-border/60 bg-card/70 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">Role</p>
+                      <p className="mt-1 truncate font-semibold" title={displayStaffRole(team)}>{displayStaffRole(team)}</p>
                     </div>
-                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                    <div className="rounded-lg border border-border/60 bg-card/70 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">Area</p>
+                      <p className="mt-1 font-semibold">{staffScopeLabel(teamScope)}</p>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-card/70 px-3 py-2">
                       <p className="text-[11px] font-semibold text-muted-foreground">Hours</p>
                       <p className="mt-1 font-semibold">{formatHours(hours)}</p>
                     </div>
-                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                    <div className="rounded-lg border border-border/60 bg-card/70 px-3 py-2">
                       <p className="text-[11px] font-semibold text-muted-foreground">Paid</p>
                       <p className="mt-1 font-semibold">{formatMoney(paid)}</p>
-                    </div>
-                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
-                      <p className="text-[11px] font-semibold text-muted-foreground">Area</p>
-                      <p className="mt-1 font-semibold">{isMixedPayCleaner(team) ? "Mixed route" : "Residential"}</p>
                     </div>
                   </div>
                   <div className="mt-auto flex gap-2 pt-4">
@@ -3438,6 +3253,7 @@ export function SimpleOperationsClient({
                 </article>
               );
             })}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -3474,7 +3290,7 @@ export function SimpleOperationsClient({
           </CardHeader>
           <CardContent>
             <div className={cn(SOP_TABLE_WRAP_CLASS, "overflow-x-auto")}>
-              <table className="w-full min-w-[860px] text-sm">
+              <table className="sop-table w-full min-w-[860px] text-sm">
                 <thead>
                   <tr className="border-b border-border/70 bg-muted/25 text-left text-xs font-semibold text-muted-foreground">
                     {previewKeys.map((key) => <th className="px-4 py-3" key={key}>{key.replace(/_/g, " ")}</th>)}
@@ -3512,7 +3328,7 @@ export function SimpleOperationsClient({
           </CardHeader>
           <CardContent className="grid gap-2">
             {rows.map((row) => (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/65 px-3 py-2.5" key={row.env}>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/65 px-3 py-2.5" key={row.env}>
                 <div>
                   <p className="text-sm font-semibold">{row.label}</p>
                   <p className="text-xs font-medium text-muted-foreground">{row.env}</p>
@@ -3531,12 +3347,12 @@ export function SimpleOperationsClient({
               {[
                 "Task assignees: Jake Ivan-Pal and Carlos Lopez",
                 "Default task frequency: One-time",
-                "Default completion notification: owner notified",
+                "Completion updates can notify the owner",
                 "Hours calculation: weekly, biweekly, monthly approximation",
-                "Soft-delete/archive behavior: enabled for tasks, accounts, logs, and payments",
-                "Default hourly rate: managed per team in Staff / Teams",
-                "Payment mode: Residential only by default; Juan Romero is mixed pay",
-              ].map((row) => <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5 text-sm font-medium text-muted-foreground" key={row}>{row}</div>)}
+                "Records are archived instead of removed from operating history",
+                "Cleaner details are managed from Staff / Teams",
+                "Juan Romero uses the mixed residential and commercial payment format",
+              ].map((row) => <div className="rounded-lg border border-border/70 bg-background/65 px-3 py-2.5 text-sm font-medium text-muted-foreground" key={row}>{row}</div>)}
             </CardContent>
           </Card>
           <Card className={SOP_PANEL_CLASS}>
@@ -3544,9 +3360,9 @@ export function SimpleOperationsClient({
               <CardTitle>System scope</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 text-sm font-medium text-muted-foreground">
-              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">Commercial and SEO modules are hidden from navigation.</div>
-              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">Old routes redirect to the dashboard where safe.</div>
-              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">No secrets are displayed in this settings view.</div>
+              <div className="rounded-lg border border-border/70 bg-background/65 px-3 py-2.5">Navigation follows the signed-in role and access scope.</div>
+              <div className="rounded-lg border border-border/70 bg-background/65 px-3 py-2.5">Legacy routes redirect into the active SOP workspace.</div>
+              <div className="rounded-lg border border-border/70 bg-background/65 px-3 py-2.5">Sensitive values stay in environment variables.</div>
             </CardContent>
           </Card>
         </div>
@@ -3621,7 +3437,7 @@ export function SimpleOperationsClient({
           </div>
         </div>
         <div className="space-y-5 p-5">
-          <section className="rounded-xl border border-border/70 bg-background/65 p-4 text-sm font-medium text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
+          <section className="rounded-lg border border-border/70 bg-background/65 p-4 text-sm font-medium text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
           <div className="flex flex-wrap gap-2">
             <Button className={SOP_ACTION_BUTTON_CLASS} disabled={selectedStatus === "completed" || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-4" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark completed"}</Button>
             <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => openTaskDraft(selectedTask)}><Edit3 className="size-4" /> Edit</Button>
@@ -3635,7 +3451,7 @@ export function SimpleOperationsClient({
                 const reason = typeof item.details?.reason === "string" ? item.details.reason : null;
                 const messageText = typeof item.details?.message === "string" ? item.details.message : null;
                 return (
-                  <div className="rounded-xl border border-border/70 bg-background/65 p-3 text-sm" key={item.id}>
+                  <div className="rounded-lg border border-border/70 bg-background/65 p-3 text-sm" key={item.id}>
                     <strong>{actionLabel(item.action)}{reason ? ` - ${reason}` : ""}</strong>
                     {messageText && !reason ? <p className="mt-1 text-xs font-medium text-muted-foreground">{messageText}</p> : null}
                     <p className="mt-1 text-xs font-medium text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p>
@@ -3686,7 +3502,7 @@ export function SimpleOperationsClient({
               </select></label>
             </div>
             <label className={PAYMENT_LABEL_CLASS}>Notes<textarea className={cn(PAYMENT_FIELD_CLASS, "h-auto min-h-20 py-2 font-medium normal-case")} value={accountDraft.notes} onChange={(event) => setAccountDraft({ ...accountDraft, notes: event.target.value })} /></label>
-            <div className="grid gap-2 rounded-xl border border-border/70 bg-background/65 p-3 text-sm md:grid-cols-3">
+            <div className="grid gap-2 rounded-lg border border-border/70 bg-background/65 p-3 text-sm md:grid-cols-3">
               <span className="font-semibold">{formatHours(totals.weekly)} hours/week</span>
               <span className="font-semibold">{formatHours(totals.biweekly)} hours/2 weeks</span>
               <span className="font-semibold">{formatHours(totals.monthly)} hours/month</span>
@@ -3745,7 +3561,7 @@ export function SimpleOperationsClient({
                 <option value="residential_only">Residential only</option>
                 <option value="mixed">Mixed pay</option>
               </select></label>
-              {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
+              {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
             </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">

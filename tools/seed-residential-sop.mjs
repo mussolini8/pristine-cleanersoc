@@ -21,6 +21,8 @@ if (!supabaseUrl || !anonKey) {
 
 const dataPath = resolve(root, "src/data/residential-sop-tasks.json");
 const tasks = JSON.parse(await readFile(dataPath, "utf8"));
+const currentNaturalKeys = new Set(tasks.map((task) => task.natural_key));
+const sopMonth = "June 2026";
 
 function staffPayload(userId) {
   return {
@@ -53,7 +55,7 @@ function templatePayload(task, userId) {
     priority: task.priority,
     status: "active",
     source: "monthly_sop",
-    metadata: { sourceFile: "Monthly SOP.docx", notification: "template_seed_no_email" },
+    metadata: { sourceFile: "Monthly SOP.docx", sopMonth, notification: "template_seed_no_email" },
     updated_at: new Date().toISOString(),
   };
 }
@@ -116,6 +118,32 @@ const { error: templateError } = await supabase
 
 if (templateError) throw new Error(`Could not upsert SOP templates: ${templateError.message}`);
 
-console.log(`Seeded ${tasks.length} residential SOP task templates for Carlos Lopez.`);
+const { data: existingTemplates, error: existingTemplateError } = await supabase
+  .from("operation_task_templates")
+  .select("natural_key")
+  .eq("user_id", userId)
+  .eq("panel", "Residential")
+  .eq("source", "monthly_sop");
+
+if (existingTemplateError) throw new Error(`Could not read existing SOP templates: ${existingTemplateError.message}`);
+
+const staleNaturalKeys = (existingTemplates ?? [])
+  .map((template) => template.natural_key)
+  .filter((naturalKey) => naturalKey && !currentNaturalKeys.has(naturalKey));
+
+if (staleNaturalKeys.length > 0) {
+  const { error } = await supabase
+    .from("operation_task_templates")
+    .delete()
+    .eq("user_id", userId)
+    .eq("panel", "Residential")
+    .eq("source", "monthly_sop")
+    .in("natural_key", staleNaturalKeys);
+
+  if (error) throw new Error(`Could not delete stale SOP templates: ${error.message}`);
+}
+
+console.log(`Seeded ${tasks.length} ${sopMonth} residential SOP task templates for Carlos Lopez.`);
+console.log(`Removed ${staleNaturalKeys.length} stale residential SOP task templates.`);
 console.log(`Mode: ${mode}`);
 console.log("Notification behavior: templates are assigned but task_assigned emails are not sent during seed.");

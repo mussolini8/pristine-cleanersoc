@@ -26,6 +26,13 @@ export type * from "./types";
 
 type SupabaseClient = ReturnType<typeof createClient>;
 
+const COMMERCIAL_ACCOUNT_COLUMNS = "id,name,city,hours,frequency,cleaner_name,cleaner_pay_type,cleaner_hourly_rate,cleaner_flat_rate,contract_start,contract_end,payment_method,revenue,cost";
+const CLEANER_PAYMENT_SETTING_COLUMNS = "id,user_id,cleaner_id,cleaner_name,default_pay_type,default_pay_rate,payment_method,requires_manual_review,manual_review_reason,review_notes,active,commercial_payroll_eligible";
+const COMMERCIAL_SCHEDULE_RULE_COLUMNS = "id,user_id,commercial_account_id,day_of_week,start_time,end_time,paid_hours,assigned_cleaner_name,active,effective_start_date,effective_end_date,notes,frequency_type,frequency_interval,anchor_date,scheduled_hours,effective_from,effective_until";
+const PAYROLL_PERIOD_COLUMNS = "id,user_id,start_date,end_date,label,status,total_estimated_hours,total_adjusted_hours,total_estimated_amount,total_final_amount,generated_at,approved_at,paid_at,locked_at,notes,created_at,updated_at";
+const PAYROLL_ENTRY_COLUMNS = "id,pay_period_id,cleaner_name,cleaner_id,account_id,account_name,city,service_date,scheduled_day,base_hours,adjusted_hours,pay_rate,estimated_amount,adjustment_amount,final_amount,status,requires_manual_review,review_status,review_notes,reviewed_by,reviewed_at,approved_by,approved_at,paid_at,notes,payment_method,source,exceptions,created_at,updated_at";
+const PAYROLL_ADJUSTMENT_COLUMNS = "id,pay_period_id,payroll_entry_id,cleaner_name,account_id,adjustment_type,hours_delta,amount_delta,reason,internal_note,created_by,created_at";
+
 const LUCIA_REVIEW_SETTING: CleanerPaymentSetting = {
   cleaner_name: "Lucia Portillo",
   default_pay_type: "hourly",
@@ -77,13 +84,13 @@ async function getUserId(supabase: SupabaseClient) {
 
 export async function fetchCommercialAccounts() {
   const supabase = createClient();
-  const { data } = await supabase.from("commercial_accounts").select("*").order("name");
+  const { data } = await supabase.from("commercial_accounts").select(COMMERCIAL_ACCOUNT_COLUMNS).order("name");
   return mergeCommercialAccounts((data ?? []) as CommercialAccount[]);
 }
 
 export async function fetchCleanerPaymentSettings() {
   const supabase = createClient();
-  const { data, error } = await supabase.from("cleaner_payment_settings").select("*").order("cleaner_name");
+  const { data, error } = await supabase.from("cleaner_payment_settings").select(CLEANER_PAYMENT_SETTING_COLUMNS).order("cleaner_name");
   if (error) return [LUCIA_REVIEW_SETTING];
 
   const rows = (data ?? []) as CleanerPaymentSetting[];
@@ -158,7 +165,7 @@ async function fetchScheduleRules(accounts: CommercialAccount[]) {
 
   const { data } = await supabase
     .from("commercial_account_schedule_rules")
-    .select("*")
+    .select(COMMERCIAL_SCHEDULE_RULE_COLUMNS)
     .in("commercial_account_id", uuidAccountIds)
     .eq("active", true);
 
@@ -174,7 +181,7 @@ function rulesForAccount(account: CommercialAccount, rules: CommercialScheduleRu
 async function findExistingPeriod(supabase: SupabaseClient, period: PayrollPeriod) {
   const { data } = await supabase
     .from("commercial_pay_periods")
-    .select("*")
+    .select(PAYROLL_PERIOD_COLUMNS)
     .eq("start_date", period.startDate)
     .eq("end_date", period.endDate)
     .order("created_at", { ascending: false })
@@ -220,7 +227,7 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
         status: "draft",
         generated_at: generatedAt,
       })
-      .select("*")
+      .select(PAYROLL_PERIOD_COLUMNS)
       .single();
     if (error || !data) throw new Error(error?.message ?? "Could not create payroll period.");
     periodRow = data as PayrollPeriodRow;
@@ -274,7 +281,7 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
     if (insertableEntries.length > 0) {
       const { data: insertedEntries, error } = await supabase.from("commercial_payroll_entries").insert(
         insertableEntries.map((entry) => ({ ...entry, pay_period_id: periodRow.id })),
-      ).select("*");
+      ).select(PAYROLL_ENTRY_COLUMNS);
       if (error) throw new Error(error.message);
       createdEntries = insertedEntries?.length ?? 0;
       for (const entry of (insertedEntries ?? []) as PayrollEntryRow[]) {
@@ -304,7 +311,7 @@ export async function applyCommercialAccountChangesGoingForward(accountId: strin
   const currentPeriod = getBiweeklyPeriod(new Date());
   const { data: futureOpenPeriods } = await supabase
     .from("commercial_pay_periods")
-    .select("*")
+    .select(PAYROLL_PERIOD_COLUMNS)
     .gte("end_date", currentPeriod.startDate)
     .not("status", "in", "(approved,paid,locked)")
     .order("start_date", { ascending: true });
@@ -334,7 +341,7 @@ export async function applyCommercialAccountChangesGoingForward(accountId: strin
 export async function fetchPayrollOverview() {
   const supabase = createClient();
   const [periodsResult, accounts, settings] = await Promise.all([
-    supabase.from("commercial_pay_periods").select("*").order("start_date", { ascending: false }).limit(200),
+    supabase.from("commercial_pay_periods").select(PAYROLL_PERIOD_COLUMNS).order("start_date", { ascending: false }).limit(200),
     fetchCommercialAccounts(),
     fetchCleanerPaymentSettings(),
   ]);
@@ -350,9 +357,9 @@ export async function fetchPayrollOverview() {
 export async function fetchPayrollPeriodDetails(periodId: string) {
   const supabase = createClient();
   const [{ data: period }, { data: entries }, { data: adjustments }] = await Promise.all([
-    supabase.from("commercial_pay_periods").select("*").eq("id", periodId).maybeSingle(),
-    supabase.from("commercial_payroll_entries").select("*").eq("pay_period_id", periodId).order("cleaner_name").order("service_date"),
-    supabase.from("commercial_payroll_adjustments").select("*").eq("pay_period_id", periodId).order("created_at", { ascending: false }),
+    supabase.from("commercial_pay_periods").select(PAYROLL_PERIOD_COLUMNS).eq("id", periodId).maybeSingle(),
+    supabase.from("commercial_payroll_entries").select(PAYROLL_ENTRY_COLUMNS).eq("pay_period_id", periodId).order("cleaner_name").order("service_date"),
+    supabase.from("commercial_payroll_adjustments").select(PAYROLL_ADJUSTMENT_COLUMNS).eq("pay_period_id", periodId).order("created_at", { ascending: false }),
   ]);
 
   return {
@@ -364,7 +371,7 @@ export async function fetchPayrollPeriodDetails(periodId: string) {
 
 async function updatePeriodTotals(payPeriodId: string) {
   const supabase = createClient();
-  const { data: entries } = await supabase.from("commercial_payroll_entries").select("*").eq("pay_period_id", payPeriodId);
+  const { data: entries } = await supabase.from("commercial_payroll_entries").select(PAYROLL_ENTRY_COLUMNS).eq("pay_period_id", payPeriodId);
   const summary = summarizeEntries((entries ?? []) as PayrollEntryRow[]);
   await supabase
     .from("commercial_pay_periods")
@@ -414,12 +421,12 @@ export async function updatePayrollEntry(entry: PayrollEntryRow, changes: Partia
 
   const { data: updatedEntry } = await supabase
     .from("commercial_payroll_entries")
-    .select("*")
+    .select(PAYROLL_ENTRY_COLUMNS)
     .eq("id", entry.id)
     .maybeSingle();
   const { data: period } = await supabase
     .from("commercial_pay_periods")
-    .select("*")
+    .select(PAYROLL_PERIOD_COLUMNS)
     .eq("id", entry.pay_period_id)
     .maybeSingle();
   if (updatedEntry && period) {

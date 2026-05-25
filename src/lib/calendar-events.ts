@@ -1,4 +1,5 @@
 import type { BusinessUnit } from "@/lib/business-units";
+import { formatDateOnly, parseDateOnly } from "@/lib/dates/periods";
 import type { UnifiedPayment } from "@/lib/payments/unified";
 
 export type CalendarEventType = "booking" | "payment" | "task" | "sop";
@@ -96,13 +97,11 @@ export function normalizeCalendarDateKey(value: string | null | undefined) {
 }
 
 function parseDateKey(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return parseDateOnly(value);
 }
 
 function formatDateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return formatDateOnly(date);
 }
 
 function addMonths(date: Date, months: number) {

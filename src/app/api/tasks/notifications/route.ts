@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { writeOperationTaskAudit } from "@/lib/operations/audit";
 import { createClient } from "@/lib/supabase/server";
 import {
   sendSeoTaskAssignedEmail,
@@ -11,11 +13,21 @@ import {
 type NotificationEvent = "task_assigned" | "task_completed";
 
 type RequestBody = {
-  event?: NotificationEvent;
-  task?: TaskNotificationPayload;
+  event: NotificationEvent;
+  task: TaskNotificationPayload;
   actorName?: string | null;
   enabled?: boolean;
 };
+
+const notificationRequestSchema = z.object({
+  event: z.enum(["task_assigned", "task_completed"]),
+  enabled: z.boolean().optional(),
+  actorName: z.string().trim().nullable().optional(),
+  task: z.object({
+    id: z.string().trim().min(1),
+    title: z.string().trim().min(1),
+  }).passthrough(),
+});
 
 const operationsManager = {
   name: "Carlos Lopez",
@@ -89,14 +101,7 @@ async function writeAudit(
   action: string,
   details: Record<string, unknown>,
 ) {
-  const { error } = await supabase.from("operation_task_audit_log").insert({
-    task_id: taskId,
-    action,
-    details,
-  });
-  if (error) {
-    console.warn("Operation task audit write failed", error.message);
-  }
+  await writeOperationTaskAudit(supabase, taskId, action, details);
 }
 
 async function writeNotificationAudit(
@@ -147,10 +152,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await request.json()) as RequestBody;
-  if (!body.event || !body.task?.id || !body.task.title) {
-    return NextResponse.json({ error: "Invalid notification payload" }, { status: 400 });
-  }
+  const parsed = notificationRequestSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Invalid notification payload" }, { status: 400 });
+  const body = parsed.data as RequestBody;
 
   await writeAudit(supabase, body.task.id, body.event, {
     actor: body.actorName ?? user.email ?? user.id,

@@ -2,6 +2,10 @@ import { createClient } from "@/lib/supabase/client";
 import { isCommercialPayrollEligible } from "@/lib/staff-rules";
 import type { PayrollAdjustmentRow, PayrollEntryRow, PayrollPeriodRow } from "@/lib/payroll/types";
 
+const PAYMENT_ENTRY_COLUMNS = "id,user_id,cleaner_name,cleaner_email,cleaner_type,month_key,week_index,service_date,city,residential_amount,commercial_amount,payment_amount,source_type,source_id,pay_period_id,account_id,account_name,category,payment_type,base_hours,adjusted_hours,pay_rate,adjustment_amount,final_amount,status,requires_review,review_status,payment_method,period_start,period_end,paid_at,approved_at,notes,created_at,updated_at";
+const PAYROLL_PERIOD_COLUMNS = "id,user_id,start_date,end_date,label,status,total_estimated_hours,total_adjusted_hours,total_estimated_amount,total_final_amount,generated_at,approved_at,paid_at,locked_at,notes,created_at,updated_at";
+const PAYROLL_ENTRY_COLUMNS = "id,pay_period_id,cleaner_name,cleaner_id,account_id,account_name,city,service_date,scheduled_day,base_hours,adjusted_hours,pay_rate,estimated_amount,adjustment_amount,final_amount,status,requires_manual_review,review_status,review_notes,reviewed_by,reviewed_at,approved_by,approved_at,paid_at,notes,payment_method,source,exceptions,created_at,updated_at";
+
 export type UnifiedPaymentSource = "legacy_payment" | "manual_extra" | "commercial_payroll" | "commercial_adjustment";
 export type UnifiedPaymentCategory = "commercial" | "residential" | "manual" | "other";
 export type UnifiedPaymentType = "hourly" | "fixed" | "bonus" | "deduction" | "correction" | "legacy";
@@ -382,8 +386,8 @@ export async function syncCommercialPayrollEntryToPayment(entry: PayrollEntryRow
 export async function syncCommercialPayrollPeriodToPayments(periodId: string) {
   const supabase = createClient();
   const [{ data: period }, { data: entries }] = await Promise.all([
-    supabase.from("commercial_pay_periods").select("*").eq("id", periodId).maybeSingle(),
-    supabase.from("commercial_payroll_entries").select("*").eq("pay_period_id", periodId),
+    supabase.from("commercial_pay_periods").select(PAYROLL_PERIOD_COLUMNS).eq("id", periodId).maybeSingle(),
+    supabase.from("commercial_payroll_entries").select(PAYROLL_ENTRY_COLUMNS).eq("pay_period_id", periodId),
   ]);
   if (!period) throw new Error("Payroll period not found.");
 
@@ -401,7 +405,7 @@ export async function markUnifiedPaymentPaid(paymentId: string) {
   const now = new Date().toISOString();
   const { data: payment, error: paymentError } = await supabase
     .from("payment_entries")
-    .select("*")
+    .select(PAYMENT_ENTRY_COLUMNS)
     .eq("id", paymentId)
     .maybeSingle();
 

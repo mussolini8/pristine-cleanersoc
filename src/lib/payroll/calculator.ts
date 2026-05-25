@@ -6,6 +6,7 @@ import type {
   PayrollGeneratedEntry,
   PayrollPeriod,
 } from "./types";
+import { eachDateInRange, formatDateOnly, parseDateOnly } from "@/lib/dates/periods";
 import { isCommercialPayrollEligible } from "@/lib/staff-rules";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
@@ -16,23 +17,15 @@ export function isUuid(value: string | null | undefined) {
 }
 
 export function formatISODate(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return formatDateOnly(date);
 }
 
 export function parseISODate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, (month ?? 1) - 1, day ?? 1);
+  return parseDateOnly(value) ?? new Date(Number.NaN);
 }
 
 export function eachDateInPeriod(startDate: string, endDate: string) {
-  const dates: Date[] = [];
-  const cursor = parseISODate(startDate);
-  const end = parseISODate(endDate);
-  while (cursor.getTime() <= end.getTime()) {
-    dates.push(new Date(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return dates;
+  return eachDateInRange(startDate, endDate);
 }
 
 function dateWithin(value: Date, start?: string | null, end?: string | null) {

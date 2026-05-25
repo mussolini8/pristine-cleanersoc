@@ -1,8 +1,8 @@
-# Residential Monthly SOP Tasks
+# Residential June SOP Tasks
 
 ## Overview
 
-The Residential panel stores the Monthly SOP as recurring task templates in `operation_task_templates`.
+The Residential panel stores the June SOP as recurring task templates in `operation_task_templates`.
 These are product data, not only documentation. The dashboard calls `/api/residential-sop/seed` to seed and refresh them idempotently for the signed-in Residential user, and the CLI seed can do the same for a selected user.
 
 ## Assignment
@@ -35,10 +35,10 @@ New SOP templates use only these categories:
 
 ## Frequency Mapping
 
-The SOP data lives in `src/data/residential-sop-tasks.json`.
+The SOP data lives in `src/data/residential-sop-tasks.json` and mirrors `Monthly SOP.docx`.
 
 - Monthly general priorities: first week, third Wednesday, last week, and Week 4 Friday tasks.
-- Weekly Friday work: geofence tracking report and Jake summary templates.
+- Friday reporting work: geofence tracking reports, note bullets, and Jake summary templates.
 - Week 1: Tuesday client/team setup, Thursday marketing/messages, Friday reporting.
 - Week 2: Tuesday QC/client opportunities, Wednesday inventory, Thursday staffing/marketing/messages, Friday reporting.
 - Week 3: Wednesday cleaner check-ins, Thursday marketing/messages, Friday reporting.
@@ -62,7 +62,7 @@ The database enforces this with:
 
 `operation_task_templates_user_natural_key_uidx`
 
-Running the UI seed or CLI seed repeatedly updates existing templates instead of creating duplicates.
+Running the UI seed or CLI seed repeatedly updates existing templates instead of creating duplicates. The seed also deletes stale Residential `monthly_sop` templates for the same user when they are no longer present in the June checklist.
 
 ## Seed Command
 
@@ -88,7 +88,7 @@ The Route Handler and CLI seed both read `OPERATIONS_MANAGER_EMAIL` for Carlos L
 
 ## Notification Behavior
 
-Seeding creates recurring templates, not live assigned task instances. That means it does not call `/api/tasks/notifications` and does not send 47+ assignment emails.
+Seeding creates recurring templates, not live assigned task instances. That means it does not call `/api/tasks/notifications` and does not send assignment emails for the 56 June SOP templates.
 
 Assignment emails still fire through the existing `task_assigned` hook when an actual `operation_tasks` instance is created or reassigned to Carlos Lopez from the dashboard.
 
@@ -96,7 +96,7 @@ Assignment emails still fire through the existing `task_assigned` hook when an a
 
 1. Apply the additive schema in `supabase/schema.sql`.
 2. Open `/dashboard` as a Residential user.
-3. Confirm the Monthly SOP area shows active templates assigned to Carlos Lopez.
+3. Confirm the June SOP Checklist area shows active templates assigned to Carlos Lopez.
 4. Use filters for week, day, category, assigned owner, status, and frequency.
 5. Confirm Weekly Friday geofence templates show as `Weekly`.
 6. Confirm cleaner check-ins show `3rd Wednesday of every month`.
