@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -16,7 +16,6 @@ import {
   FileDown,
   FileSpreadsheet,
   FileText,
-  Mail,
   PauseCircle,
   Pencil,
   Plus,
@@ -123,6 +122,18 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 export type { SimpleOperationsView } from "@/lib/operations/types";
+
+type MonthlySopImportSummary = {
+  message: string;
+  expected: number;
+  created: number;
+  duplicatesSkipped: number;
+  updated: number;
+  month: string;
+  calendarStart: string;
+  sourceDocument: string;
+  processed: number;
+};
 
 const EMPTY_TASK_DRAFT: TaskDraft = {
   title: "",
@@ -243,6 +254,11 @@ function taskIsOperationsReminder(task: OperationTaskRow) {
   const panel = String(task.panel ?? "").toLowerCase();
   const unit = String(task.business_unit ?? "").toLowerCase();
   return panel !== "seo" && panel !== "commercial" && unit !== "seo" && unit !== "commercial" && !task.deleted_at;
+}
+
+function taskSourceDocument(task: OperationTaskRow) {
+  const metadata = task.metadata ?? {};
+  return typeof metadata.source_document_name === "string" ? metadata.source_document_name : null;
 }
 
 function isJuanRomero(name: string | null | undefined) {
@@ -492,9 +508,13 @@ export function SimpleOperationsClient({
   const [staff, setStaff] = useState<StaffMemberRow[]>([]);
   const [taskTab, setTaskTab] = useState<TaskTab>("pending");
   const [taskSearch, setTaskSearch] = useState("");
+  const [taskSourceFilter, setTaskSourceFilter] = useState<"all" | "monthly_sop">("all");
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>("month");
   const [taskSelectedDay, setTaskSelectedDay] = useState(todayKey());
   const [taskCalendarAnchor, setTaskCalendarAnchor] = useState(() => formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
+  const [importingMonthlySop, setImportingMonthlySop] = useState(false);
+  const monthlySopAutoImportAttempted = useRef(false);
+  const [monthlySopImportSummary, setMonthlySopImportSummary] = useState<MonthlySopImportSummary | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
   const [savingTask, setSavingTask] = useState(false);
@@ -647,6 +667,40 @@ export function SimpleOperationsClient({
     const completedThisWeek = completed.filter((task) => isDateInRange(task.completed_at ?? task.updated_at, weekStart, weekEnd));
     return { pending, completed, overdue, dueToday, completedThisWeek };
   }, [tasks, today]);
+  const monthlySopTaskCount = useMemo(() => tasks.filter((task) => taskSourceDocument(task) === "Monthly SOP").length, [tasks]);
+
+  const importMonthlySop = useCallback(async () => {
+    if (importingMonthlySop) return;
+    setImportingMonthlySop(true);
+    setMonthlySopImportSummary(null);
+    try {
+      const response = await fetch("/api/residential-sop/import-monthly", { method: "POST" });
+      const result = await response.json() as Partial<MonthlySopImportSummary> & { ok?: boolean; error?: string };
+      if (!response.ok || result.error) throw new Error(result.error ?? "Monthly SOP import failed.");
+      const summary = result as MonthlySopImportSummary;
+      setMonthlySopImportSummary(summary);
+      setTaskSourceFilter("monthly_sop");
+      setTaskViewMode("month");
+      setTaskCalendarAnchor("2026-06-01");
+      setTaskSelectedDay("2026-06-02");
+      setTaskTab("all");
+      setMessage({ tone: result.ok === false ? "error" : "success", text: summary.message });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Monthly SOP could not be imported: ${errorMessage(error)}` });
+    } finally {
+      setImportingMonthlySop(false);
+    }
+  }, [importingMonthlySop, loadData]);
+
+  useEffect(() => {
+    if (view !== "tasks" || loading || importingMonthlySop || monthlySopAutoImportAttempted.current || monthlySopTaskCount >= 56) return;
+    monthlySopAutoImportAttempted.current = true;
+    const timeoutId = window.setTimeout(() => {
+      void importMonthlySop();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [importMonthlySop, importingMonthlySop, loading, monthlySopTaskCount, view]);
 
   const filteredTasks = useMemo(() => {
     const search = taskSearch.trim().toLowerCase();
@@ -656,13 +710,14 @@ export function SimpleOperationsClient({
       if (taskTab === "pending" && (status !== "pending" || overdue)) return false;
       if (taskTab === "completed" && status !== "completed") return false;
       if (taskTab === "overdue" && !overdue) return false;
+      if (taskSourceFilter === "monthly_sop" && taskSourceDocument(task) !== "Monthly SOP") return false;
       if (search) {
-        const haystack = [task.title, task.description, task.assignee, task.priority, task.recurrence].filter(Boolean).join(" ").toLowerCase();
+        const haystack = [task.title, task.description, task.assignee, task.priority, task.recurrence, taskSourceDocument(task)].filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(search)) return false;
       }
       return true;
     });
-  }, [taskSearch, taskTab, tasks, today]);
+  }, [taskSearch, taskSourceFilter, taskTab, tasks, today]);
 
   const accountTotals = useMemo(() => {
     return activeAccounts.reduce((totals, account) => {
@@ -1951,7 +2006,12 @@ export function SimpleOperationsClient({
             <p className="mt-1.5 text-sm font-medium text-muted-foreground">{meta.sub}</p>
           </div>
           <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-            {view === "tasks" ? <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openTaskDraft()}><Plus className="size-4" /> Add reminder</Button> : null}
+            {view === "tasks" ? (
+              <>
+                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" disabled={importingMonthlySop} onClick={importMonthlySop}><CalendarDays className="size-4" /> {importingMonthlySop ? "Importing..." : "Import Monthly SOP"}</Button>
+                <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openTaskDraft()}><Plus className="size-4" /> Add reminder</Button>
+              </>
+            ) : null}
             {view === "residential" ? (
               <>
                 <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => {
@@ -2137,12 +2197,14 @@ export function SimpleOperationsClient({
             const status = normalizeTaskStatus(task.status);
             const dueKey = dateKeyFromValue(task.due_date);
             const overdue = status === "pending" && Boolean(dueKey && dueKey < today);
+            const sourceDocument = taskSourceDocument(task);
             return (
               <div className={cn(SOP_ROW_CLASS, "flex flex-wrap items-center justify-between gap-3")} key={task.id}>
                 <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedTask(task)}>
                   <p className="truncate font-semibold">{task.title}</p>
                   <p className="mt-1 text-xs font-medium text-muted-foreground">{task.assignee ?? "Unassigned"} · {displayDate(task.due_date)} · {TASK_FREQUENCY_LABELS[frequencyFromRecurrence(task.recurrence)]}</p>
                 </button>
+                {sourceDocument ? <Badge variant="outline">{sourceDocument}</Badge> : null}
                 <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status)}</Badge>
                 <div className="flex gap-1">
                   <Button className="h-8 rounded-lg px-2.5 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-3.5" /> Mark completed</Button>
@@ -2162,8 +2224,23 @@ export function SimpleOperationsClient({
           <MetricCard icon={Clock} label="Pending" value={taskStats.pending.length} />
           <MetricCard icon={AlertTriangle} label="Overdue" value={taskStats.overdue.length} tone={taskStats.overdue.length ? "warn" : "good"} />
           <MetricCard icon={CheckCircle2} label="Completed" value={taskStats.completed.length} tone="good" />
-          <MetricCard icon={Mail} label="Assignees" value="Jake / Carlos" note="Reminder ownership" />
+          <MetricCard icon={FileText} label="Monthly SOP" value={monthlySopTaskCount} note="June 2026 imported tasks" tone={monthlySopTaskCount === 56 ? "good" : "neutral"} />
         </div>
+
+        {monthlySopImportSummary ? (
+          <Card className={cn(SOP_PANEL_CLASS, monthlySopImportSummary.processed === monthlySopImportSummary.expected ? "border-emerald-200 bg-emerald-50/35 dark:border-emerald-900 dark:bg-emerald-950/15" : "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15")}>
+            <CardContent className="grid gap-3 p-4 md:grid-cols-[1.1fr_repeat(4,auto)] md:items-center">
+              <div>
+                <p className="font-semibold">{monthlySopImportSummary.message}</p>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">Source document: {monthlySopImportSummary.sourceDocument} · Month: {monthlySopImportSummary.month} · Calendar start: {monthlySopImportSummary.calendarStart}</p>
+              </div>
+              <Badge variant="outline">Expected {monthlySopImportSummary.expected}</Badge>
+              <Badge variant="outline">Created {monthlySopImportSummary.created}</Badge>
+              <Badge variant="outline">Skipped {monthlySopImportSummary.duplicatesSkipped}</Badge>
+              <Badge variant="outline">Updated {monthlySopImportSummary.updated}</Badge>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <div className={cn(SOP_PANEL_CLASS, "flex flex-wrap items-center justify-between gap-3 p-3")}>
           <div className="flex flex-wrap gap-2">
@@ -2195,7 +2272,11 @@ export function SimpleOperationsClient({
           <div className="flex min-w-64 flex-1 flex-wrap justify-end gap-2">
             <input className={cn(PAYMENT_FIELD_CLASS, "w-full max-w-md")} placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
             {taskViewMode === "day" ? <input className={PAYMENT_FIELD_CLASS} type="date" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
-            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => { setTaskSearch(""); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw className="size-4" /> Clear</Button>
+            <select className={PAYMENT_FIELD_CLASS} value={taskSourceFilter} onChange={(event) => setTaskSourceFilter(event.target.value as "all" | "monthly_sop")} aria-label="Task source filter">
+              <option value="all">All sources</option>
+              <option value="monthly_sop">Monthly SOP</option>
+            </select>
+            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => { setTaskSearch(""); setTaskSourceFilter("all"); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw className="size-4" /> Clear</Button>
           </div>
         </div>
 
@@ -3419,6 +3500,8 @@ export function SimpleOperationsClient({
     if (!selectedTask) return null;
     const taskActivity = activity.filter((item) => item.task_id === selectedTask.id);
     const selectedStatus = normalizeTaskStatus(selectedTask.status);
+    const sourceDocument = taskSourceDocument(selectedTask);
+    const sourceSection = typeof selectedTask.metadata?.source_section === "string" ? selectedTask.metadata.source_section : null;
     return (
       <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-xl overflow-auto border-l border-border/70 bg-card/95 shadow-[0_28px_80px_-42px_hsl(215_40%_18%)] backdrop-blur-xl">
         <div className="sticky top-0 z-10 border-b border-border/70 bg-card/95 p-5 backdrop-blur">
@@ -3434,9 +3517,11 @@ export function SimpleOperationsClient({
             <Badge className={statusBadgeClass(selectedStatus)} variant="outline">{statusLabel(selectedStatus)}</Badge>
             <Badge variant="outline">{TASK_FREQUENCY_LABELS[frequencyFromRecurrence(selectedTask.recurrence)]}</Badge>
             <Badge className={statusBadgeClass(selectedTask.priority)} variant="outline">{statusLabel(selectedTask.priority ?? "normal")}</Badge>
+            {sourceDocument ? <Badge variant="outline">{sourceDocument}</Badge> : null}
           </div>
         </div>
         <div className="space-y-5 p-5">
+          {sourceSection ? <section className="rounded-lg border border-border/70 bg-background/65 p-3 text-sm font-medium text-muted-foreground">Source section: {sourceSection}</section> : null}
           <section className="rounded-lg border border-border/70 bg-background/65 p-4 text-sm font-medium text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
           <div className="flex flex-wrap gap-2">
             <Button className={SOP_ACTION_BUTTON_CLASS} disabled={selectedStatus === "completed" || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-4" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark completed"}</Button>
