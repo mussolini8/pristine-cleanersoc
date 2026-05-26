@@ -420,6 +420,13 @@ function cleanNotificationReason(reason: string | null) {
   return reason.length > 160 ? `${reason.slice(0, 157)}...` : reason;
 }
 
+function isEmailProviderMissingDetails(details: Record<string, unknown> | null | undefined) {
+  const code = typeof details?.code === "string" ? details.code : "";
+  const reason = typeof details?.reason === "string" ? details.reason.toLowerCase() : "";
+  const message = typeof details?.message === "string" ? details.message.toLowerCase() : "";
+  return code === "EMAIL_PROVIDER_MISSING" || reason.includes("email provider is not configured") || message.includes("email provider is not configured");
+}
+
 function dateRangeLabel(start: string, end: string) {
   return `${displayDate(start)} - ${displayDate(end)}`;
 }
@@ -1069,7 +1076,7 @@ export function SimpleOperationsClient({
           },
         }),
       });
-      const data = await response.json().catch(() => null) as { notification?: { sent?: boolean; reason?: string; skipped?: boolean } } | null;
+      const data = await response.json().catch(() => null) as { notification?: { sent?: boolean; reason?: string; skipped?: boolean; code?: string } } | null;
       if (!response.ok) return { sent: false, reason: `Notification request failed with HTTP ${response.status}` };
       return data?.notification ?? { sent: false, reason: "Notification service returned no status." };
     } catch (error) {
@@ -1203,7 +1210,9 @@ export function SimpleOperationsClient({
           .single();
         if (updatedTask) setTasks((current) => current.map((task) => task.id === savedTask.id ? updatedTask as unknown as OperationTaskRow : task));
         if (notification.sent) feedback = "Task saved. Assignment email sent.";
-        if (!notification.sent) feedback = `Task saved. Assignment email failed - ${notification.reason ?? "unknown reason"}`;
+        if (!notification.sent) feedback = notification.code === "EMAIL_PROVIDER_MISSING"
+          ? "Task saved. Email delivery needs a provider configured in Render."
+          : `Task saved. Assignment email failed - ${notification.reason ?? "unknown reason"}`;
       } else if (!taskDraft.notifyAssignee) {
         feedback = "Task saved. Assignment email disabled.";
       } else if (notificationAlreadySent(savedTask, "assignment_notification_sent_at")) {
@@ -1212,7 +1221,7 @@ export function SimpleOperationsClient({
 
       setTaskDraft(null);
       setTaskFormError(null);
-      setMessage({ tone: feedback.includes("failed") ? "error" : "success", text: feedback });
+      setMessage({ tone: feedback.includes("failed") ? "error" : feedback.includes("provider configured") ? "info" : "success", text: feedback });
       await loadData();
     } catch (error) {
       const message = `Task could not be saved: ${errorMessage(error)}`;
@@ -1264,8 +1273,13 @@ export function SimpleOperationsClient({
           .from("operation_tasks")
           .update({ metadata: { ...(task.metadata ?? {}), ...notificationMetadata }, updated_at: new Date().toISOString() })
           .eq("id", task.id);
-        const notificationText = notification.sent ? " Owner completion email sent." : ` Owner completion email failed - ${notification.reason ?? "unknown reason"}`;
-        setMessage({ tone: notification.sent ? "success" : "error", text: `Task completed.${notificationText}` });
+        const providerMissing = notification.code === "EMAIL_PROVIDER_MISSING";
+        const notificationText = notification.sent
+          ? " Owner completion email sent."
+          : providerMissing
+            ? " Email delivery needs a provider configured in Render."
+            : ` Owner completion email failed - ${notification.reason ?? "unknown reason"}`;
+        setMessage({ tone: notification.sent ? "success" : providerMissing ? "info" : "error", text: `Task completed.${notificationText}` });
       } else if (notifyOwner && completionAlreadyNotified) {
         await writeTaskAudit(task.id, "task_completed", {
           actor: actorName,
@@ -3711,7 +3725,7 @@ export function SimpleOperationsClient({
 
   function renderTaskDetail() {
     if (!selectedTask) return null;
-    const taskActivity = activity.filter((item) => item.task_id === selectedTask.id);
+    const taskActivity = activity.filter((item) => item.task_id === selectedTask.id && !isEmailProviderMissingDetails(item.details));
     const selectedStatus = normalizeTaskStatus(selectedTask.status);
     const sourceDocument = taskSourceDocument(selectedTask);
     const sourceSection = typeof selectedTask.metadata?.source_section === "string" ? selectedTask.metadata.source_section : null;

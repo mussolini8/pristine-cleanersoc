@@ -136,6 +136,7 @@ async function writeNotificationAudit(
     email?: string | null;
   },
 ) {
+  if (result.code === "EMAIL_PROVIDER_MISSING") return;
   await writeAudit(supabase, taskId, result.skipped ? "notification_skipped" : result.sent ? "notification_sent" : "notification_failed", {
     event,
     notificationType: notificationType(event),
