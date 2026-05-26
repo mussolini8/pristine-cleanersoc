@@ -253,6 +253,15 @@ function metadataFlag(metadata: Record<string, unknown> | null | undefined, key:
   return typeof value === "boolean" ? value : fallback;
 }
 
+function metadataText(metadata: Record<string, unknown> | null | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function notificationAlreadySent(task: OperationTaskRow, key: "assignment_notification_sent_at" | "completion_notification_sent_at") {
+  return Boolean(metadataText(task.metadata, key));
+}
+
 function taskIsOperationsReminder(task: OperationTaskRow) {
   const panel = String(task.panel ?? "").toLowerCase();
   const unit = String(task.business_unit ?? "").toLowerCase();
@@ -351,6 +360,8 @@ function actionLabel(action: string) {
   if (action === "task_assigned") return "Task assigned";
   if (action === "task_completed") return "Task completed";
   if (action === "task_deleted") return "Task deleted";
+  if (action === "task_created") return "Reminder created";
+  if (action === "task_updated") return "Reminder edited";
   if (action === "notification_sent") return "Notification sent";
   if (action === "notification_failed") return "Notification failed";
   if (action === "notification_skipped") return "Notification skipped";
@@ -575,6 +586,7 @@ export function SimpleOperationsClient({
   const monthlySopAutoImportAttempted = useRef(new Set<string>());
   const [monthlySopImportSummary, setMonthlySopImportSummary] = useState<MonthlySopImportSummary | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
+  const [taskFormError, setTaskFormError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
   const [savingTask, setSavingTask] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
@@ -987,6 +999,7 @@ export function SimpleOperationsClient({
             category: task.category ?? "Operations",
             priority: task.priority ?? "normal",
             dueDate: task.due_date,
+            frequency: TASK_FREQUENCY_LABELS[frequencyFromRecurrence(task.recurrence)],
             assignedBy: task.assigned_by ?? "Pristine Operations",
             assignedTo: task.assignee,
             createdBy: task.assigned_by ?? "Pristine Operations",
@@ -1000,6 +1013,7 @@ export function SimpleOperationsClient({
             completionNotes: task.completion_notes ?? task.description,
             completionEmailEnabled: metadataFlag(task.metadata, "notify_owner_on_completed", true),
             assignmentEmailEnabled: metadataFlag(task.metadata, "notify_assignee_on_assignment", true),
+            sourceSection: metadataText(task.metadata, "source_section"),
           },
         }),
       });
@@ -1016,10 +1030,13 @@ export function SimpleOperationsClient({
   }
 
   function openTaskDraft(task?: OperationTaskRow) {
+    setTaskFormError(null);
     if (!task) {
+      setSelectedTask(null);
       setTaskDraft(EMPTY_TASK_DRAFT);
       return;
     }
+    setSelectedTask(null);
     setTaskDraft({
       id: task.id,
       title: task.title,
@@ -1042,20 +1059,38 @@ export function SimpleOperationsClient({
       title: taskDraft.title,
       description: taskDraft.description,
       assignee: taskDraft.assignee,
-      dueDate: taskDraft.dueDate || null,
+      dueDate: taskDraft.dueDate,
       priority: taskDraft.priority,
       status: "pending",
       frequency: taskDraft.frequency,
       customIntervalDays: taskDraft.frequency === "custom" ? Number(taskDraft.customIntervalDays) || null : null,
     });
     if (!validation.ok) {
+      setTaskFormError(validation.message);
       setMessage({ tone: "error", text: `Task could not be saved: ${validation.message}` });
+      return;
+    }
+    if (taskDraft.notifyAssignee && !taskDraft.assignee) {
+      const message = "Choose an assignee before enabling Notify assignee.";
+      setTaskFormError(message);
+      setMessage({ tone: "error", text: message });
       return;
     }
 
     setSavingTask(true);
     const now = new Date().toISOString();
     const previousTask = taskDraft.id ? tasks.find((task) => task.id === taskDraft.id) : null;
+    const previousMetadata = previousTask?.metadata ?? {};
+    const previousNotifyAssignee = previousTask ? metadataFlag(previousMetadata, "notify_assignee_on_assignment", true) : false;
+    const reactivatedAssignmentNotification = Boolean(previousTask && !previousNotifyAssignee && taskDraft.notifyAssignee);
+    const existingAssignmentSentTo = metadataText(previousMetadata, "assignment_notification_assignee");
+    const assigneeChanged = !previousTask || String(previousTask.assignee ?? "").trim() !== taskDraft.assignee;
+    const shouldSendAssignmentNotification = taskDraft.notifyAssignee && (
+      assigneeChanged ||
+      reactivatedAssignmentNotification ||
+      !metadataText(previousMetadata, "assignment_notification_sent_at") ||
+      existingAssignmentSentTo !== taskDraft.assignee
+    );
     const payload = {
       user_id: userId,
       title: taskDraft.title.trim(),
@@ -1072,10 +1107,12 @@ export function SimpleOperationsClient({
       recurrence: recurrenceFromFrequency(taskDraft.frequency),
       custom_interval_days: taskDraft.frequency === "custom" ? Number(taskDraft.customIntervalDays) || null : null,
       metadata: {
+        ...previousMetadata,
         task_scope: "residential_operations",
         frequency: taskDraft.frequency,
         notify_assignee_on_assignment: taskDraft.notifyAssignee,
         notify_owner_on_completed: taskDraft.notifyOwnerOnCompletion,
+        ...(taskDraft.notifyAssignee ? {} : { assignment_notification_disabled_at: now }),
       },
       created_by: userId,
       updated_at: now,
@@ -1088,25 +1125,47 @@ export function SimpleOperationsClient({
 
       if (result.error) throw new Error(result.error.message);
       const savedTask = result.data as unknown as OperationTaskRow;
-      const assigneeChanged = !previousTask || normalizeAssignee(previousTask.assignee) !== taskDraft.assignee;
       await writeTaskAudit(savedTask.id, taskDraft.id ? "task_updated" : "task_created", {
         before: previousTask,
         after: savedTask,
       });
 
       let feedback = "Task saved.";
-      if (assigneeChanged) {
+      if (shouldSendAssignmentNotification) {
         const notification = await notifyTask("task_assigned", savedTask, taskDraft.notifyAssignee);
-        if (taskDraft.notifyAssignee && notification.sent) feedback = "Task saved. Notification sent.";
-        if (taskDraft.notifyAssignee && !notification.sent) feedback = `Task saved. Notification failed - ${notification.reason ?? "unknown reason"}`;
-        if (!taskDraft.notifyAssignee) feedback = "Task saved. Notification skipped.";
+        const notificationMetadata = notification.sent
+          ? {
+              assignment_notification_sent_at: new Date().toISOString(),
+              assignment_notification_assignee: savedTask.assignee,
+              assignment_notification_error: null,
+            }
+          : {
+              assignment_notification_failed_at: new Date().toISOString(),
+              assignment_notification_error: notification.reason ?? "unknown reason",
+            };
+        const { data: updatedTask } = await supabase
+          .from("operation_tasks")
+          .update({ metadata: { ...(savedTask.metadata ?? {}), ...notificationMetadata }, updated_at: new Date().toISOString() })
+          .eq("id", savedTask.id)
+          .select(OPERATION_TASK_COLUMNS)
+          .single();
+        if (updatedTask) setTasks((current) => current.map((task) => task.id === savedTask.id ? updatedTask as unknown as OperationTaskRow : task));
+        if (notification.sent) feedback = "Task saved. Assignment email sent.";
+        if (!notification.sent) feedback = `Task saved. Assignment email failed - ${notification.reason ?? "unknown reason"}`;
+      } else if (!taskDraft.notifyAssignee) {
+        feedback = "Task saved. Assignment email disabled.";
+      } else if (notificationAlreadySent(savedTask, "assignment_notification_sent_at")) {
+        feedback = "Task saved. Assignment email already sent for this assignee.";
       }
 
       setTaskDraft(null);
+      setTaskFormError(null);
       setMessage({ tone: feedback.includes("failed") ? "error" : "success", text: feedback });
       await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Task could not be saved: ${errorMessage(error)}` });
+      const message = `Task could not be saved: ${errorMessage(error)}`;
+      setTaskFormError(message);
+      setMessage({ tone: "error", text: message });
     } finally {
       setSavingTask(false);
     }
@@ -1118,6 +1177,7 @@ export function SimpleOperationsClient({
     const completedAt = new Date().toISOString();
     const actorName = normalizeAssignee(task.assignee);
     const notifyOwner = metadataFlag(task.metadata, "notify_owner_on_completed", true) && actorName !== "Jake Ivan-Pal";
+    const completionAlreadyNotified = notificationAlreadySent(task, "completion_notification_sent_at");
 
     try {
       const { error } = await supabase
@@ -1136,9 +1196,36 @@ export function SimpleOperationsClient({
       const completedTask = { ...task, status: "completed", completed_at: completedAt, completed_by: userId };
       setTasks((current) => current.map((item) => item.id === task.id ? completedTask : item));
       setSelectedTask((current) => current?.id === task.id ? completedTask : current);
-      const notification = await notifyTask("task_completed", completedTask, notifyOwner, actorName);
-      const notificationText = notifyOwner && !notification.sent ? ` Notification failed - ${notification.reason ?? "unknown reason"}` : "";
-      setMessage({ tone: notifyOwner && !notification.sent ? "error" : "success", text: `Task completed.${notificationText}` });
+      if (notifyOwner && !completionAlreadyNotified) {
+        const notification = await notifyTask("task_completed", completedTask, true, actorName);
+        const notificationMetadata = notification.sent
+          ? {
+              completion_notification_sent_at: new Date().toISOString(),
+              completion_notification_recipient: "Jake Ivan-Pal",
+              completion_notification_error: null,
+            }
+          : {
+              completion_notification_failed_at: new Date().toISOString(),
+              completion_notification_error: notification.reason ?? "unknown reason",
+            };
+        await supabase
+          .from("operation_tasks")
+          .update({ metadata: { ...(task.metadata ?? {}), ...notificationMetadata }, updated_at: new Date().toISOString() })
+          .eq("id", task.id);
+        const notificationText = notification.sent ? " Owner completion email sent." : ` Owner completion email failed - ${notification.reason ?? "unknown reason"}`;
+        setMessage({ tone: notification.sent ? "success" : "error", text: `Task completed.${notificationText}` });
+      } else if (notifyOwner && completionAlreadyNotified) {
+        await writeTaskAudit(task.id, "task_completed", {
+          actor: actorName,
+          completedAt,
+          notifyOwner,
+          notificationSkipped: "Owner completion email already sent.",
+        });
+        setMessage({ tone: "success", text: "Task completed. Owner completion email was already sent." });
+      } else {
+        await notifyTask("task_completed", completedTask, false, actorName);
+        setMessage({ tone: "success", text: "Task completed. Owner completion email disabled." });
+      }
       await loadData();
     } catch (error) {
       setMessage({ tone: "error", text: `Task could not be completed: ${errorMessage(error)}` });
@@ -3520,16 +3607,17 @@ export function SimpleOperationsClient({
   function renderTaskModal() {
     if (!taskDraft) return null;
     return (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => savingTask ? undefined : setTaskDraft(null)}>
-        <form className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-2xl")} onSubmit={saveTask} onClick={(event) => event.stopPropagation()}>
-          <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
-            <div>
+      <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/45 p-3 backdrop-blur-sm sm:p-6" onClick={() => savingTask ? undefined : setTaskDraft(null)}>
+        <form className={cn(PAYMENT_MODAL_PANEL_CLASS, "flex max-h-[94dvh] max-w-3xl flex-col overflow-hidden")} onSubmit={saveTask} onClick={(event) => event.stopPropagation()}>
+          <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border/70 bg-card/95 px-5 py-4 backdrop-blur">
+            <div className="min-w-0">
               <h2 className="text-lg font-semibold tracking-normal">{taskDraft.id ? "Edit reminder" : "Add reminder"}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">Keep operational follow-ups clear and assigned.</p>
             </div>
             <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close task modal" disabled={savingTask} onClick={() => setTaskDraft(null)}><X className="size-[18px]" /></button>
           </div>
-          <div className="grid gap-4 p-5">
+          <div className="grid gap-4 overflow-y-auto p-5">
+            {taskFormError ? <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm font-semibold text-rose-900 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-100">{taskFormError}</div> : null}
             <label className={PAYMENT_LABEL_CLASS}>Title<input className={PAYMENT_FIELD_CLASS} value={taskDraft.title} onChange={(event) => setTaskDraft({ ...taskDraft, title: event.target.value })} /></label>
             <label className={PAYMENT_LABEL_CLASS}>Notes<textarea className={cn(PAYMENT_FIELD_CLASS, "h-auto min-h-24 py-2 font-medium normal-case")} value={taskDraft.description} onChange={(event) => setTaskDraft({ ...taskDraft, description: event.target.value })} /></label>
             <div className="grid gap-3 md:grid-cols-3">
@@ -3548,12 +3636,18 @@ export function SimpleOperationsClient({
               </select></label>
               {taskDraft.frequency === "custom" ? <label className={PAYMENT_LABEL_CLASS}>Custom days<input className={PAYMENT_FIELD_CLASS} inputMode="numeric" value={taskDraft.customIntervalDays} onChange={(event) => setTaskDraft({ ...taskDraft, customIntervalDays: event.target.value })} /></label> : null}
             </div>
-            <div className="flex flex-wrap gap-3 text-sm font-semibold text-foreground">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={taskDraft.notifyAssignee} onChange={(event) => setTaskDraft({ ...taskDraft, notifyAssignee: event.target.checked })} /> Notify assignee</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={taskDraft.notifyOwnerOnCompletion} onChange={(event) => setTaskDraft({ ...taskDraft, notifyOwnerOnCompletion: event.target.checked })} /> Notify owner on completion</label>
+            <div className="grid gap-2 text-sm font-semibold text-foreground sm:grid-cols-2">
+              <label className="flex min-h-11 items-center gap-3 rounded-xl border border-border/70 bg-background/65 px-3.5">
+                <input type="checkbox" checked={taskDraft.notifyAssignee} onChange={(event) => setTaskDraft({ ...taskDraft, notifyAssignee: event.target.checked })} />
+                Notify assignee
+              </label>
+              <label className="flex min-h-11 items-center gap-3 rounded-xl border border-border/70 bg-background/65 px-3.5">
+                <input type="checkbox" checked={taskDraft.notifyOwnerOnCompletion} onChange={(event) => setTaskDraft({ ...taskDraft, notifyOwnerOnCompletion: event.target.checked })} />
+                Notify owner on completion
+              </label>
             </div>
           </div>
-          <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
+          <div className="sticky bottom-0 flex flex-col-reverse gap-2 border-t border-border/70 bg-card/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end">
             <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingTask} onClick={() => setTaskDraft(null)}>Cancel</Button>
             <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingTask}><Save className="size-[18px]" /> {savingTask ? "Saving..." : "Save reminder"}</Button>
           </div>
@@ -3568,13 +3662,17 @@ export function SimpleOperationsClient({
     const selectedStatus = normalizeTaskStatus(selectedTask.status);
     const sourceDocument = taskSourceDocument(selectedTask);
     const sourceSection = typeof selectedTask.metadata?.source_section === "string" ? selectedTask.metadata.source_section : null;
+    const notifyAssignee = metadataFlag(selectedTask.metadata, "notify_assignee_on_assignment", true);
+    const notifyOwner = metadataFlag(selectedTask.metadata, "notify_owner_on_completed", true);
+    const assignmentSentAt = metadataText(selectedTask.metadata, "assignment_notification_sent_at");
+    const completionSentAt = metadataText(selectedTask.metadata, "completion_notification_sent_at");
     return (
-      <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-xl overflow-auto border-l border-border/70 bg-card/95 shadow-[0_28px_80px_-42px_hsl(215_40%_18%)] backdrop-blur-xl">
+      <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-xl overflow-auto border-l border-border/70 bg-card/95 shadow-[0_28px_80px_-42px_hsl(215_40%_18%)] backdrop-blur-xl">
         <div className="sticky top-0 z-10 border-b border-border/70 bg-card/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-semibold text-primary">Task reminder</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-normal">{selectedTask.title}</h2>
+              <h2 className="mt-2 text-2xl font-semibold leading-tight tracking-normal break-words">{selectedTask.title}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">{selectedTask.assignee ?? "Unassigned"} · {displayDate(selectedTask.due_date)}</p>
             </div>
             <button type="button" className={SOP_CLOSE_BUTTON_CLASS} aria-label="Close task detail" onClick={() => setSelectedTask(null)}><X className="size-[18px]" /></button>
@@ -3589,6 +3687,18 @@ export function SimpleOperationsClient({
         <div className="space-y-5 p-5">
           {sourceSection ? <section className="rounded-xl border border-border/70 bg-background/65 p-3 text-sm font-medium text-muted-foreground">Source section: {sourceSection}</section> : null}
           <section className="rounded-xl border border-border/70 bg-background/65 p-4 text-sm font-medium text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
+          <section className="grid gap-2 rounded-xl border border-border/70 bg-background/65 p-4 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-muted-foreground">Notify assignee</span>
+              <Badge className={statusBadgeClass(notifyAssignee ? "active" : "skipped")} variant="outline">{notifyAssignee ? "On" : "Off"}</Badge>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-muted-foreground">Notify owner on completion</span>
+              <Badge className={statusBadgeClass(notifyOwner ? "active" : "skipped")} variant="outline">{notifyOwner ? "On" : "Off"}</Badge>
+            </div>
+            {assignmentSentAt ? <p className="text-xs font-medium text-muted-foreground">Assignment email sent {new Date(assignmentSentAt).toLocaleString()}</p> : null}
+            {completionSentAt ? <p className="text-xs font-medium text-muted-foreground">Completion email sent {new Date(completionSentAt).toLocaleString()}</p> : null}
+          </section>
           <div className="flex flex-wrap gap-2">
             <Button className={SOP_ACTION_BUTTON_CLASS} disabled={selectedStatus === "completed" || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-[18px]" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark completed"}</Button>
             <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => openTaskDraft(selectedTask)}><Edit3 className="size-[18px]" /> Edit</Button>

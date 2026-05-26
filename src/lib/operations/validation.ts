@@ -21,7 +21,7 @@ export const taskReminderSchema = z.object({
   title: z.string().trim().min(1, "Task title is required."),
   description: optionalText,
   assignee: z.string().trim().min(1, "Assign responsibility before saving."),
-  dueDate: dateOnlySchema.nullable().optional(),
+  dueDate: dateOnlySchema,
   priority: z.enum(TASK_PRIORITIES),
   status: z.enum(["pending", "in_progress", "completed"]).default("pending"),
   completedAt: z.string().datetime().nullable().optional(),
