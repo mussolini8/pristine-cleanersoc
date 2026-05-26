@@ -94,6 +94,9 @@ create table if not exists public.operation_tasks (
 alter table public.operation_tasks enable row level security;
 
 drop policy if exists "Tasks are editable by owners" on public.operation_tasks;
+
+alter table public.operation_tasks
+  add column if not exists sop_source_key text unique;
 create policy "Tasks are editable by owners"
   on public.operation_tasks for all
   using (auth.uid() = user_id)

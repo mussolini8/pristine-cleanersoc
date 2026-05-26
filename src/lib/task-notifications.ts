@@ -277,9 +277,9 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
       port: transport.port,
       secure: transport.secure,
       requireTLS: !transport.secure,
-      connectionTimeout: 30000,
-      greetingTimeout: 20000,
-      socketTimeout: 45000,
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 10000,
       auth: {
         user: gmailUser,
         pass: gmailPassword,
