@@ -1,6 +1,37 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getServerEnv } from "@/lib/env";
+
+type SopTemplateForGeneration = {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: string;
+  assigned_to: string | null;
+  assigned_role: string | null;
+  panel: string;
+  frequency: string;
+  day_of_week: string | null;
+  week_of_month: number | null;
+};
+
+type OperationTaskInsert = {
+  user_id: string;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: string;
+  status: "todo";
+  due_date: string;
+  assignee: string | null;
+  assigned_by: string | null;
+  panel: string;
+  recurrence: "none";
+  reminder: false;
+  sop_source_key: string;
+  created_at: string;
+  updated_at: string;
+};
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -30,7 +61,7 @@ export async function POST(request: Request) {
   }
 
   // 2. Generate instances based on frequency
-  const instancesToCreate = [];
+  const instancesToCreate: OperationTaskInsert[] = [];
   let expectedCount = 0;
 
   for (const t of templates) {
@@ -87,7 +118,7 @@ export async function POST(request: Request) {
   });
 }
 
-function generateDatesForTemplate(t: any, year: number, month: number): string[] {
+function generateDatesForTemplate(t: SopTemplateForGeneration, year: number, month: number): string[] {
   const dates: string[] = [];
   const daysInMonth = new Date(year, month, 0).getDate();
 

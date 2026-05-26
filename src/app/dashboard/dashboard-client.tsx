@@ -76,6 +76,22 @@ type TaskRow = {
   custom_interval_days: number | null;
 };
 
+type AuditLogRow = {
+  id: string;
+  action: string;
+  actor: string | null;
+  note: string | null;
+  details: {
+    reason?: string;
+    actor?: string;
+  } | null;
+  created_at: string;
+};
+
+type CalendarDay =
+  | { empty: true; key: string }
+  | { empty: false; key: string; date: string; day: number; tasks: Task[] };
+
 type SopTaskSeed = {
   natural_key: string;
   title: string;
@@ -1096,15 +1112,28 @@ function TaskModal({
 }) {
   const [t, setT] = useState<Task>(() => normalizeTask(initial));
   const [activeTab, setActiveTab] = useState<"edit" | "log">("edit");
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<AuditLogRow[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
 
   useEffect(() => {
-    if (activeTab === "log" && initial.id) {
+    if (activeTab !== "log" || !initial.id) return;
+    let cancelled = false;
+    const loadLogs = async () => {
       setLoadingLogs(true);
-      createClient().from("operation_task_audit_log").select("*").eq("task_id", initial.id).order("created_at", { ascending: false })
-      .then(({data}) => { setLogs(data || []); setLoadingLogs(false); });
-    }
+      const { data } = await createClient()
+        .from("operation_task_audit_log")
+        .select("id, action, actor, note, details, created_at")
+        .eq("task_id", initial.id)
+        .order("created_at", { ascending: false });
+      if (!cancelled) {
+        setLogs(data ?? []);
+        setLoadingLogs(false);
+      }
+    };
+    void loadLogs();
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab, initial.id]);
 
   return (
@@ -1414,8 +1443,9 @@ export default function DashboardPage() {
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to generate");
       alert(`SOP Generated!\nExpected: ${data.expected}\nCreated: ${data.created}\nExisting: ${data.existing}\nSkipped: ${data.skipped}`);
       window.location.reload();
-    } catch (err: any) {
-      alert("Error generating SOP: " + err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      alert("Error generating SOP: " + message);
     } finally {
       setGeneratingSop(false);
     }
@@ -1446,6 +1476,7 @@ export default function DashboardPage() {
   const urgentCount = tasks.filter((t) => t.priority === "urgent" && t.status !== "done").length;
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayCount = tasks.filter((t) => t.due_date === todayStr && t.status !== "done").length;
+  const doneCount = tasks.filter((t) => t.status === "done").length;
   const activeSopCount = sopTemplates.filter((task) => task.status === "active").length;
 
   function clearSopScheduleFilter() {
@@ -1456,7 +1487,7 @@ export default function DashboardPage() {
     setSopFilters(SOP_FILTERS_DEFAULT);
   }
 
-  const calendarDays = useMemo(() => {
+  const calendarDays = useMemo<CalendarDay[]>(() => {
     if (view !== "calendar") return [];
     const byDate: Record<string, Task[]> = {};
     for (const t of filtered) {
@@ -1464,7 +1495,7 @@ export default function DashboardPage() {
       if (!byDate[t.due_date]) byDate[t.due_date] = [];
       byDate[t.due_date].push(t);
     }
-    const days = [];
+    const days: CalendarDay[] = [];
     const start = new Date();
     start.setDate(1);
     const year = start.getFullYear();
@@ -1857,7 +1888,7 @@ export default function DashboardPage() {
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
               <div key={d} style={{ textAlign: "center", fontSize: "0.7rem", fontWeight: "bold", color: "hsl(var(--muted-foreground))" }}>{d}</div>
             ))}
-            {calendarDays.map((d: any) => (
+            {calendarDays.map((d) => (
               d.empty ? <div key={d.key} /> : (
                 <div key={d.key} className="calendar-day">
                   <div className="calendar-date" style={d.date === todayStr ? { color: "hsl(var(--primary))" } : {}}>{d.day}</div>
