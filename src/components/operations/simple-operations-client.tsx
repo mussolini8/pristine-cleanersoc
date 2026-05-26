@@ -412,10 +412,10 @@ function cleanNotificationReason(reason: string | null) {
     lower.includes("etimedout") ||
     lower.includes("econnection")
   ) {
-    return "Email could not be sent because Gmail SMTP is blocked in production. Configure RESEND_API_KEY or SENDGRID_API_KEY in Render.";
+    return "Email could not be sent through Gmail SMTP. Check GMAIL_USER, GMAIL_APP_PASSWORD, and Render outbound SMTP access.";
   }
   if (lower.includes("email_provider_missing") || lower.includes("production email provider is not configured")) {
-    return "Email provider is not configured. Add RESEND_API_KEY or SENDGRID_API_KEY in Render.";
+    return "Gmail SMTP is not configured. Add GMAIL_USER and GMAIL_APP_PASSWORD in Render.";
   }
   return reason.length > 160 ? `${reason.slice(0, 157)}...` : reason;
 }
@@ -1211,7 +1211,7 @@ export function SimpleOperationsClient({
         if (updatedTask) setTasks((current) => current.map((task) => task.id === savedTask.id ? updatedTask as unknown as OperationTaskRow : task));
         if (notification.sent) feedback = "Task saved. Assignment email sent.";
         if (!notification.sent) feedback = notification.code === "EMAIL_PROVIDER_MISSING"
-          ? "Task saved. Email delivery needs a provider configured in Render."
+          ? "Task saved. Gmail SMTP needs GMAIL_USER and GMAIL_APP_PASSWORD in Render."
           : `Task saved. Assignment email failed - ${notification.reason ?? "unknown reason"}`;
       } else if (!taskDraft.notifyAssignee) {
         feedback = "Task saved. Assignment email disabled.";
@@ -1221,7 +1221,7 @@ export function SimpleOperationsClient({
 
       setTaskDraft(null);
       setTaskFormError(null);
-      setMessage({ tone: feedback.includes("failed") ? "error" : feedback.includes("provider configured") ? "info" : "success", text: feedback });
+      setMessage({ tone: feedback.includes("failed") ? "error" : feedback.includes("Gmail SMTP needs") ? "info" : "success", text: feedback });
       await loadData();
     } catch (error) {
       const message = `Task could not be saved: ${errorMessage(error)}`;
@@ -1277,7 +1277,7 @@ export function SimpleOperationsClient({
         const notificationText = notification.sent
           ? " Owner completion email sent."
           : providerMissing
-            ? " Email delivery needs a provider configured in Render."
+            ? " Gmail SMTP needs GMAIL_USER and GMAIL_APP_PASSWORD in Render."
             : ` Owner completion email failed - ${notification.reason ?? "unknown reason"}`;
         setMessage({ tone: notification.sent ? "success" : providerMissing ? "info" : "error", text: `Task completed.${notificationText}` });
       } else if (notifyOwner && completionAlreadyNotified) {

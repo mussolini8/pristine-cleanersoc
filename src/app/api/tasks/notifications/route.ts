@@ -85,9 +85,6 @@ function sanitizeReason(reason: string) {
   for (const secret of [
     process.env.GMAIL_APP_PASSWORD,
     process.env.GMAIL_USER,
-    process.env.RESEND_API_KEY,
-    process.env.SENDGRID_API_KEY,
-    process.env.EMAIL_FROM,
     process.env.OPERATIONS_MANAGER_EMAIL,
     process.env.OWNER_EMAIL,
     process.env.SEO_USER_EMAIL,
@@ -136,7 +133,6 @@ async function writeNotificationAudit(
     email?: string | null;
   },
 ) {
-  if (result.code === "EMAIL_PROVIDER_MISSING") return;
   await writeAudit(supabase, taskId, result.skipped ? "notification_skipped" : result.sent ? "notification_sent" : "notification_failed", {
     event,
     notificationType: notificationType(event),
