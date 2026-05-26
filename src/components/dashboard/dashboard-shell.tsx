@@ -65,8 +65,8 @@ export function DashboardShell({
           </Link>
         </div>
         <div className="px-4 py-3">
-          <div className="flex items-center gap-2 rounded-lg border border-primary/10 bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-primary shadow-sm">
-            <Sparkles className="size-3.5" />
+          <div className="flex items-center gap-2 rounded-xl border border-primary/10 bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-primary shadow-sm">
+            <Sparkles className="size-[18px]" />
             <span>Premium cleaning SOP</span>
           </div>
         </div>
@@ -74,19 +74,19 @@ export function DashboardShell({
           {visibleNavItems.map((item) => (
             <Link
               className={cn(
-                "group flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground transition-all duration-150 hover:bg-accent/55 hover:text-accent-foreground",
+                "group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-muted-foreground transition-all duration-150 hover:bg-accent/55 hover:text-accent-foreground",
                 (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`))) && "bg-primary/10 text-primary shadow-none ring-1 ring-primary/15 hover:bg-primary/[0.12] hover:text-primary",
               )}
               href={item.href}
               key={item.href}
             >
-              <item.icon className="size-4 transition-transform duration-200 group-hover:scale-105" />
+              <item.icon className="size-[18px] transition-transform duration-200 group-hover:scale-105" />
               {item.label}
             </Link>
           ))}
         </nav>
         <div className="absolute inset-x-0 bottom-0 border-t border-border/60 p-4">
-          <div className="rounded-lg border border-border/70 bg-background/65 p-3 shadow-sm">
+          <div className="rounded-xl border border-border/70 bg-background/65 p-3 shadow-sm">
             <p className="text-[11px] font-semibold text-muted-foreground">Signed in</p>
             <p className="mt-1 truncate text-sm font-semibold">{userEmail ?? "Pristine Cleaners"}</p>
           </div>
@@ -102,8 +102,8 @@ export function DashboardShell({
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <form action="/auth/sign-out" method="post">
-              <Button className="h-9 px-3 text-sm" variant="outline">
-                <LogOut className="size-4" />
+              <Button variant="outline" size="sm">
+                <LogOut />
                 Sign out
               </Button>
             </form>
@@ -113,19 +113,19 @@ export function DashboardShell({
             {visibleNavItems.map((item) => (
               <Link
                 className={cn(
-                  "inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-border/70 bg-card/80 px-3 text-xs font-semibold text-muted-foreground",
+                  "inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-border/70 bg-card/80 px-3 text-xs font-semibold text-muted-foreground",
                   (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`))) && "border-primary/20 bg-primary/10 text-primary",
                 )}
                 href={item.href}
                 key={item.href}
               >
-                <item.icon className="size-3.5" />
+                <item.icon className="size-[18px]" />
                 {item.label}
               </Link>
             ))}
           </nav>
         </header>
-        <main className="mx-auto max-w-[1500px] p-3 sm:p-5 lg:p-6">{children}</main>
+        <main className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentProps, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -28,6 +28,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -426,14 +427,14 @@ function dateOutsideRange(value: string, start: string, end: string) {
   return Boolean(value && (value < start || value > end));
 }
 
-function MetricCard({
+function AppMetricCard({
   icon: Icon,
   label,
   value,
   note,
   tone = "neutral",
 }: {
-  icon: typeof CheckCircle2;
+  icon: LucideIcon;
   label: string;
   value: string | number;
   note?: string;
@@ -441,39 +442,72 @@ function MetricCard({
 }) {
   return (
     <Card className={cn(
-      "rounded-lg border-border/70 shadow-[0_16px_42px_-44px_hsl(215_40%_20%)]",
+      "min-h-28 rounded-2xl border-border/70 shadow-[0_18px_54px_-48px_hsl(215_40%_20%)]",
       tone === "warn" ? "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15" : "",
       tone === "good" ? "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900 dark:bg-emerald-950/15" : "",
     )}>
-      <CardContent className="flex min-h-[96px] items-start justify-between gap-3 p-4">
+      <CardContent className="flex min-h-28 items-start justify-between gap-4 p-[18px]">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-          <p className="mt-3 text-2xl font-semibold leading-none tracking-normal">{value}</p>
-          {note ? <p className="mt-2 text-xs font-medium text-muted-foreground">{note}</p> : null}
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          <p className="mt-3 text-[2rem] font-semibold leading-none tracking-normal">{value}</p>
+          {note ? <p className="mt-2 line-clamp-2 text-xs font-medium leading-snug text-muted-foreground">{note}</p> : null}
         </div>
-        <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-border/70 bg-background/80 text-primary">
-          <Icon className="size-4" />
+        <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-border/70 bg-background/80 text-primary">
+          <Icon className="size-5" />
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (value: PeriodMode) => void }) {
-  const options: { value: PeriodMode; label: string }[] = [
-    { value: "week", label: "This week" },
-    { value: "biweekly", label: "Every 15 days" },
-    { value: "month", label: "This month" },
-  ];
+function MetricCard(props: ComponentProps<typeof AppMetricCard>) {
+  return <AppMetricCard {...props} />;
+}
 
+function AppPageHeader({
+  title,
+  subtitle,
+  icon: Icon,
+  actions,
+}: {
+  title: string;
+  subtitle: string;
+  icon: LucideIcon;
+  actions?: ReactNode;
+}) {
   return (
-    <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/70 bg-background/80 p-1 shadow-sm" aria-label="Calculation period">
+    <section className="py-1">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-medium text-primary"><Icon className="size-[18px]" /> Pristine Cleaners SOP</p>
+          <h1 className="mt-2 text-4xl font-semibold leading-tight tracking-normal text-foreground sm:text-[2.45rem]">{title}</h1>
+          <p className="mt-2 max-w-3xl text-base font-medium text-muted-foreground">{subtitle}</p>
+        </div>
+        {actions ? <div className="flex flex-wrap gap-2 sm:justify-end">{actions}</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function AppSegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="inline-flex h-11 max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1" aria-label={ariaLabel}>
       {options.map((option) => (
         <button
           type="button"
           className={cn(
-            "whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground",
-            value === option.value && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
+            "h-9 whitespace-nowrap rounded-lg px-3 text-sm font-semibold text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
+            value === option.value && "bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground",
           )}
           key={option.value}
           onClick={() => onChange(option.value)}
@@ -485,17 +519,29 @@ function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (valu
   );
 }
 
+function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (value: PeriodMode) => void }) {
+  const options: { value: PeriodMode; label: string }[] = [
+    { value: "week", label: "This week" },
+    { value: "biweekly", label: "Every 15 days" },
+    { value: "month", label: "This month" },
+  ];
+
+  return (
+    <AppSegmentedControl ariaLabel="Calculation period" value={value} options={options} onChange={onChange} />
+  );
+}
+
 const PAYMENT_PANEL_CLASS = "sop-toolbar";
-const PAYMENT_FIELD_CLASS = "h-9 min-w-0 rounded-lg border border-input bg-card/80 px-3 text-sm font-medium text-foreground outline-none shadow-sm transition placeholder:text-muted-foreground focus:border-primary/45 focus:ring-2 focus:ring-primary/10";
-const PAYMENT_LABEL_CLASS = "grid min-w-0 gap-1.5 text-[11px] font-semibold uppercase text-muted-foreground";
-const PAYMENT_ICON_BUTTON_CLASS = "inline-grid size-7 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent/55 hover:text-foreground disabled:opacity-45";
-const PAYMENT_MODAL_PANEL_CLASS = "max-h-[90dvh] w-full overflow-auto rounded-lg border border-border/70 bg-card shadow-[0_28px_80px_-42px_hsl(215_40%_18%)]";
+const PAYMENT_FIELD_CLASS = "h-11 min-w-0 rounded-xl border border-input bg-card/80 px-3.5 text-sm font-medium text-foreground outline-none shadow-sm transition placeholder:text-muted-foreground focus:border-primary/45 focus:ring-2 focus:ring-primary/10";
+const PAYMENT_LABEL_CLASS = "grid min-w-0 gap-1.5 text-sm font-medium text-muted-foreground";
+const PAYMENT_ICON_BUTTON_CLASS = "inline-grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-45";
+const PAYMENT_MODAL_PANEL_CLASS = "max-h-[90dvh] w-full overflow-auto rounded-2xl border border-border/70 bg-card shadow-[0_28px_80px_-42px_hsl(215_40%_18%)]";
 const SOP_PANEL_CLASS = "sop-card";
-const SOP_TABLE_WRAP_CLASS = "overflow-hidden rounded-lg border border-border/70 bg-card/70";
-const SOP_ACTION_BUTTON_CLASS = "h-9 rounded-lg px-3 text-sm font-semibold";
-const SOP_EMPTY_CLASS = "rounded-lg border border-dashed border-border/70 bg-background/50 p-6 text-center text-sm font-medium text-muted-foreground";
-const SOP_ROW_CLASS = "rounded-lg border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20";
-const SOP_CLOSE_BUTTON_CLASS = "grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent/55 hover:text-foreground disabled:opacity-50";
+const SOP_TABLE_WRAP_CLASS = "overflow-hidden rounded-2xl border border-border/70 bg-card/70";
+const SOP_ACTION_BUTTON_CLASS = "h-11 rounded-xl px-4 text-sm font-semibold";
+const SOP_EMPTY_CLASS = "rounded-2xl border border-dashed border-border/70 bg-background/50 p-6 text-center text-sm font-medium text-muted-foreground";
+const SOP_ROW_CLASS = "rounded-xl border border-border/70 bg-card/60 p-3.5 transition hover:border-primary/30 hover:bg-accent/20";
+const SOP_CLOSE_BUTTON_CLASS = "grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50";
 
 export function SimpleOperationsClient({
   view,
@@ -1990,11 +2036,11 @@ export function SimpleOperationsClient({
   return (
     <DashboardShell userEmail={userEmail}>
       <div className="space-y-5">
-        {view === "residential" ? null : renderHeader()}
+        {renderHeader()}
         {message ? (
-          <div className={cn("flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm font-semibold shadow-sm", messageClass(message.tone))}>
+          <div className={cn("flex items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm font-semibold shadow-sm", messageClass(message.tone))}>
             <span>{message.text}</span>
-            <button type="button" className="grid size-6 place-items-center rounded-lg transition hover:bg-background/60" aria-label="Dismiss message" onClick={() => setMessage(null)}><X className="size-4" /></button>
+            <button type="button" className="grid size-6 place-items-center rounded-xl transition hover:bg-background/60" aria-label="Dismiss message" onClick={() => setMessage(null)}><X className="size-[18px]" /></button>
           </div>
         ) : null}
         {loading ? <Card className={SOP_PANEL_CLASS}><CardContent className="p-8 text-center text-sm font-semibold text-muted-foreground">Loading operations tracker...</CardContent></Card> : null}
@@ -2013,46 +2059,44 @@ export function SimpleOperationsClient({
   );
 
   function renderHeader() {
-    const headers: Record<SimpleOperationsView, { title: string; sub: string; icon: typeof CheckCircle2 }> = {
+    const headers: Record<SimpleOperationsView, { title: string; sub: string; icon: LucideIcon }> = {
       dashboard: { title: "Operations dashboard", sub: "Daily reminders, residential payments, and commercial hours.", icon: CheckCircle2 },
       tasks: { title: "Task reminders", sub: "Operational reminders for Jake and Carlos.", icon: Clock },
       residential: { title: "Residential payments / commercial hours", sub: "Weekly residential payments and commercial team hours tracking.", icon: WalletCards },
-      staff: { title: "Staff / Teams", sub: "Active teams, rates, and residential/commercial cleaner pipeline.", icon: Users },
+      staff: { title: "Staff / Teams", sub: "Manage team roles, areas, and payment sources.", icon: Users },
       reports: { title: "Reports", sub: "Task, hours, and weekly payment exports.", icon: FileText },
       settings: { title: "Settings", sub: "Notification setup and residential operations defaults.", icon: Settings2 },
     };
     const meta = headers[view];
     const Icon = meta.icon;
     return (
-      <section className={cn(SOP_PANEL_CLASS, "px-4 py-4 sm:px-5")}>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="flex items-center gap-2 text-xs font-semibold text-primary"><Icon className="size-4" /> Pristine Cleaners SOP</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-normal sm:text-[1.7rem]">{meta.title}</h1>
-            <p className="mt-1.5 text-sm font-medium text-muted-foreground">{meta.sub}</p>
-          </div>
-          <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+      <AppPageHeader
+        icon={Icon}
+        title={meta.title}
+        subtitle={meta.sub}
+        actions={
+          <>
             {view === "tasks" ? (
               <>
-                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays className="size-4" /> {importingMonthlySop ? "Generating..." : "Generate Monthly SOP"}</Button>
-                <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openTaskDraft()}><Plus className="size-4" /> Add reminder</Button>
+                <Button variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays /> {importingMonthlySop ? "Generating..." : "Generate Monthly SOP"}</Button>
+                <Button onClick={() => openTaskDraft()}><Plus /> Add reminder</Button>
               </>
             ) : null}
             {view === "residential" ? (
               <>
-                <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => {
+                <Button onClick={() => {
                   setCommercialPanelOpen(false);
                   const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary));
                   if (first) openPaymentModal(first, "residential");
-                }}><Plus className="size-4" /> Add residential payment</Button>
-                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
-                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={commercialPanelOpen ? exportCommercialHours : exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
+                }}><Plus /> Add residential payment</Button>
+                <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock /> Commercial hours</Button>
+                <Button variant="outline" onClick={commercialPanelOpen ? exportCommercialHours : exportWeeklyPayments}><FileDown /> Export</Button>
               </>
             ) : null}
-            {view === "staff" ? <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add cleaner</Button> : null}
-          </div>
-        </div>
-      </section>
+            {view === "staff" ? <Button onClick={() => openStaffDraft()}><Plus /> Add cleaner</Button> : null}
+          </>
+        }
+      />
     );
   }
 
@@ -2103,7 +2147,7 @@ export function SimpleOperationsClient({
             </CardHeader>
             <CardContent className="grid gap-2">
               {focusItems.map((item) => (
-                <Link className="flex items-center justify-between rounded-lg border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20" href={item.href} key={item.label}>
+                <Link className="flex items-center justify-between rounded-xl border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20" href={item.href} key={item.label}>
                   <div>
                     <p className="font-semibold">{item.label}</p>
                     <p className="text-xs font-medium text-muted-foreground">{item.tone === "warn" ? "Needs review before the day closes." : "No action needed right now."}</p>
@@ -2123,7 +2167,7 @@ export function SimpleOperationsClient({
               {pendingSummaries.length === 0 ? <div className={SOP_EMPTY_CLASS}>No pending residential payments for the selected week.</div> : null}
               {pendingSummaries.slice(0, 5).map((summary) => {
                 return (
-                  <div className="flex items-center justify-between rounded-lg border border-border/70 bg-background/65 p-3" key={summary.key}>
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={summary.key}>
                     <div>
                       <p className="font-semibold">{summary.teamName}</p>
                       <p className="text-xs font-medium text-muted-foreground">{summary.rows.length} payment rows</p>
@@ -2138,20 +2182,20 @@ export function SimpleOperationsClient({
           <Card className={SOP_PANEL_CLASS}>
             <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
               <div>
-                <CardTitle>This week residential hours</CardTitle>
+                <CardTitle>Residential payments</CardTitle>
                 <p className="mt-1 text-sm font-medium text-muted-foreground">{dateRangeLabel(currentWeek.start, currentWeek.end)}</p>
               </div>
               <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/residential">Open tracker</Link></Button>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {teamHours.length === 0 ? <div className={SOP_EMPTY_CLASS}>No work hours logged in this period.</div> : null}
-              {teamHours.slice(0, 5).map((team) => (
-                <div className="flex items-center justify-between rounded-lg border border-border/70 bg-background/65 p-3" key={team.key}>
+              {pendingSummaries.length === 0 ? <div className={SOP_EMPTY_CLASS}>No residential payments need attention.</div> : null}
+              {pendingSummaries.slice(0, 5).map((team) => (
+                <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={team.key}>
                   <div>
                     <p className="font-semibold">{team.teamName}</p>
-                    <p className="text-xs font-medium text-muted-foreground">{team.accounts.size} accounts worked</p>
+                    <p className="text-xs font-medium text-muted-foreground">{team.rows.length} payment rows</p>
                   </div>
-                  <p className="text-lg font-semibold text-primary">{formatHours(team.totalHours)}h</p>
+                  <p className="text-lg font-semibold text-primary">{formatMoney(team.paymentTotal)}</p>
                 </div>
               ))}
             </CardContent>
@@ -2221,11 +2265,9 @@ export function SimpleOperationsClient({
     const monthlySopNote = monthlySopTaskCount >= 56
       ? `${monthlySopTaskCount} tasks generated for ${visibleTaskMonth.label}`
       : selectedMonthCanGenerateSop
-        ? `Monthly SOP not generated for ${visibleTaskMonth.label}`
+        ? `0 generated for selected month`
         : "56 active SOP templates start in June 2026";
-    const calendarButtonClass = "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-border/70 bg-card px-3 text-sm font-semibold text-foreground shadow-none transition hover:border-primary/25 hover:bg-accent/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-55";
-    const taskControlButtonClass = "h-9 rounded-md px-3 text-sm font-medium text-muted-foreground transition hover:bg-accent/45 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/15";
-    const taskControlActiveClass = "bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground";
+    const calendarButtonClass = "inline-flex h-10 min-w-10 items-center justify-center rounded-xl border border-border/70 bg-card px-3 text-sm font-semibold text-foreground shadow-none transition hover:border-primary/25 hover:bg-accent/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-55";
     const taskChipClass = (task: OperationTaskRow, dayKey: string) => {
       const status = normalizeTaskStatus(task.status);
       const overdue = status === "pending" && dayKey < today;
@@ -2258,9 +2300,9 @@ export function SimpleOperationsClient({
                 {sourceDocument ? <Badge variant="outline">{sourceDocument}</Badge> : null}
                 <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status)}</Badge>
                 <div className="flex gap-1">
-                  <Button className="h-8 rounded-lg px-2.5 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-3.5" /> Mark completed</Button>
-                  <Button className="size-8" size="icon" variant="outline" aria-label="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-3.5" /></Button>
-                  <Button className="size-8 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-3.5" /></Button>
+                  <Button className="h-10 rounded-xl px-2.5 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-[18px]" /> Mark completed</Button>
+                  <Button className="size-10" size="icon" variant="outline" aria-label="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-[18px]" /></Button>
+                  <Button className="size-10 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-[18px]" /></Button>
                 </div>
               </div>
             );
@@ -2271,44 +2313,26 @@ export function SimpleOperationsClient({
 
     return (
       <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {compactMetrics.map(({ label, value, Icon, note, tone }) => (
-            <div
-              className={cn(
-                "rounded-lg border border-border/65 bg-card p-4 shadow-[0_14px_42px_-38px_hsl(215_40%_20%)]",
-                tone === "warn" && "border-amber-200 bg-amber-50/45 dark:border-amber-900 dark:bg-amber-950/15",
-                tone === "good" && "border-emerald-200/75 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/12",
-              )}
-              key={label}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold leading-none text-muted-foreground">{label}</p>
-                  <p className="mt-4 text-3xl font-semibold leading-none tracking-normal text-foreground">{value}</p>
-                  <p className="mt-3 min-h-4 truncate text-xs font-medium text-muted-foreground" title={note}>{note}</p>
-                </div>
-                <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-border/65 bg-background/70 text-primary">
-                  <Icon className="size-4" />
-                </div>
-              </div>
-            </div>
+            <MetricCard key={label} icon={Icon} label={label} value={value} note={note} tone={tone as "neutral" | "good" | "warn"} />
           ))}
         </div>
 
         {selectedMonthCanGenerateSop && monthlySopTaskCount < 56 ? (
-          <Card className="rounded-lg border-amber-200 bg-amber-50/55 shadow-none dark:border-amber-900 dark:bg-amber-950/15">
+          <Card className="rounded-xl border-amber-200 bg-amber-50/55 shadow-none dark:border-amber-900 dark:bg-amber-950/15">
             <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div>
                 <p className="font-semibold">Monthly SOP not generated for {visibleTaskMonth.label}</p>
                 <p className="mt-1 text-sm font-medium text-muted-foreground">Generate the 56 recurring SOP task instances from active Monthly SOP templates.</p>
               </div>
-              <Button className={SOP_ACTION_BUTTON_CLASS} disabled={importingMonthlySop} onClick={() => importMonthlySop(visibleTaskMonth)}><CalendarDays className="size-4" /> {importingMonthlySop ? "Generating..." : `Generate ${visibleTaskMonth.label}`}</Button>
+              <Button className={SOP_ACTION_BUTTON_CLASS} disabled={importingMonthlySop} onClick={() => importMonthlySop(visibleTaskMonth)}><CalendarDays className="size-[18px]" /> {importingMonthlySop ? "Generating..." : `Generate ${visibleTaskMonth.label}`}</Button>
             </CardContent>
           </Card>
         ) : null}
 
         {monthlySopImportSummary ? (
-          <Card className={cn("rounded-lg border shadow-none", monthlySopImportSummary.processed === monthlySopImportSummary.expected ? "border-emerald-200 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/15" : "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15")}>
+          <Card className={cn("rounded-xl border shadow-none", monthlySopImportSummary.processed === monthlySopImportSummary.expected ? "border-emerald-200 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/15" : "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15")}>
             <CardContent className="grid gap-4 p-4 lg:grid-cols-[1fr_auto] lg:items-center">
               <div className="min-w-0">
                 <p className="text-lg font-semibold leading-tight">{monthlySopImportSummary.message}</p>
@@ -2330,63 +2354,45 @@ export function SimpleOperationsClient({
           </Card>
         ) : null}
 
-        <div className="grid gap-3 rounded-lg border border-border/65 bg-card p-3 shadow-[0_14px_42px_-40px_hsl(215_40%_20%)] lg:grid-cols-[auto_1fr] lg:items-center">
+        <div className="grid gap-3 rounded-2xl border border-border/65 bg-card p-4 shadow-[0_14px_42px_-40px_hsl(215_40%_20%)] xl:grid-cols-[auto_1fr] xl:items-center">
           <div className="flex min-w-0 flex-wrap gap-2">
-            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/65 bg-background/75 p-1">
-              {(["month", "day", "list"] as TaskViewMode[]).map((mode) => (
-                <button
-                  type="button"
-                  className={cn(taskControlButtonClass, taskViewMode === mode && taskControlActiveClass)}
-                  key={mode}
-                  onClick={() => setTaskViewMode(mode)}
-                >
-                  {mode === "month" ? "Month" : mode === "day" ? "Day" : "List"}
-                </button>
-              ))}
-            </div>
-            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/65 bg-background/75 p-1">
-              {(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => (
-                <button
-                  type="button"
-                  className={cn(taskControlButtonClass, taskTab === tab && taskControlActiveClass)}
-                  key={tab}
-                  onClick={() => setTaskTab(tab)}
-                >
-                  {statusLabel(tab)} ({tabCounts[tab]})
-                </button>
-              ))}
-            </div>
+            <AppSegmentedControl ariaLabel="Task calendar view" value={taskViewMode} onChange={setTaskViewMode} options={[
+              { value: "month", label: "Month" },
+              { value: "day", label: "Day" },
+              { value: "list", label: "List" },
+            ]} />
+            <AppSegmentedControl ariaLabel="Task status filter" value={taskTab} onChange={setTaskTab} options={(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => ({ value: tab, label: `${statusLabel(tab)} (${tabCounts[tab]})` }))} />
           </div>
-          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(220px,1fr)_180px_auto]">
-            <input className="h-10 min-w-0 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary/45 focus:ring-2 focus:ring-primary/10" placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(170px,1fr))]">
+            <input className={cn(PAYMENT_FIELD_CLASS, "bg-background")} placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
             {taskViewMode === "day" ? <input className={PAYMENT_FIELD_CLASS} type="date" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
-            <select className="h-10 min-w-0 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none transition focus:border-primary/45 focus:ring-2 focus:ring-primary/10" value={taskSourceFilter} onChange={(event) => setTaskSourceFilter(event.target.value as "all" | "monthly_sop")} aria-label="Task source filter">
+            <select className={cn(PAYMENT_FIELD_CLASS, "bg-background")} value={taskSourceFilter} onChange={(event) => setTaskSourceFilter(event.target.value as "all" | "monthly_sop")} aria-label="Task source filter">
               <option value="all">All sources</option>
               <option value="monthly_sop">Monthly SOP</option>
             </select>
-            <Button className="h-10 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={() => { setTaskSearch(""); setTaskSourceFilter("all"); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw className="size-4" /> Clear</Button>
+            <Button className="w-full sm:w-auto" variant="outline" onClick={() => { setTaskSearch(""); setTaskSourceFilter("all"); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw /> Clear</Button>
           </div>
         </div>
 
-        <Card className="overflow-hidden rounded-lg border border-border/65 bg-card shadow-[0_18px_58px_-50px_hsl(215_40%_20%)]">
-          <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border/60 bg-card px-4 py-3.5 sm:px-5">
+        <Card className="overflow-hidden rounded-2xl border border-border/65 bg-card shadow-[0_18px_58px_-50px_hsl(215_40%_20%)]">
+          <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border/60 bg-card px-5 py-4">
             <div>
-              <CardTitle className="text-base font-semibold tracking-normal">{taskViewMode === "list" ? "Task list" : taskViewMode === "day" ? "Tasks by day" : "Task calendar"}</CardTitle>
+              <CardTitle className="text-xl font-semibold tracking-normal">{taskViewMode === "list" ? "Task list" : taskViewMode === "day" ? "Tasks by day" : "Task calendar"}</CardTitle>
               <p className="mt-1 text-sm font-medium text-muted-foreground">{taskViewMode === "day" ? displayDate(taskSelectedDay) : taskViewMode === "list" ? `${listTasks.length} reminders in ${visibleTaskMonth.label}` : visibleTaskMonth.label}</p>
             </div>
             <div className="flex items-center gap-1.5">
               {taskViewMode === "month" ? (
                 <>
-                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></button>
+                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-[18px]" /></button>
                   <button className={calendarButtonClass} type="button" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</button>
-                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></button>
+                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-[18px]" /></button>
                 </>
               ) : null}
               {taskViewMode === "day" ? (
                 <>
-                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-4" /></button>
+                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-[18px]" /></button>
                   <button className={calendarButtonClass} type="button" onClick={() => setTaskSelectedDay(todayKey())}>Today</button>
-                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-4" /></button>
+                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-[18px]" /></button>
                 </>
               ) : null}
             </div>
@@ -2396,15 +2402,15 @@ export function SimpleOperationsClient({
             {taskViewMode === "day" ? <div className="p-3">{renderTaskList(selectedDayTasks, "No reminders for this day.")}</div> : null}
             {taskViewMode === "month" ? (
               <>
-            <div className="grid grid-cols-7 border-b border-border/55 bg-muted/20 text-center text-[11px] font-semibold text-muted-foreground">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border/45 py-2.5 last:border-r-0" key={day}>{day}</div>)}
+            <div className="grid grid-cols-7 border-b border-border/45 bg-muted/25 text-center text-xs font-semibold text-muted-foreground">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border/35 py-3 last:border-r-0" key={day}>{day}</div>)}
             </div>
             <div className="grid grid-cols-7">
               {calendarDays.map(({ key, date, inMonth }) => {
                 const dayTasks = (tasksByDay.get(key) ?? []).slice().sort((a, b) => String(a.due_date ?? "").localeCompare(String(b.due_date ?? "")) || a.title.localeCompare(b.title));
                 const isToday = key === today;
                 return (
-                  <section className={cn("group min-h-32 border-b border-r border-border/45 bg-card/80 p-2.5 transition hover:bg-accent/10 last:border-r-0", !inMonth && "bg-muted/15 text-muted-foreground", isToday && "bg-sky-50/55 dark:bg-sky-950/20")} key={key}>
+                  <section className={cn("group min-h-32 border-b border-r border-border/35 bg-card/80 p-2.5 transition hover:bg-accent/10 last:border-r-0", !inMonth && "bg-muted/15 text-muted-foreground", isToday && "bg-primary/[0.06]")} key={key}>
                     <div className="flex items-center justify-between gap-2">
                       <button type="button" className={cn("grid size-6 place-items-center rounded-md text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20", inMonth && "text-foreground", isToday && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")} onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>{date.getDate()}</button>
                       {dayTasks.length ? <span className="rounded-full border border-border/55 bg-background px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">{dayTasks.length}</span> : null}
@@ -2414,7 +2420,7 @@ export function SimpleOperationsClient({
                         return (
                           <button
                             type="button"
-                            className={cn("rounded-md border px-2 py-1 text-left text-[11px] font-medium leading-tight shadow-none transition hover:border-primary/30 hover:bg-background", taskChipClass(task, key))}
+                            className={cn("rounded-xl border px-2 py-1.5 text-left text-xs font-medium leading-tight shadow-none transition hover:border-primary/30 hover:bg-background", taskChipClass(task, key))}
                             key={task.id}
                             onClick={() => setSelectedTask(task)}
                           >
@@ -2509,9 +2515,9 @@ export function SimpleOperationsClient({
                       <td><Badge className={statusBadgeClass(account.active === false ? "inactive" : "active")} variant="outline">{statusLabel(account.active === false ? "inactive" : "active")}</Badge></td>
                       <td className="pr-4">
                         <div className="flex justify-end gap-2">
-                          <Button size="icon" variant="outline" aria-label="Edit account" onClick={() => openAccountDraft(account)}><Edit3 className="size-4" /></Button>
-                          <Button size="icon" variant="outline" aria-label="Toggle account active" onClick={() => toggleAccount(account)}>{account.active === false ? <CheckCircle2 className="size-4" /> : <PauseCircle className="size-4" />}</Button>
-                          <Button size="icon" variant="outline" aria-label="Delete account" onClick={() => deleteAccount(account)}><Trash2 className="size-4" /></Button>
+                          <Button size="icon" variant="outline" aria-label="Edit account" onClick={() => openAccountDraft(account)}><Edit3 className="size-[18px]" /></Button>
+                          <Button size="icon" variant="outline" aria-label="Toggle account active" onClick={() => toggleAccount(account)}>{account.active === false ? <CheckCircle2 className="size-[18px]" /> : <PauseCircle className="size-[18px]" />}</Button>
+                          <Button size="icon" variant="outline" aria-label="Delete account" onClick={() => deleteAccount(account)}><Trash2 className="size-[18px]" /></Button>
                         </div>
                       </td>
                     </tr>
@@ -2552,7 +2558,7 @@ export function SimpleOperationsClient({
               </select></label>
               <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={workLogDraft.workDate} onChange={(event) => setWorkLogDraft((current) => ({ ...current, workDate: event.target.value }))} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Hours worked<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={workLogDraft.hoursWorked} onChange={(event) => setWorkLogDraft((current) => ({ ...current, hoursWorked: event.target.value }))} /></label>
-              <div className="flex items-end"><Button className="h-10 w-full rounded-lg" type="submit" disabled={savingWorkLog}><Save className="size-4" /> {savingWorkLog ? "Saving..." : "Save"}</Button></div>
+              <div className="flex items-end"><Button className="h-10 w-full rounded-xl" type="submit" disabled={savingWorkLog}><Save className="size-[18px]" /> {savingWorkLog ? "Saving..." : "Save"}</Button></div>
               <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-4")}>Notes<input className={PAYMENT_FIELD_CLASS} value={workLogDraft.notes} onChange={(event) => setWorkLogDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Status<select className={PAYMENT_FIELD_CLASS} value={workLogDraft.status} onChange={(event) => setWorkLogDraft((current) => ({ ...current, status: event.target.value as WorkLogStatus }))}>
                 <option value="pending">Pending</option>
@@ -2571,7 +2577,7 @@ export function SimpleOperationsClient({
             <CardContent className="grid gap-2">
               {teamHours.length === 0 ? <div className={SOP_EMPTY_CLASS}>No team hours in this period.</div> : null}
               {teamHours.map((team) => (
-                <div className="rounded-lg border border-border/70 bg-background/65 p-3" key={team.key}>
+                <div className="rounded-xl border border-border/70 bg-background/65 p-3" key={team.key}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-semibold">{team.teamName}</p>
@@ -2658,52 +2664,24 @@ export function SimpleOperationsClient({
     return (
       <div className="space-y-5">
         <section className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h2 className="text-2xl font-semibold tracking-normal sm:text-3xl">Residential payments / commercial hours</h2>
-              <p className="mt-1 text-sm font-medium text-muted-foreground">Weekly residential payments and commercial team hours tracking.</p>
-            </div>
-            <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" onClick={() => {
-                const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary) && !isCarlosLopez(summary.teamName));
-                if (first) openPaymentModal(first, "residential");
-              }}><Plus className="size-4" /> Add residential payment</Button>
-              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
-              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-card/80 p-2 shadow-sm">
-            <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft className="size-4" /></Button>
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3 shadow-sm">
+            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft /></Button>
             <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
-            <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight className="size-4" /></Button>
-            <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
+            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight /></Button>
+            <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
           </div>
         </section>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {weeklyMetrics.map(({ label, value, Icon, tone }) => (
-            <div
-              className={cn(
-                "min-h-[92px] rounded-lg border border-border/70 bg-card/95 p-4 shadow-[0_16px_42px_-44px_hsl(215_40%_20%)]",
-                tone === "warn" && "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15",
-                tone === "good" && "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900 dark:bg-emerald-950/15",
-              )}
-              key={label}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-                <Icon className="size-4 text-primary" />
-              </div>
-              <p className="mt-3 text-2xl font-semibold leading-none tracking-normal">{value}</p>
-            </div>
+            <MetricCard key={label} icon={Icon} label={label} value={value} tone={tone as "neutral" | "good" | "warn"} />
           ))}
         </div>
 
         {carlosPaymentSummary ? renderCarlosPaymentPanel(carlosPaymentSummary) : null}
 
-        <div className={cn(PAYMENT_PANEL_CLASS, "p-3")}>
+        <div className={cn(PAYMENT_PANEL_CLASS, "p-4")}>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2.5">
             <input aria-label="Search cleaner or city" className={PAYMENT_FIELD_CLASS} placeholder="Search cleaner or city" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
             <select className={PAYMENT_FIELD_CLASS} value={paymentCleanerFilter} onChange={(event) => setPaymentCleanerFilter(event.target.value)} aria-label="Cleaner filter">
@@ -2725,10 +2703,11 @@ export function SimpleOperationsClient({
               {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
               {cityFilterOptions.filter((city) => !ORANGE_COUNTY_CITIES.includes(city as (typeof ORANGE_COUNTY_CITIES)[number])).map((city) => <option key={city} value={city}>{city}</option>)}
             </select>
-            <label className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm font-semibold">
+            <label className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-input bg-background px-3.5 text-sm font-semibold">
               <input type="checkbox" checked={showAllPaymentCleaners} onChange={(event) => setShowAllPaymentCleaners(event.target.checked)} />
               Show all cleaners
             </label>
+            <Button variant="outline" onClick={() => { setPaymentFilter(""); setPaymentCleanerFilter("all"); setPaymentKindFilter("all"); setPaymentStatusFilter("all"); setPaymentCityFilter("all"); setShowAllPaymentCleaners(true); }}><RotateCcw /> Clear</Button>
           </div>
         </div>
 
@@ -2756,24 +2735,24 @@ export function SimpleOperationsClient({
     const paid = row?.status === "paid";
 
     return (
-      <Card className="rounded-lg border-emerald-200 bg-emerald-50/45 shadow-[0_18px_50px_-46px_hsl(215_40%_20%)] dark:border-emerald-900 dark:bg-emerald-950/15">
-        <CardContent className="grid gap-3 p-4 lg:grid-cols-[1.1fr_.8fr_.8fr_auto]">
+      <Card className="rounded-2xl border-emerald-200 bg-emerald-50/45 shadow-[0_18px_50px_-46px_hsl(215_40%_20%)] dark:border-emerald-900 dark:bg-emerald-950/15">
+        <CardContent className="grid gap-4 p-5 lg:grid-cols-[1.1fr_.8fr_.8fr_auto]">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-muted-foreground">Operations manager</p>
             <h3 className="mt-1 text-lg font-semibold tracking-normal">Carlos Lopez</h3>
             <div className="mt-2 flex flex-wrap gap-2">
               <Badge className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-900" variant="outline">{paid ? "Paid" : "Pending"}</Badge>
-              <Badge className="rounded-full bg-background text-muted-foreground" variant="outline">Weekly payment</Badge>
+              <Badge className="rounded-full bg-background text-muted-foreground" variant="outline">Weekly admin payment</Badge>
             </div>
           </div>
           <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
-            Weekly payment
+            Weekly admin payment
             <input className={cn(PAYMENT_FIELD_CLASS, "border-emerald-200 bg-background")} inputMode="decimal" min="0" type="number" value={weeklyPaymentValue} onChange={(event) => setCarlosWeeklyPayment(event.target.value)} placeholder="$0.00" />
           </label>
           <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
-            Overtime hours
+            Overtime notes
             <input className={cn(PAYMENT_FIELD_CLASS, "border-emerald-200 bg-background")} inputMode="decimal" min="0" step="0.5" type="number" value={overtimeHoursValue} onChange={(event) => setCarlosOvertimeHours(event.target.value)} placeholder="0" />
-            <span className="text-[11px] font-medium normal-case text-muted-foreground">{formatMoney(overtimeAmount)} at $7/hr</span>
+            {overtimeHours ? <span className="text-xs font-medium text-muted-foreground">{formatMoney(overtimeAmount)} overtime add-on</span> : null}
           </label>
           <div className="flex flex-wrap items-end justify-between gap-2 lg:justify-end">
             <div>
@@ -2781,8 +2760,8 @@ export function SimpleOperationsClient({
               <p className="mt-1 text-2xl font-semibold">{formatMoney(total)}</p>
             </div>
             <div className="flex gap-2">
-              {row ? <Button className="rounded-lg" size="sm" variant="outline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, paid ? "pending" : "paid")}>{paid ? "Pending" : "Paid"}</Button> : null}
-              <Button className="rounded-lg" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)}><Save className="size-4" /> Save</Button>
+              {row ? <Button className="rounded-xl" size="sm" variant="outline" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, paid ? "pending" : "paid")}>{paid ? "Pending" : "Paid"}</Button> : null}
+              <Button className="rounded-xl" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)}><Save className="size-[18px]" /> Save</Button>
             </div>
           </div>
         </CardContent>
@@ -2800,7 +2779,7 @@ export function SimpleOperationsClient({
     const overtimeAmount = roundHours(toNumber(carlosOvertimeHours) * CARLOS_OVERTIME_RATE);
 
     return (
-      <Card className={cn("overflow-hidden rounded-lg border-border/70 bg-card shadow-[0_18px_50px_-46px_hsl(215_40%_20%)]", mixed ? "border-amber-200 bg-amber-50/15 dark:border-amber-900 dark:bg-amber-950/10" : carlos ? "border-emerald-200 bg-emerald-50/20 dark:border-emerald-900 dark:bg-emerald-950/10" : "")} key={summary.key}>
+      <Card className={cn("overflow-hidden rounded-xl border-border/70 bg-card shadow-[0_18px_50px_-46px_hsl(215_40%_20%)]", mixed ? "border-amber-200 bg-amber-50/15 dark:border-amber-900 dark:bg-amber-950/10" : carlos ? "border-emerald-200 bg-emerald-50/20 dark:border-emerald-900 dark:bg-emerald-950/10" : "")} key={summary.key}>
         <CardHeader className="px-4 pb-3 pt-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -2810,11 +2789,11 @@ export function SimpleOperationsClient({
                 <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(paymentSummaryStatus(summary)))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
               </div>
             </div>
-            <Button className="h-8 rounded-lg px-2.5 text-xs font-semibold" size="sm" variant="outline" onClick={() => mixed ? openJuanPaymentModal() : openPaymentModal(summary, "residential")}><Plus className="size-3.5" /> Row</Button>
+            <Button className="h-10 rounded-xl px-2.5 text-xs font-semibold" size="sm" variant="outline" onClick={() => mixed ? openJuanPaymentModal() : openPaymentModal(summary, "residential")}><Plus className="size-[18px]" /> Row</Button>
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-4 pt-0">
-          <div className="overflow-hidden rounded-lg border border-border/70 bg-background/60">
+          <div className="overflow-hidden rounded-xl border border-border/70 bg-background/60">
             <div className="overflow-x-auto">
               <table className={cn("sop-table w-full min-w-[360px] table-fixed border-separate border-spacing-0 text-[13px]", mixed && "min-w-[520px]")}>
                 <thead>
@@ -2835,10 +2814,10 @@ export function SimpleOperationsClient({
                         <div className="mt-2 flex items-center gap-1.5">
                           <Badge className={cn("rounded-full px-2 py-0 text-[10px] font-semibold", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
                           <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openJuanPaymentModal(row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-3.5" /></button>
-                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-3.5" /></button>
-                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-700")} aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><Check className="size-3.5" /></button>
-                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-rose-700")} aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-3.5" /></button>
+                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openJuanPaymentModal(row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-[18px]" /></button>
+                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-[18px]" /></button>
+                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-700")} aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><Check className="size-[18px]" /></button>
+                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-rose-700")} aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-[18px]" /></button>
                           </div>
                         </div>
                       </td>
@@ -2871,23 +2850,23 @@ export function SimpleOperationsClient({
               <span>Pending {formatMoney(pending)}</span>
             </div>
             {carlos ? (
-              <div className="grid gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-950 md:grid-cols-[1fr_auto]">
+              <div className="grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-950 md:grid-cols-[1fr_auto]">
                 <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
                   Overtime hours
-                  <input className="h-9 rounded-lg border border-emerald-200 bg-white px-2 text-sm font-semibold normal-case text-slate-950" inputMode="decimal" min="0" step="0.5" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
+                  <input className="h-10 rounded-xl border border-emerald-200 bg-white px-2 text-sm font-semibold normal-case text-slate-950" inputMode="decimal" min="0" step="0.5" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
                 </label>
-                <Button className="self-end rounded-lg" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
+                <Button className="self-end rounded-xl" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
               </div>
             ) : null}
             {mixed && summary.rows.length > 0 ? (
-              <Button className="h-9 justify-center rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
-                <Trash2 className="size-3.5" /> Clear Juan total
+              <Button className="h-10 justify-center rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
+                <Trash2 className="size-[18px]" /> Clear Juan total
               </Button>
             ) : null}
             <div className="grid grid-cols-3 gap-2">
-              <Button className="h-9 rounded-lg px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-3.5" /> Verified</Button>
-              <Button className="h-9 rounded-lg px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-3.5" /> Paid</Button>
-              <Button className="h-9 rounded-lg px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}><Clock className="size-3.5" /> Pending</Button>
+              <Button className="h-10 rounded-xl px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-[18px]" /> Verified</Button>
+              <Button className="h-10 rounded-xl px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-[18px]" /> Paid</Button>
+              <Button className="h-10 rounded-xl px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}><Clock className="size-[18px]" /> Pending</Button>
             </div>
           </div>
         </CardContent>
@@ -2906,7 +2885,7 @@ export function SimpleOperationsClient({
                 <h2 className="text-lg font-semibold tracking-normal">Commercial hours</h2>
                 <p className="mt-1 text-sm font-medium text-muted-foreground">Add or update eligible commercial team hours.</p>
               </div>
-              <button type="button" className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
+              <button type="button" className="grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-[18px]" /></button>
             </div>
             <div className="p-5">{renderCommercialHoursForm()}</div>
           </div>
@@ -2923,7 +2902,7 @@ export function SimpleOperationsClient({
                 <h2 className="text-lg font-semibold tracking-normal">Configure commercial schedule</h2>
                 <p className="mt-1 text-sm font-medium text-muted-foreground">Set structured service days and paid hours for an account.</p>
               </div>
-              <button type="button" className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close schedule modal" onClick={() => setPaymentModalMode(null)}><X className="size-4" /></button>
+              <button type="button" className="grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close schedule modal" onClick={() => setPaymentModalMode(null)}><X className="size-[18px]" /></button>
             </div>
             <form className="grid gap-5 p-5" onSubmit={saveCommercialSchedule}>
               <div className="grid gap-3 md:grid-cols-2">
@@ -2953,7 +2932,7 @@ export function SimpleOperationsClient({
                   const dayKey = String(index);
                   const selected = commercialScheduleDraft.selectedDays.includes(dayKey);
                   return (
-                    <label className="grid gap-2 rounded-lg border border-border/70 bg-background/70 p-3 text-sm font-semibold" key={day}>
+                    <label className="grid gap-2 rounded-xl border border-border/70 bg-background/70 p-3 text-sm font-semibold" key={day}>
                       <span className="flex items-center gap-2"><input type="checkbox" checked={selected} onChange={(event) => {
                         setCommercialScheduleDraft((current) => ({
                           ...current,
@@ -2967,8 +2946,8 @@ export function SimpleOperationsClient({
               </div>
               <label className={PAYMENT_LABEL_CLASS}>Notes<input className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.notes} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, notes: event.target.value })} /></label>
               <div className="flex justify-end gap-2 border-t border-border/70 pt-4">
-                <Button className="rounded-lg" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
-                <Button className="rounded-lg" disabled={savingPaymentKey === "commercial-schedule"} type="submit"><Save className="size-4" /> Save schedule</Button>
+                <Button className="rounded-xl" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
+                <Button className="rounded-xl" disabled={savingPaymentKey === "commercial-schedule"} type="submit"><Save className="size-[18px]" /> Save schedule</Button>
               </div>
             </form>
           </div>
@@ -2987,7 +2966,7 @@ export function SimpleOperationsClient({
               <h2 className="text-lg font-semibold tracking-normal">{mixed ? "Add Juan payment row" : carlos ? "Add Carlos Lopez payment" : "Add residential payment"}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">{mixed ? "Residential and commercial amounts stay separated." : "Quick entry for a residential payment row."}</p>
             </div>
-            <button type="button" className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-4" /></button>
+            <button type="button" className="grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-[18px]" /></button>
           </div>
           <div className="grid gap-3 p-5 md:grid-cols-2">
             <label className={PAYMENT_LABEL_CLASS}>Cleaner<select className={PAYMENT_FIELD_CLASS} value={summary.key} onChange={(event) => {
@@ -3017,8 +2996,8 @@ export function SimpleOperationsClient({
             <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-2")}>Notes<input className={PAYMENT_FIELD_CLASS} value={draft.notes} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, notes: event.target.value })} /></label>
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
-            <Button className="rounded-lg" variant="outline" onClick={closePaymentModal}>Cancel</Button>
-            <Button className="rounded-lg" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-4" /> {draft.id ? "Update row" : "Save row"}</Button>
+            <Button className="rounded-xl" variant="outline" onClick={closePaymentModal}>Cancel</Button>
+            <Button className="rounded-xl" disabled={savingPaymentKey === summary.key} onClick={() => savePaymentRow(summary)}><Save className="size-[18px]" /> {draft.id ? "Update row" : "Save row"}</Button>
           </div>
         </div>
       </div>
@@ -3057,12 +3036,12 @@ export function SimpleOperationsClient({
           <option value="paid">Paid</option>
           <option value="skipped">No eligible service</option>
         </select></label>
-        <label className="flex h-10 items-center gap-2 self-end rounded-lg border border-input bg-background px-3 text-sm font-semibold"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
+        <label className="flex h-10 items-center gap-2 self-end rounded-xl border border-input bg-background px-3 text-sm font-semibold"><input type="checkbox" checked={commercialHoursDraft.verified} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, verified: event.target.checked })} /> Verified</label>
         <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-2 xl:col-span-3")}>Notes<input className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
-        {lucia ? <div className="self-end rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
+        {lucia ? <div className="self-end rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
         <div className="flex justify-end gap-2 border-t border-border/70 pt-4 md:col-span-2 xl:col-span-4">
-          <Button className="rounded-lg" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
-          <Button className="rounded-lg" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-4" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
+          <Button className="rounded-xl" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
+          <Button className="rounded-xl" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-[18px]" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
         </div>
       </form>
     );
@@ -3074,37 +3053,37 @@ export function SimpleOperationsClient({
     return (
       <div className="space-y-5">
         <section className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-border/70 bg-card/80 p-4">
             <div>
-              <h2 className="text-2xl font-semibold tracking-normal sm:text-3xl">Commercial hours</h2>
+              <h2 className="text-2xl font-semibold tracking-normal">Commercial hours</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">Track commercial team hours by account, schedule, and pay period.</p>
             </div>
             <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
-              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
-              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure</Button>
-              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
+              <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft /> Residential payments</Button>
+              <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus /> Add commercial hours</Button>
+              <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 /> Configure</Button>
+              <Button variant="outline" onClick={exportCommercialHours}><FileDown /> Export</Button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-card/80 p-2 shadow-sm">
-            <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft className="size-4" /></Button>
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3 shadow-sm">
+            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft /></Button>
             <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(commercialRange.start, commercialRange.end)}</div>
-            <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7)))}><ChevronRight className="size-4" /></Button>
-            <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setCommercialDateMenuOpen(false); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
+            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7)))}><ChevronRight /></Button>
+            <Button variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setCommercialDateMenuOpen(false); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
             <div className="relative">
-              <Button className="h-9 rounded-lg px-3 text-sm font-semibold" variant="outline" size="sm" onClick={() => setCommercialDateMenuOpen((open) => !open)}>
-                <CalendarDays className="size-4" /> Date range
+              <Button variant="outline" size="sm" onClick={() => setCommercialDateMenuOpen((open) => !open)}>
+                <CalendarDays /> Date range
               </Button>
               {commercialDateMenuOpen ? (
-                <div className="absolute right-0 z-20 mt-2 w-[290px] rounded-lg border border-border/70 bg-card p-3 shadow-xl">
+                <div className="absolute right-0 z-20 mt-2 w-[290px] rounded-xl border border-border/70 bg-card p-3 shadow-xl">
                   <div className="grid gap-3">
                     <label className={PAYMENT_LABEL_CLASS}>From<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialCustomStart} onChange={(event) => setCommercialCustomStart(event.target.value)} /></label>
                     <label className={PAYMENT_LABEL_CLASS}>To<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialCustomEnd} onChange={(event) => setCommercialCustomEnd(event.target.value)} /></label>
                     <div className="flex justify-end gap-2">
-                      <Button className="rounded-lg" variant="outline" size="sm" type="button" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear</Button>
-                      <Button className="rounded-lg" size="sm" type="button" onClick={() => setCommercialDateMenuOpen(false)}>Apply</Button>
+                      <Button className="rounded-xl" variant="outline" size="sm" type="button" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear</Button>
+                      <Button className="rounded-xl" size="sm" type="button" onClick={() => setCommercialDateMenuOpen(false)}>Apply</Button>
                     </div>
                   </div>
                 </div>
@@ -3156,7 +3135,7 @@ export function SimpleOperationsClient({
   function renderCommercialHoursCard(lucia: StaffMemberRow | undefined) {
     const emptyCommercialText = commercialRowsInWeek.length === 0 ? "No eligible cleanings before this pay date." : "No commercial hours match these filters.";
     return (
-      <Card className="overflow-hidden rounded-lg border-border/70 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]">
+      <Card className="overflow-hidden rounded-xl border-border/70 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]">
         <CardHeader className="border-b border-border/70 bg-background/55 px-5 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -3174,7 +3153,7 @@ export function SimpleOperationsClient({
               const rules = commercialScheduleRules.filter((rule) => rule.commercial_account_id === account.id);
               const hasSchedule = rules.some((rule) => rule.active !== false);
               return (
-                <article className="rounded-lg border border-border/70 bg-background/70 p-3 text-sm" key={account.id}>
+                <article className="rounded-xl border border-border/70 bg-background/70 p-3 text-sm" key={account.id}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-foreground" title={account.name}>{account.name}</p>
@@ -3182,17 +3161,17 @@ export function SimpleOperationsClient({
                     </div>
                     <Badge className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", hasSchedule ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-border bg-card text-muted-foreground")} variant="outline">{hasSchedule ? "Scheduled" : "Needs setup"}</Badge>
                   </div>
-                  <Button className="mt-3 h-8 w-full rounded-lg text-xs font-semibold" size="sm" variant="outline" onClick={() => {
+                  <Button className="mt-3 h-10 w-full rounded-xl text-xs font-semibold" size="sm" variant="outline" onClick={() => {
                     setCommercialScheduleDraft({ ...EMPTY_COMMERCIAL_SCHEDULE_DRAFT, accountId: account.id, effectiveFrom: todayKey() });
                     setPaymentModalMode("commercial_schedule");
-                  }}><Settings2 className="size-3.5" /> Configure</Button>
+                  }}><Settings2 className="size-[18px]" /> Configure</Button>
                 </article>
               );
             })}
-            {lucia ? <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
+            {lucia ? <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-border/70">
+          <div className="overflow-hidden rounded-xl border border-border/70">
             <div className="overflow-auto">
               <table className="sop-table w-full min-w-[980px] border-separate border-spacing-0 text-sm">
                 <thead>
@@ -3225,9 +3204,9 @@ export function SimpleOperationsClient({
                         <td className="border-b border-border/60 px-4 py-3"><Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">{statusLabel(entry.status ?? "scheduled")}</Badge></td>
                         <td className="border-b border-border/60 px-4 py-3">
                           <div className="flex justify-end gap-2">
-                            <Button className="size-8 rounded-lg" size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-3.5" /></Button>
-                            <Button className="size-8 rounded-lg" size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-3.5" /></Button>
-                            <Button className="size-8 rounded-lg" size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-3.5" /></Button>
+                            <Button className="size-10 rounded-xl" size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-[18px]" /></Button>
+                            <Button className="size-10 rounded-xl" size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-[18px]" /></Button>
+                            <Button className="size-10 rounded-xl" size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-[18px]" /></Button>
                           </div>
                         </td>
                       </tr>
@@ -3257,18 +3236,18 @@ export function SimpleOperationsClient({
 
   function renderPotentialCleanerColumn(title: string, people: StaffMemberRow[], teamScope: StaffTeamScope) {
     return (
-      <div className="rounded-lg border border-border/70 bg-background/60 p-3">
+      <div className="rounded-xl border border-border/70 bg-background/60 p-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold">{title}</h3>
             <p className="mt-1 text-xs font-medium text-muted-foreground">{people.length} potential cleaner{people.length === 1 ? "" : "s"}</p>
           </div>
-          <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openPotentialCleanerDraft(teamScope)}><Plus className="size-4" /> Add</Button>
+          <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openPotentialCleanerDraft(teamScope)}><Plus className="size-[18px]" /> Add</Button>
         </div>
         <div className="mt-3 grid gap-2">
           {people.length === 0 ? <div className={SOP_EMPTY_CLASS}>No potential cleaners listed.</div> : null}
           {people.map((person) => (
-            <article className="rounded-lg border border-border/60 bg-card/70 p-3" key={person.id}>
+            <article className="rounded-xl border border-border/60 bg-card/70 p-3" key={person.id}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h4 className="truncate font-semibold">{person.name}</h4>
@@ -3281,7 +3260,7 @@ export function SimpleOperationsClient({
                 <Badge variant="outline">{staffScopeLabel(staffScope(person))}</Badge>
               </div>
               <div className="mt-3 flex justify-end">
-                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(person)}><Edit3 className="size-4" /> Edit</Button>
+                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(person)}><Edit3 className="size-[18px]" /> Edit</Button>
               </div>
             </article>
           ))}
@@ -3312,15 +3291,18 @@ export function SimpleOperationsClient({
         person.status,
       ].filter(Boolean).join(" ").toLowerCase().includes(search);
     });
+    const activeResidentialCleaners = staffDirectory.filter((person) => staffIsActive(person) && staffScope(person) === "residential").length;
+    const activeCommercialCleaners = staffDirectory.filter((person) => staffIsActive(person) && staffScope(person) === "commercial").length;
+    const mixedRouteCleaners = staffDirectory.filter((person) => staffIsActive(person) && staffScope(person) === "mixed").length;
 
     return (
       <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <MetricCard icon={UserRoundCheck} label="Operations leads" value={operationsLeads.length} />
-          <MetricCard icon={Users} label="Active teams" value={activeTeams.length} />
-          <MetricCard icon={BadgeCheck} label="Potential cleaners" value={potentialCleaners.length} note="Residential and commercial" />
-          <MetricCard icon={Clock} label="Logged hours" value={formatHours(workLogs.reduce((sum, log) => sum + toNumber(log.hours_worked), 0))} />
-          <MetricCard icon={WalletCards} label="Paid weekly payments" value={weeklyPayments.filter((payment) => payment.status === "paid").length} />
+          <MetricCard icon={Users} label="Active residential cleaners" value={activeResidentialCleaners} />
+          <MetricCard icon={BadgeCheck} label="Active commercial cleaners" value={activeCommercialCleaners} />
+          <MetricCard icon={Clock} label="Mixed route cleaners" value={mixedRouteCleaners} />
+          <MetricCard icon={WalletCards} label="Active teams" value={activeTeams.length} />
         </div>
 
         <Card className={SOP_PANEL_CLASS}>
@@ -3331,7 +3313,7 @@ export function SimpleOperationsClient({
             {operationsLeads.map((person) => {
               const personStatus = staffIsActive(person) ? "active" : "inactive";
               return (
-                <article className="rounded-lg border border-border/70 bg-background/65 p-4" key={person.id}>
+                <article className="rounded-xl border border-border/70 bg-background/65 p-4" key={person.id}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h3 className="truncate font-semibold">{person.name}</h3>
@@ -3362,10 +3344,10 @@ export function SimpleOperationsClient({
               <CardTitle>Cleaner directory</CardTitle>
               <p className="mt-1 text-sm font-medium text-muted-foreground">Role, area, status, and current payroll context for every cleaner profile.</p>
             </div>
-            <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-4" /> Add cleaner</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-[18px]" /> Add cleaner</Button>
           </CardHeader>
           <CardContent className="grid gap-3">
-            <div className={cn(PAYMENT_PANEL_CLASS, "grid gap-2 p-3 md:grid-cols-[1fr_160px_150px_auto]")}>
+            <div className={cn(PAYMENT_PANEL_CLASS, "grid gap-2 p-4 md:grid-cols-[1fr_170px_160px_auto]")}>
               <input className={PAYMENT_FIELD_CLASS} placeholder="Search team member, role, email" value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} />
               <select className={PAYMENT_FIELD_CLASS} value={staffScopeFilter} onChange={(event) => setStaffScopeFilter(event.target.value as "all" | StaffTeamScope)} aria-label="Staff area filter">
                 <option value="all">All areas</option>
@@ -3378,17 +3360,15 @@ export function SimpleOperationsClient({
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </select>
-              <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => { setStaffSearch(""); setStaffScopeFilter("all"); setStaffStatusFilter("all"); }}><RotateCcw className="size-4" /> Clear</Button>
+              <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => { setStaffSearch(""); setStaffScopeFilter("all"); setStaffStatusFilter("all"); }}><RotateCcw className="size-[18px]" /> Clear</Button>
             </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filteredStaffDirectory.length === 0 ? <div className={cn(SOP_EMPTY_CLASS, "md:col-span-2 xl:col-span-3")}>No team members found.</div> : null}
             {filteredStaffDirectory.map((team) => {
-              const hours = workLogs.filter((log) => log.team_id === team.id || log.team_name === team.name).reduce((sum, log) => sum + toNumber(log.hours_worked), 0);
-              const paid = weeklyPaymentRows.filter((payment) => (payment.cleaner_id === team.id || payment.cleaner_name === team.name) && payment.status === "paid").reduce((sum, payment) => sum + paymentLineTotal(payment), 0);
               const teamStatus = normalizeStaffStatus(team);
               const teamScope = staffScope(team);
               return (
-                <article className="flex min-h-[188px] flex-col rounded-lg border border-border/70 bg-background/65 p-4" key={team.id}>
+                <article className="flex min-h-[188px] flex-col rounded-xl border border-border/70 bg-background/65 p-4" key={team.id}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h3 className="truncate font-semibold">{team.name}</h3>
@@ -3397,25 +3377,25 @@ export function SimpleOperationsClient({
                     <Badge className={statusBadgeClass(teamStatus)} variant="outline">{statusLabel(teamStatus)}</Badge>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                    <div className="rounded-lg border border-border/60 bg-card/70 px-3 py-2">
+                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
                       <p className="text-[11px] font-semibold text-muted-foreground">Role</p>
                       <p className="mt-1 truncate font-semibold" title={displayStaffRole(team)}>{displayStaffRole(team)}</p>
                     </div>
-                    <div className="rounded-lg border border-border/60 bg-card/70 px-3 py-2">
+                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
                       <p className="text-[11px] font-semibold text-muted-foreground">Area</p>
                       <p className="mt-1 font-semibold">{staffScopeLabel(teamScope)}</p>
                     </div>
-                    <div className="rounded-lg border border-border/60 bg-card/70 px-3 py-2">
-                      <p className="text-[11px] font-semibold text-muted-foreground">Hours</p>
-                      <p className="mt-1 font-semibold">{formatHours(hours)}</p>
+                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">Pay method</p>
+                      <p className="mt-1 font-semibold">{teamScope === "commercial" ? "Commercial hours" : teamScope === "mixed" ? "Mixed payments" : "Per house/service"}</p>
                     </div>
-                    <div className="rounded-lg border border-border/60 bg-card/70 px-3 py-2">
-                      <p className="text-[11px] font-semibold text-muted-foreground">Paid</p>
-                      <p className="mt-1 font-semibold">{formatMoney(paid)}</p>
+                    <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-muted-foreground">Source</p>
+                      <p className="mt-1 font-semibold">{teamScope === "commercial" ? "Commercial hours" : teamScope === "mixed" ? "Residential payments + commercial hours" : "Residential payments"}</p>
                     </div>
                   </div>
                   <div className="mt-auto flex gap-2 pt-4">
-                    <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(team)}><Edit3 className="size-4" /> Edit</Button>
+                    <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(team)}><Edit3 className="size-[18px]" /> Edit</Button>
                   </div>
                 </article>
               );
@@ -3442,7 +3422,7 @@ export function SimpleOperationsClient({
               </select>
               <PeriodSegment value={periodMode} onChange={setPeriodMode} />
             </div>
-            <Button className={SOP_ACTION_BUTTON_CLASS} onClick={exportCurrentReport}><FileSpreadsheet className="size-4" /> Export current report</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} onClick={exportCurrentReport}><FileSpreadsheet className="size-[18px]" /> Export current report</Button>
           </CardContent>
         </Card>
         <div className="grid gap-3 md:grid-cols-4">
@@ -3495,7 +3475,7 @@ export function SimpleOperationsClient({
           </CardHeader>
           <CardContent className="grid gap-2">
             {rows.map((row) => (
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/65 px-3 py-2.5" key={row.env}>
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/65 px-3 py-2.5" key={row.env}>
                 <div>
                   <p className="text-sm font-semibold">{row.label}</p>
                   <p className="text-xs font-medium text-muted-foreground">{row.env}</p>
@@ -3519,7 +3499,7 @@ export function SimpleOperationsClient({
                 "Records are archived instead of removed from operating history",
                 "Cleaner details are managed from Staff / Teams",
                 "Juan Romero uses the mixed residential and commercial payment format",
-              ].map((row) => <div className="rounded-lg border border-border/70 bg-background/65 px-3 py-2.5 text-sm font-medium text-muted-foreground" key={row}>{row}</div>)}
+              ].map((row) => <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5 text-sm font-medium text-muted-foreground" key={row}>{row}</div>)}
             </CardContent>
           </Card>
           <Card className={SOP_PANEL_CLASS}>
@@ -3527,9 +3507,9 @@ export function SimpleOperationsClient({
               <CardTitle>System scope</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 text-sm font-medium text-muted-foreground">
-              <div className="rounded-lg border border-border/70 bg-background/65 px-3 py-2.5">Navigation follows the signed-in role and access scope.</div>
-              <div className="rounded-lg border border-border/70 bg-background/65 px-3 py-2.5">Legacy routes redirect into the active SOP workspace.</div>
-              <div className="rounded-lg border border-border/70 bg-background/65 px-3 py-2.5">Sensitive values stay in environment variables.</div>
+              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">Navigation follows the signed-in role and access scope.</div>
+              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">Legacy routes redirect into the active SOP workspace.</div>
+              <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5">Sensitive values stay in environment variables.</div>
             </CardContent>
           </Card>
         </div>
@@ -3547,7 +3527,7 @@ export function SimpleOperationsClient({
               <h2 className="text-lg font-semibold tracking-normal">{taskDraft.id ? "Edit reminder" : "Add reminder"}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">Keep operational follow-ups clear and assigned.</p>
             </div>
-            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close task modal" disabled={savingTask} onClick={() => setTaskDraft(null)}><X className="size-4" /></button>
+            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close task modal" disabled={savingTask} onClick={() => setTaskDraft(null)}><X className="size-[18px]" /></button>
           </div>
           <div className="grid gap-4 p-5">
             <label className={PAYMENT_LABEL_CLASS}>Title<input className={PAYMENT_FIELD_CLASS} value={taskDraft.title} onChange={(event) => setTaskDraft({ ...taskDraft, title: event.target.value })} /></label>
@@ -3575,7 +3555,7 @@ export function SimpleOperationsClient({
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
             <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingTask} onClick={() => setTaskDraft(null)}>Cancel</Button>
-            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingTask}><Save className="size-4" /> {savingTask ? "Saving..." : "Save reminder"}</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingTask}><Save className="size-[18px]" /> {savingTask ? "Saving..." : "Save reminder"}</Button>
           </div>
         </form>
       </div>
@@ -3597,7 +3577,7 @@ export function SimpleOperationsClient({
               <h2 className="mt-2 text-2xl font-semibold tracking-normal">{selectedTask.title}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">{selectedTask.assignee ?? "Unassigned"} · {displayDate(selectedTask.due_date)}</p>
             </div>
-            <button type="button" className={SOP_CLOSE_BUTTON_CLASS} aria-label="Close task detail" onClick={() => setSelectedTask(null)}><X className="size-4" /></button>
+            <button type="button" className={SOP_CLOSE_BUTTON_CLASS} aria-label="Close task detail" onClick={() => setSelectedTask(null)}><X className="size-[18px]" /></button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Badge className={statusBadgeClass(selectedStatus)} variant="outline">{statusLabel(selectedStatus)}</Badge>
@@ -3607,12 +3587,12 @@ export function SimpleOperationsClient({
           </div>
         </div>
         <div className="space-y-5 p-5">
-          {sourceSection ? <section className="rounded-lg border border-border/70 bg-background/65 p-3 text-sm font-medium text-muted-foreground">Source section: {sourceSection}</section> : null}
-          <section className="rounded-lg border border-border/70 bg-background/65 p-4 text-sm font-medium text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
+          {sourceSection ? <section className="rounded-xl border border-border/70 bg-background/65 p-3 text-sm font-medium text-muted-foreground">Source section: {sourceSection}</section> : null}
+          <section className="rounded-xl border border-border/70 bg-background/65 p-4 text-sm font-medium text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
           <div className="flex flex-wrap gap-2">
-            <Button className={SOP_ACTION_BUTTON_CLASS} disabled={selectedStatus === "completed" || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-4" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark completed"}</Button>
-            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => openTaskDraft(selectedTask)}><Edit3 className="size-4" /> Edit</Button>
-            <Button className={cn(SOP_ACTION_BUTTON_CLASS, "border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800")} variant="outline" disabled={deletingTaskId === selectedTask.id} onClick={() => deleteTask(selectedTask)}><Trash2 className="size-4" /> Delete</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} disabled={selectedStatus === "completed" || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-[18px]" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark completed"}</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => openTaskDraft(selectedTask)}><Edit3 className="size-[18px]" /> Edit</Button>
+            <Button className={cn(SOP_ACTION_BUTTON_CLASS, "border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800")} variant="outline" disabled={deletingTaskId === selectedTask.id} onClick={() => deleteTask(selectedTask)}><Trash2 className="size-[18px]" /> Delete</Button>
           </div>
           <section>
             <h3 className="font-semibold">Activity log</h3>
@@ -3622,7 +3602,7 @@ export function SimpleOperationsClient({
                 const reason = typeof item.details?.reason === "string" ? item.details.reason : null;
                 const messageText = typeof item.details?.message === "string" ? item.details.message : null;
                 return (
-                  <div className="rounded-lg border border-border/70 bg-background/65 p-3 text-sm" key={item.id}>
+                  <div className="rounded-xl border border-border/70 bg-background/65 p-3 text-sm" key={item.id}>
                     <strong>{actionLabel(item.action)}{reason ? ` - ${reason}` : ""}</strong>
                     {messageText && !reason ? <p className="mt-1 text-xs font-medium text-muted-foreground">{messageText}</p> : null}
                     <p className="mt-1 text-xs font-medium text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p>
@@ -3647,7 +3627,7 @@ export function SimpleOperationsClient({
               <h2 className="text-lg font-semibold tracking-normal">{accountDraft.id ? "Edit residential account" : "Add residential account"}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">Recurring residential cleaning setup.</p>
             </div>
-            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close account modal" disabled={savingAccount} onClick={() => setAccountDraft(null)}><X className="size-4" /></button>
+            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close account modal" disabled={savingAccount} onClick={() => setAccountDraft(null)}><X className="size-[18px]" /></button>
           </div>
           <div className="grid gap-4 p-5">
             <div className="grid gap-3 md:grid-cols-2">
@@ -3673,7 +3653,7 @@ export function SimpleOperationsClient({
               </select></label>
             </div>
             <label className={PAYMENT_LABEL_CLASS}>Notes<textarea className={cn(PAYMENT_FIELD_CLASS, "h-auto min-h-20 py-2 font-medium normal-case")} value={accountDraft.notes} onChange={(event) => setAccountDraft({ ...accountDraft, notes: event.target.value })} /></label>
-            <div className="grid gap-2 rounded-lg border border-border/70 bg-background/65 p-3 text-sm md:grid-cols-3">
+            <div className="grid gap-2 rounded-xl border border-border/70 bg-background/65 p-3 text-sm md:grid-cols-3">
               <span className="font-semibold">{formatHours(totals.weekly)} hours/week</span>
               <span className="font-semibold">{formatHours(totals.biweekly)} hours/2 weeks</span>
               <span className="font-semibold">{formatHours(totals.monthly)} hours/month</span>
@@ -3681,7 +3661,7 @@ export function SimpleOperationsClient({
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
             <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingAccount} onClick={() => setAccountDraft(null)}>Cancel</Button>
-            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingAccount}><Save className="size-4" /> {savingAccount ? "Saving..." : "Save account"}</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingAccount}><Save className="size-[18px]" /> {savingAccount ? "Saving..." : "Save account"}</Button>
           </div>
         </form>
       </div>
@@ -3698,7 +3678,7 @@ export function SimpleOperationsClient({
               <h2 className="text-lg font-semibold tracking-normal">{staffDraft.id ? "Edit cleaner" : "Add cleaner"}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">Cleaner profile, status, and payment setup.</p>
             </div>
-            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close cleaner modal" disabled={savingStaff} onClick={() => setStaffDraft(null)}><X className="size-4" /></button>
+            <button className={SOP_CLOSE_BUTTON_CLASS} type="button" aria-label="Close cleaner modal" disabled={savingStaff} onClick={() => setStaffDraft(null)}><X className="size-[18px]" /></button>
           </div>
           <div className="grid gap-4 p-5">
             <label className={PAYMENT_LABEL_CLASS}>Cleaner name<input className={PAYMENT_FIELD_CLASS} value={staffDraft.name} onChange={(event) => setStaffDraft({ ...staffDraft, name: event.target.value })} /></label>
@@ -3727,17 +3707,17 @@ export function SimpleOperationsClient({
                 <option value="mixed">Mixed route</option>
               </select></label>
               <label className={PAYMENT_LABEL_CLASS}>Role<input className={PAYMENT_FIELD_CLASS} value={staffDraft.role} onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value })} /></label>
-              <label className={PAYMENT_LABEL_CLASS}>Hourly rate<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={staffDraft.hourlyRate} onChange={(event) => setStaffDraft({ ...staffDraft, hourlyRate: event.target.value })} /></label>
+              {staffDraft.teamScope !== "residential" ? <label className={PAYMENT_LABEL_CLASS}>Commercial hourly rate<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={staffDraft.hourlyRate} onChange={(event) => setStaffDraft({ ...staffDraft, hourlyRate: event.target.value })} /></label> : null}
               <label className={PAYMENT_LABEL_CLASS}>Payment mode<select className={PAYMENT_FIELD_CLASS} value={staffDraft.paymentMode} disabled={isJuanRomero(staffDraft.name)} onChange={(event) => setStaffDraft({ ...staffDraft, paymentMode: event.target.value as PaymentMode })}>
                 <option value="residential_only">Residential only</option>
                 <option value="mixed">Mixed pay</option>
               </select></label>
-              {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
+              {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
             </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
             <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingStaff} onClick={() => setStaffDraft(null)}>Cancel</Button>
-            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingStaff}><Save className="size-4" /> {savingStaff ? "Saving..." : "Save cleaner"}</Button>
+            <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingStaff}><Save className="size-[18px]" /> {savingStaff ? "Saving..." : "Save cleaner"}</Button>
           </div>
         </form>
       </div>
