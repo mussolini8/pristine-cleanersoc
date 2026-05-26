@@ -122,6 +122,7 @@ async function writeNotificationAudit(
     reason?: string;
     code?: string;
     command?: string;
+    response?: string;
     responseCode?: number;
     messageId?: string;
     skipped?: boolean;
@@ -142,6 +143,7 @@ async function writeNotificationAudit(
     reason: result.reason,
     code: result.code,
     command: result.command,
+    response: result.response,
     responseCode: result.responseCode,
     messageId: result.messageId,
     transport: result.transport,

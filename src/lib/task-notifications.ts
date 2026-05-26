@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { setDefaultResultOrder } from "node:dns";
+import net from "node:net";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
 setDefaultResultOrder("ipv4first");
@@ -41,9 +42,33 @@ export type EmailSendResult = {
   reason: string;
   code?: string;
   command?: string;
+  response?: string;
   responseCode?: number;
   messageId?: string;
   transport?: string;
+};
+
+export type SmtpProbeResult = {
+  ok: boolean;
+  stage: "tcp" | "verify" | "send";
+  host: string;
+  port: number;
+  secure: boolean;
+  requireTLS: boolean;
+  timeMs: number;
+  code?: string;
+  command?: string;
+  response?: string;
+  responseCode?: number;
+  message?: string;
+};
+
+type SmtpTransportConfig = {
+  host: string;
+  port: 465 | 587;
+  secure: boolean;
+  requireTLS: boolean;
+  label: string;
 };
 
 type SendEmailInput = {
@@ -179,7 +204,7 @@ function sanitizeMailerMessage(message: string) {
   return sanitized.replace(/AUTH\s+\S+/gi, "AUTH [redacted]").slice(0, 220);
 }
 
-function classifyMailerError(error: unknown): EmailSendResult {
+function getMailerErrorDetails(error: unknown) {
   const mailerError = error as {
     code?: string;
     command?: string;
@@ -187,42 +212,85 @@ function classifyMailerError(error: unknown): EmailSendResult {
     response?: string;
     message?: string;
   };
-  const code = mailerError.code;
-  const command = mailerError.command;
-  const responseCode = mailerError.responseCode;
   const message = sanitizeMailerMessage(mailerError.message ?? mailerError.response ?? "Unknown email error");
-  const lower = message.toLowerCase();
 
-  if (responseCode === 535 || code === "EAUTH" || lower.includes("invalid login") || lower.includes("authentication failed")) {
+  return {
+    code: mailerError.code,
+    command: mailerError.command,
+    response: mailerError.response ? sanitizeMailerMessage(mailerError.response) : undefined,
+    responseCode: mailerError.responseCode,
+    message,
+  };
+}
+
+function smtpFailureLabel(details: { code?: string; responseCode?: number; message?: string }) {
+  const lower = String(details.message ?? "").toLowerCase();
+  if (details.responseCode === 535 || details.code === "EAUTH" || lower.includes("invalid login") || lower.includes("authentication failed")) {
+    return "SMTP AUTH FAILED";
+  }
+  if (details.code === "ECONNREFUSED" || lower.includes("connection refused")) return "SMTP BLOCKED";
+  if (details.code === "ENETUNREACH" || details.code === "ETIMEDOUT" || details.code === "ECONNECTION" || details.code === "ESOCKET" || lower.includes("timeout")) {
+    return "SMTP VERIFY FAILED";
+  }
+  return "SMTP FAILED";
+}
+
+function logSmtpFailure(stage: "tcp" | "verify" | "send", config: SmtpTransportConfig, timeMs: number, error: unknown) {
+  const details = getMailerErrorDetails(error);
+  console.error([
+    smtpFailureLabel(details),
+    `stage: ${stage}`,
+    `code: ${details.code ?? "UNKNOWN"}`,
+    `command: ${details.command ?? "UNKNOWN"}`,
+    `response: ${details.response ?? "NONE"}`,
+    `responseCode: ${details.responseCode ?? "NONE"}`,
+    `message: ${details.message}`,
+    `host: ${config.host}`,
+    `port: ${config.port}`,
+    `secure: ${config.secure}`,
+    `requireTLS: ${config.requireTLS}`,
+    `time: ${timeMs}ms`,
+  ].join("\n"));
+  return details;
+}
+
+function classifyMailerError(error: unknown): EmailSendResult {
+  const details = getMailerErrorDetails(error);
+  const lower = details.message.toLowerCase();
+
+  if (details.responseCode === 535 || details.code === "EAUTH" || lower.includes("invalid login") || lower.includes("authentication failed")) {
     return {
       ok: false,
       sent: false,
-      reason: "Gmail authentication failed. Check GMAIL_USER and GMAIL_APP_PASSWORD.",
-      code: code ?? "EAUTH",
-      command,
-      responseCode,
+      reason: details.message,
+      code: details.code ?? "EAUTH",
+      command: details.command,
+      response: details.response,
+      responseCode: details.responseCode,
     };
   }
 
-  if (code === "ENETUNREACH") {
+  if (details.code === "ENETUNREACH") {
     return {
       ok: false,
       sent: false,
-      reason: "Could not reach Gmail SMTP from this server/network.",
-      code,
-      command,
-      responseCode,
+      reason: details.message,
+      code: details.code,
+      command: details.command,
+      response: details.response,
+      responseCode: details.responseCode,
     };
   }
 
-  if (code === "ECONNECTION" || code === "ETIMEDOUT" || code === "ESOCKET" || lower.includes("timeout")) {
+  if (details.code === "ECONNECTION" || details.code === "ETIMEDOUT" || details.code === "ESOCKET" || lower.includes("timeout")) {
     return {
       ok: false,
       sent: false,
-      reason: "Could not connect to Gmail SMTP.",
-      code,
-      command,
-      responseCode,
+      reason: details.message,
+      code: details.code,
+      command: details.command,
+      response: details.response,
+      responseCode: details.responseCode,
     };
   }
 
@@ -231,20 +299,205 @@ function classifyMailerError(error: unknown): EmailSendResult {
       ok: false,
       sent: false,
       reason: "Missing email recipient.",
-      code,
-      command,
-      responseCode,
+      code: details.code,
+      command: details.command,
+      response: details.response,
+      responseCode: details.responseCode,
     };
   }
 
   return {
     ok: false,
     sent: false,
-    reason: message ? `Email send failed: ${message}` : "Email send failed.",
-    code,
-    command,
-    responseCode,
+    reason: details.message ? `Email send failed: ${details.message}` : "Email send failed.",
+    code: details.code,
+    command: details.command,
+    response: details.response,
+    responseCode: details.responseCode,
   };
+}
+
+function getSmtpTransportConfig(portOverride?: 465 | 587): SmtpTransportConfig {
+  const envPort = Number(process.env.SMTP_PORT);
+  const port = portOverride ?? (envPort === 587 ? 587 : 465);
+  const host = process.env.SMTP_HOST || "smtp.gmail.com";
+  const secure = port === 465;
+
+  return {
+    host,
+    port,
+    secure,
+    requireTLS: !secure,
+    label: `${host}:${port}`,
+  };
+}
+
+function createGmailTransport(config: SmtpTransportConfig, gmailUser: string, gmailPassword: string) {
+  return nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    family: 4,
+    secure: config.secure,
+    requireTLS: config.requireTLS,
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 30000,
+    tls: {
+      servername: config.host,
+    },
+    auth: {
+      user: gmailUser,
+      pass: gmailPassword,
+    },
+  } as SMTPTransport.Options & { family: 4 });
+}
+
+function smtpTimeoutError(timeoutMs: number) {
+  const error = new Error(`SMTP operation timed out after ${timeoutMs}ms`) as Error & { code: string; command: string };
+  error.code = "ETIMEDOUT";
+  error.command = "TIMEOUT";
+  return error;
+}
+
+async function withSmtpTimeout<T>(operation: Promise<T>, timeoutMs: number) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(smtpTimeoutError(timeoutMs)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+export async function probeSmtpTcp(portOverride: 465 | 587): Promise<SmtpProbeResult> {
+  const config = getSmtpTransportConfig(portOverride);
+  const startedAt = Date.now();
+
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: config.host, port: config.port, family: 4 });
+    const finish = (result: Omit<SmtpProbeResult, "timeMs">) => {
+      socket.destroy();
+      resolve({ ...result, timeMs: Date.now() - startedAt });
+    };
+
+    socket.setTimeout(20000);
+    socket.once("connect", () => {
+      finish({ ok: true, stage: "tcp", host: config.host, port: config.port, secure: config.secure, requireTLS: config.requireTLS, message: "TCP connection opened" });
+    });
+    socket.once("timeout", () => {
+      finish({ ok: false, stage: "tcp", host: config.host, port: config.port, secure: config.secure, requireTLS: config.requireTLS, code: "ETIMEDOUT", message: "TCP connection timed out" });
+    });
+    socket.once("error", (error) => {
+      const details = logSmtpFailure("tcp", config, Date.now() - startedAt, error);
+      finish({ ok: false, stage: "tcp", host: config.host, port: config.port, secure: config.secure, requireTLS: config.requireTLS, ...details });
+    });
+  });
+}
+
+export async function verifyGmailSmtp(portOverride: 465 | 587): Promise<SmtpProbeResult> {
+  const config = getSmtpTransportConfig(portOverride);
+  const startedAt = Date.now();
+
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    return {
+      ok: false,
+      stage: "verify",
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      requireTLS: config.requireTLS,
+      timeMs: Date.now() - startedAt,
+      code: "GMAIL_SMTP_NOT_CONFIGURED",
+      message: "Gmail SMTP credentials are not configured.",
+    };
+  }
+
+  const transporter = createGmailTransport(config, process.env.GMAIL_USER, process.env.GMAIL_APP_PASSWORD);
+
+  try {
+    await withSmtpTimeout(transporter.verify(), 25000);
+    const timeMs = Date.now() - startedAt;
+    console.info([
+      "SMTP VERIFY OK",
+      `host: ${config.host}`,
+      `port: ${config.port}`,
+      `secure: ${config.secure}`,
+      `requireTLS: ${config.requireTLS}`,
+      `time: ${timeMs}ms`,
+    ].join("\n"));
+    return { ok: true, stage: "verify", host: config.host, port: config.port, secure: config.secure, requireTLS: config.requireTLS, timeMs, message: "verify succeeded" };
+  } catch (error) {
+    const timeMs = Date.now() - startedAt;
+    const details = logSmtpFailure("verify", config, timeMs, error);
+    return { ok: false, stage: "verify", host: config.host, port: config.port, secure: config.secure, requireTLS: config.requireTLS, timeMs, ...details };
+  }
+}
+
+export async function sendSmtpDiagnosticEmail(portOverride: 465 | 587, to?: string | null): Promise<SmtpProbeResult & { messageId?: string }> {
+  const config = getSmtpTransportConfig(portOverride);
+  const startedAt = Date.now();
+  const recipient = to || process.env.GMAIL_USER;
+
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD || !recipient) {
+    return {
+      ok: false,
+      stage: "send",
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      requireTLS: config.requireTLS,
+      timeMs: Date.now() - startedAt,
+      code: "GMAIL_SMTP_NOT_CONFIGURED",
+      message: "Gmail SMTP credentials or diagnostic recipient are not configured.",
+    };
+  }
+
+  const transporter = createGmailTransport(config, process.env.GMAIL_USER, process.env.GMAIL_APP_PASSWORD);
+
+  try {
+    await withSmtpTimeout(transporter.verify(), 25000);
+  } catch (error) {
+    const timeMs = Date.now() - startedAt;
+    const details = logSmtpFailure("verify", config, timeMs, error);
+    return { ok: false, stage: "send", host: config.host, port: config.port, secure: config.secure, requireTLS: config.requireTLS, timeMs, ...details };
+  }
+
+  try {
+    const info = await withSmtpTimeout(transporter.sendMail({
+      from: `"Pristine Operations SMTP Debug" <${process.env.GMAIL_USER}>`,
+      to: recipient,
+      subject: `SMTP debug ${config.host}:${config.port}`,
+      text: [
+        "SMTP diagnostic email sent successfully.",
+        `host: ${config.host}`,
+        `port: ${config.port}`,
+        `secure: ${config.secure}`,
+        `requireTLS: ${config.requireTLS}`,
+        `time: ${new Date().toISOString()}`,
+      ].join("\n"),
+    }) as Promise<{ messageId?: string }>, 25000);
+    const timeMs = Date.now() - startedAt;
+
+    console.info([
+      "SMTP SEND OK",
+      `host: ${config.host}`,
+      `port: ${config.port}`,
+      `secure: ${config.secure}`,
+      `requireTLS: ${config.requireTLS}`,
+      `time: ${timeMs}ms`,
+      `messageId: ${info.messageId ?? "NONE"}`,
+    ].join("\n"));
+
+    return { ok: true, stage: "send", host: config.host, port: config.port, secure: config.secure, requireTLS: config.requireTLS, timeMs, message: "diagnostic email sent", messageId: info.messageId };
+  } catch (error) {
+    const timeMs = Date.now() - startedAt;
+    const details = logSmtpFailure("send", config, timeMs, error);
+    return { ok: false, stage: "send", host: config.host, port: config.port, secure: config.secure, requireTLS: config.requireTLS, timeMs, ...details };
+  }
 }
 
 async function sendWithGmailSmtp({ to, subject, html, text }: Required<Pick<SendEmailInput, "subject" | "html" | "text">> & { to: string }): Promise<EmailSendResult> {
@@ -254,63 +507,62 @@ async function sendWithGmailSmtp({ to, subject, html, text }: Required<Pick<Send
       sent: false,
       reason: "Gmail SMTP is not configured.",
       code: "GMAIL_SMTP_NOT_CONFIGURED",
-      transport: "smtp.gmail.com:465,smtp.gmail.com:587",
+      transport: "smtp.gmail.com:465",
     };
   }
 
   const gmailUser = process.env.GMAIL_USER;
   const gmailPassword = process.env.GMAIL_APP_PASSWORD;
-  const transports = [
-    { port: 465, secure: true, label: "smtp.gmail.com:465" },
-    { port: 587, secure: false, label: "smtp.gmail.com:587" },
-  ];
-  const failures: EmailSendResult[] = [];
+  const config = getSmtpTransportConfig();
+  const transporter = createGmailTransport(config, gmailUser, gmailPassword);
 
-  for (const transport of transports) {
-    const smtpOptions = {
-      host: "smtp.gmail.com",
-      port: transport.port,
-      family: 4,
-      secure: transport.secure,
-      requireTLS: !transport.secure,
-      connectionTimeout: 20000,
-      greetingTimeout: 20000,
-      socketTimeout: 30000,
-      tls: {
-        servername: "smtp.gmail.com",
-      },
-      auth: {
-        user: gmailUser,
-        pass: gmailPassword,
-      },
-    } as SMTPTransport.Options & { family: 4 };
-    const transporter = nodemailer.createTransport(smtpOptions);
-
-    try {
-      const info = await transporter.sendMail({
-        from: `"Pristine Operations" <${gmailUser}>`,
-        to,
-        subject,
-        html,
-        text,
-      }) as { messageId?: string };
-
-      return { ok: true, sent: true, reason: "sent", messageId: info.messageId, transport: transport.label };
-    } catch (error) {
-      failures.push({ ...classifyMailerError(error), transport: transport.label });
-    }
+  const verifyStartedAt = Date.now();
+  try {
+    await withSmtpTimeout(transporter.verify(), 25000);
+    const verifyTimeMs = Date.now() - verifyStartedAt;
+    console.info([
+      "SMTP VERIFY OK",
+      `host: ${config.host}`,
+      `port: ${config.port}`,
+      `secure: ${config.secure}`,
+      `requireTLS: ${config.requireTLS}`,
+      `time: ${verifyTimeMs}ms`,
+    ].join("\n"));
+  } catch (error) {
+    const verifyTimeMs = Date.now() - verifyStartedAt;
+    const failure = classifyMailerError(error);
+    logSmtpFailure("verify", config, verifyTimeMs, error);
+    return { ...failure, transport: config.label };
   }
 
-  const details = failures.map((failure) => `${failure.transport}: ${failure.reason}${failure.code ? ` (${failure.code})` : ""}`).join(" | ");
-  return {
-    ok: false,
-    sent: false,
-    reason: details || "Could not connect to Gmail SMTP.",
-    code: failures[0]?.code,
-    command: failures[0]?.command,
-    responseCode: failures[0]?.responseCode,
-    transport: "smtp.gmail.com:465,smtp.gmail.com:587",
-  };
+  const sendStartedAt = Date.now();
+  try {
+    const info = await withSmtpTimeout(transporter.sendMail({
+      from: `"Pristine Operations" <${gmailUser}>`,
+      to,
+      subject,
+      html,
+      text,
+    }) as Promise<{ messageId?: string }>, 25000);
+    const sendTimeMs = Date.now() - sendStartedAt;
+
+    console.info([
+      "SMTP SEND OK",
+      `host: ${config.host}`,
+      `port: ${config.port}`,
+      `secure: ${config.secure}`,
+      `requireTLS: ${config.requireTLS}`,
+      `time: ${sendTimeMs}ms`,
+      `messageId: ${info.messageId ?? "NONE"}`,
+    ].join("\n"));
+
+    return { ok: true, sent: true, reason: "sent", messageId: info.messageId, transport: config.label };
+  } catch (error) {
+    const sendTimeMs = Date.now() - sendStartedAt;
+    const failure = classifyMailerError(error);
+    logSmtpFailure("send", config, sendTimeMs, error);
+    return { ...failure, transport: config.label };
+  }
 }
 
 async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmailInput): Promise<EmailSendResult> {
