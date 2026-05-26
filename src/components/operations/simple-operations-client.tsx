@@ -379,9 +379,20 @@ function displayShortDate(value: string | null | undefined) {
   return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
 }
 
-function monthLabel(value: string) {
-  const date = parseDateKey(value) ?? new Date();
-  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+function monthWindow(value: string) {
+  const anchor = parseDateKey(value) ?? new Date();
+  const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+  return {
+    start,
+    end,
+    startKey: formatDateKey(start),
+    endKey: formatDateKey(end),
+    month: start.getMonth() + 1,
+    year: start.getFullYear(),
+    label: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+    key: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`,
+  };
 }
 
 function statusBadgeClass(status: string | null | undefined) {
@@ -515,7 +526,7 @@ export function SimpleOperationsClient({
   const [taskSelectedDay, setTaskSelectedDay] = useState(todayKey());
   const [taskCalendarAnchor, setTaskCalendarAnchor] = useState(() => formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [importingMonthlySop, setImportingMonthlySop] = useState(false);
-  const monthlySopAutoImportAttempted = useRef(false);
+  const monthlySopAutoImportAttempted = useRef(new Set<string>());
   const [monthlySopImportSummary, setMonthlySopImportSummary] = useState<MonthlySopImportSummary | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
@@ -669,22 +680,34 @@ export function SimpleOperationsClient({
     const completedThisWeek = completed.filter((task) => isDateInRange(task.completed_at ?? task.updated_at, weekStart, weekEnd));
     return { pending, completed, overdue, dueToday, completedThisWeek };
   }, [tasks, today]);
-  const monthlySopTaskCount = useMemo(() => tasks.filter((task) => taskSourceDocument(task) === "Monthly SOP").length, [tasks]);
+  const visibleTaskMonth = useMemo(() => monthWindow(taskCalendarAnchor), [taskCalendarAnchor]);
+  const monthlySopTasksForVisibleMonth = useMemo(() => {
+    return tasks.filter((task) => {
+      const dueDate = dateKeyFromValue(task.due_date);
+      return taskSourceDocument(task) === "Monthly SOP" && Boolean(dueDate && dueDate >= visibleTaskMonth.startKey && dueDate <= visibleTaskMonth.endKey);
+    });
+  }, [tasks, visibleTaskMonth.endKey, visibleTaskMonth.startKey]);
+  const monthlySopTaskCount = monthlySopTasksForVisibleMonth.length;
+  const selectedMonthCanGenerateSop = visibleTaskMonth.year > 2026 || (visibleTaskMonth.year === 2026 && visibleTaskMonth.month >= 6);
 
-  const importMonthlySop = useCallback(async () => {
+  const importMonthlySop = useCallback(async (target = visibleTaskMonth) => {
     if (importingMonthlySop) return;
     setImportingMonthlySop(true);
     setMonthlySopImportSummary(null);
     try {
-      const response = await fetch("/api/residential-sop/import-monthly", { method: "POST" });
+      const response = await fetch("/api/residential-sop/import-monthly", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: target.month, year: target.year }),
+      });
       const result = await response.json() as Partial<MonthlySopImportSummary> & { ok?: boolean; error?: string };
       if (!response.ok || result.error) throw new Error(result.error ?? "Monthly SOP import failed.");
       const summary = result as MonthlySopImportSummary;
       setMonthlySopImportSummary(summary);
       setTaskSourceFilter("monthly_sop");
       setTaskViewMode("month");
-      setTaskCalendarAnchor("2026-06-01");
-      setTaskSelectedDay("2026-06-02");
+      setTaskCalendarAnchor(target.startKey);
+      setTaskSelectedDay(target.startKey);
       setTaskTab("all");
       setMessage({ tone: result.ok === false ? "error" : "success", text: summary.message });
       await loadData();
@@ -693,16 +716,17 @@ export function SimpleOperationsClient({
     } finally {
       setImportingMonthlySop(false);
     }
-  }, [importingMonthlySop, loadData]);
+  }, [importingMonthlySop, loadData, visibleTaskMonth]);
 
   useEffect(() => {
-    if (view !== "tasks" || loading || importingMonthlySop || monthlySopAutoImportAttempted.current || monthlySopTaskCount >= 56) return;
-    monthlySopAutoImportAttempted.current = true;
+    if (view !== "tasks" || loading || importingMonthlySop || !selectedMonthCanGenerateSop || monthlySopTaskCount >= 56) return;
+    if (monthlySopAutoImportAttempted.current.has(visibleTaskMonth.key)) return;
+    monthlySopAutoImportAttempted.current.add(visibleTaskMonth.key);
     const timeoutId = window.setTimeout(() => {
-      void importMonthlySop();
+      void importMonthlySop(visibleTaskMonth);
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [importMonthlySop, importingMonthlySop, loading, monthlySopTaskCount, view]);
+  }, [importMonthlySop, importingMonthlySop, loading, monthlySopTaskCount, selectedMonthCanGenerateSop, view, visibleTaskMonth]);
 
   const filteredTasks = useMemo(() => {
     const search = taskSearch.trim().toLowerCase();
@@ -1991,7 +2015,7 @@ export function SimpleOperationsClient({
   function renderHeader() {
     const headers: Record<SimpleOperationsView, { title: string; sub: string; icon: typeof CheckCircle2 }> = {
       dashboard: { title: "Operations dashboard", sub: "Daily reminders, residential payments, and commercial hours.", icon: CheckCircle2 },
-      tasks: { title: "Task reminders", sub: "Simple reminders for Jake Ivan-Pal and Carlos Lopez.", icon: Clock },
+      tasks: { title: "Task reminders", sub: "Operational reminders for Jake and Carlos.", icon: Clock },
       residential: { title: "Residential payments / commercial hours", sub: "Weekly residential payments and commercial team hours tracking.", icon: WalletCards },
       staff: { title: "Staff / Teams", sub: "Active teams, rates, and residential/commercial cleaner pipeline.", icon: Users },
       reports: { title: "Reports", sub: "Task, hours, and weekly payment exports.", icon: FileText },
@@ -2010,7 +2034,7 @@ export function SimpleOperationsClient({
           <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
             {view === "tasks" ? (
               <>
-                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" disabled={importingMonthlySop} onClick={importMonthlySop}><CalendarDays className="size-4" /> {importingMonthlySop ? "Importing..." : "Import Monthly SOP"}</Button>
+                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays className="size-4" /> {importingMonthlySop ? "Generating..." : "Generate Monthly SOP"}</Button>
                 <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openTaskDraft()}><Plus className="size-4" /> Add reminder</Button>
               </>
             ) : null}
@@ -2171,16 +2195,20 @@ export function SimpleOperationsClient({
       overdue: taskStats.overdue.length,
       all: tasks.length,
     };
-    const anchorDate = parseDateKey(taskCalendarAnchor) ?? new Date();
-    const monthStart = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
-    const monthEnd = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
+    const anchorDate = visibleTaskMonth.start;
+    const monthStart = visibleTaskMonth.start;
+    const monthEnd = visibleTaskMonth.end;
     const calendarStart = startOfWeek(monthStart);
     const calendarDays = Array.from({ length: 42 }, (_, index) => {
       const date = addDays(calendarStart, index);
       return { key: formatDateKey(date), date, inMonth: date >= monthStart && date <= monthEnd };
     });
+    const monthFilteredTasks = filteredTasks.filter((task) => {
+      const dueDate = dateKeyFromValue(task.due_date);
+      return Boolean(dueDate && dueDate >= visibleTaskMonth.startKey && dueDate <= visibleTaskMonth.endKey);
+    });
     const tasksByDay = new Map<string, OperationTaskRow[]>();
-    for (const task of filteredTasks) {
+    for (const task of monthFilteredTasks) {
       const key = dateKeyFromValue(task.due_date);
       if (!key) continue;
       const current = tasksByDay.get(key) ?? [];
@@ -2188,8 +2216,21 @@ export function SimpleOperationsClient({
       tasksByDay.set(key, current);
     }
     const unscheduledTasks = filteredTasks.filter((task) => !dateKeyFromValue(task.due_date));
-    const selectedDayTasks = (tasksByDay.get(taskSelectedDay) ?? []).slice().sort((a, b) => String(a.due_date ?? "").localeCompare(String(b.due_date ?? "")));
-    const listTasks = filteredTasks.slice().sort((a, b) => String(a.due_date ?? "9999-99-99").localeCompare(String(b.due_date ?? "9999-99-99")));
+    const selectedDayTasks = filteredTasks.filter((task) => dateKeyFromValue(task.due_date) === taskSelectedDay).sort((a, b) => a.title.localeCompare(b.title));
+    const listTasks = monthFilteredTasks.slice().sort((a, b) => String(a.due_date ?? "9999-99-99").localeCompare(String(b.due_date ?? "9999-99-99")) || a.title.localeCompare(b.title));
+    const monthlySopNote = monthlySopTaskCount >= 56
+      ? `${monthlySopTaskCount} tasks generated for ${visibleTaskMonth.label}`
+      : selectedMonthCanGenerateSop
+        ? `Monthly SOP not generated for ${visibleTaskMonth.label}`
+        : "56 active SOP templates start in June 2026";
+    const calendarButtonClass = "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-border/70 bg-card px-3 text-sm font-semibold text-foreground shadow-none transition hover:border-primary/25 hover:bg-accent/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-55";
+    const taskChipClass = (task: OperationTaskRow, dayKey: string) => {
+      const status = normalizeTaskStatus(task.status);
+      const overdue = status === "pending" && dayKey < today;
+      if (overdue) return "border-rose-200/80 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-100";
+      if (status === "completed") return "border-emerald-200/80 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
+      return "border-amber-200/70 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100";
+    };
 
     function renderTaskList(rows: OperationTaskRow[], emptyText: string) {
       return (
@@ -2226,8 +2267,20 @@ export function SimpleOperationsClient({
           <MetricCard icon={Clock} label="Pending" value={taskStats.pending.length} />
           <MetricCard icon={AlertTriangle} label="Overdue" value={taskStats.overdue.length} tone={taskStats.overdue.length ? "warn" : "good"} />
           <MetricCard icon={CheckCircle2} label="Completed" value={taskStats.completed.length} tone="good" />
-          <MetricCard icon={FileText} label="Monthly SOP" value={monthlySopTaskCount} note="June 2026 imported tasks" tone={monthlySopTaskCount === 56 ? "good" : "neutral"} />
+          <MetricCard icon={FileText} label="Monthly SOP" value={monthlySopTaskCount >= 56 ? "56" : monthlySopTaskCount} note={monthlySopNote} tone={monthlySopTaskCount === 56 ? "good" : "warn"} />
         </div>
+
+        {selectedMonthCanGenerateSop && monthlySopTaskCount < 56 ? (
+          <Card className="rounded-lg border-amber-200 bg-amber-50/55 shadow-none dark:border-amber-900 dark:bg-amber-950/15">
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div>
+                <p className="font-semibold">Monthly SOP not generated for {visibleTaskMonth.label}</p>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">Generate the 56 recurring SOP task instances from active Monthly SOP templates.</p>
+              </div>
+              <Button className={SOP_ACTION_BUTTON_CLASS} disabled={importingMonthlySop} onClick={() => importMonthlySop(visibleTaskMonth)}><CalendarDays className="size-4" /> {importingMonthlySop ? "Generating..." : `Generate ${visibleTaskMonth.label}`}</Button>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {monthlySopImportSummary ? (
           <Card className={cn(SOP_PANEL_CLASS, monthlySopImportSummary.processed === monthlySopImportSummary.expected ? "border-emerald-200 bg-emerald-50/35 dark:border-emerald-900 dark:bg-emerald-950/15" : "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15")}>
@@ -2283,25 +2336,25 @@ export function SimpleOperationsClient({
           </div>
         </div>
 
-        <Card className={cn(SOP_PANEL_CLASS, "overflow-hidden")}>
-          <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
+        <Card className="overflow-hidden rounded-lg border border-border/65 bg-card shadow-[0_18px_58px_-50px_hsl(215_40%_20%)]">
+          <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border/60 bg-card px-4 py-3.5 sm:px-5">
             <div>
-              <CardTitle>{taskViewMode === "list" ? "Task list" : taskViewMode === "day" ? "Tasks by day" : "Task calendar"}</CardTitle>
-              <p className="mt-1 text-sm font-medium text-muted-foreground">{taskViewMode === "day" ? displayDate(taskSelectedDay) : taskViewMode === "list" ? `${listTasks.length} reminders` : monthLabel(taskCalendarAnchor)}</p>
+              <CardTitle className="text-base font-semibold tracking-normal">{taskViewMode === "list" ? "Task list" : taskViewMode === "day" ? "Tasks by day" : "Task calendar"}</CardTitle>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">{taskViewMode === "day" ? displayDate(taskSelectedDay) : taskViewMode === "list" ? `${listTasks.length} reminders in ${visibleTaskMonth.label}` : visibleTaskMonth.label}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-1.5">
               {taskViewMode === "month" ? (
                 <>
-                  <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></Button>
-                  <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</Button>
-                  <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></Button>
+                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-4" /></button>
+                  <button className={calendarButtonClass} type="button" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</button>
+                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-4" /></button>
                 </>
               ) : null}
               {taskViewMode === "day" ? (
                 <>
-                  <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-4" /></Button>
-                  <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => setTaskSelectedDay(todayKey())}>Today</Button>
-                  <Button className="size-9 rounded-lg" size="icon" variant="outline" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-4" /></Button>
+                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-4" /></button>
+                  <button className={calendarButtonClass} type="button" onClick={() => setTaskSelectedDay(todayKey())}>Today</button>
+                  <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-4" /></button>
                 </>
               ) : null}
             </div>
@@ -2311,36 +2364,34 @@ export function SimpleOperationsClient({
             {taskViewMode === "day" ? <div className="p-3">{renderTaskList(selectedDayTasks, "No reminders for this day.")}</div> : null}
             {taskViewMode === "month" ? (
               <>
-            <div className="grid grid-cols-7 border-y border-border/70 bg-muted/25 text-center text-xs font-semibold text-muted-foreground">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border/60 py-2 last:border-r-0" key={day}>{day}</div>)}
+            <div className="grid grid-cols-7 border-b border-border/55 bg-muted/20 text-center text-[11px] font-semibold text-muted-foreground">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border/45 py-2.5 last:border-r-0" key={day}>{day}</div>)}
             </div>
             <div className="grid grid-cols-7">
               {calendarDays.map(({ key, date, inMonth }) => {
-                const dayTasks = (tasksByDay.get(key) ?? []).slice().sort((a, b) => String(a.priority).localeCompare(String(b.priority)));
+                const dayTasks = (tasksByDay.get(key) ?? []).slice().sort((a, b) => String(a.due_date ?? "").localeCompare(String(b.due_date ?? "")) || a.title.localeCompare(b.title));
                 const isToday = key === today;
                 return (
-                  <section className={cn("min-h-32 border-b border-r border-border/60 p-2 last:border-r-0", !inMonth && "bg-muted/20 text-muted-foreground", isToday && "bg-emerald-50/55 dark:bg-emerald-950/20")} key={key}>
+                  <section className={cn("group min-h-32 border-b border-r border-border/45 bg-card/80 p-2.5 transition hover:bg-accent/10 last:border-r-0", !inMonth && "bg-muted/15 text-muted-foreground", isToday && "bg-sky-50/55 dark:bg-sky-950/20")} key={key}>
                     <div className="flex items-center justify-between gap-2">
-                      <button type="button" className={cn("grid size-7 place-items-center rounded-lg text-sm font-semibold hover:bg-accent", isToday && "bg-primary text-primary-foreground hover:bg-primary")} onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>{date.getDate()}</button>
-                      {dayTasks.length ? <Badge variant="outline">{dayTasks.length}</Badge> : null}
+                      <button type="button" className={cn("grid size-6 place-items-center rounded-md text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20", inMonth && "text-foreground", isToday && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")} onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>{date.getDate()}</button>
+                      {dayTasks.length ? <span className="rounded-full border border-border/55 bg-background px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">{dayTasks.length}</span> : null}
                     </div>
                     <div className="mt-2 grid gap-1">
                       {dayTasks.slice(0, 3).map((task) => {
-                        const status = normalizeTaskStatus(task.status);
-                        const overdue = status === "pending" && key < today;
                         return (
                           <button
                             type="button"
-                            className={cn("rounded-lg border px-2 py-1 text-left text-[11px] font-semibold leading-tight transition hover:border-primary/40 hover:bg-accent/30", overdue ? statusBadgeClass("overdue") : status === "completed" ? statusBadgeClass("completed") : "border-border/70 bg-background/80 text-foreground")}
+                            className={cn("rounded-md border px-2 py-1 text-left text-[11px] font-medium leading-tight shadow-none transition hover:border-primary/30 hover:bg-background", taskChipClass(task, key))}
                             key={task.id}
                             onClick={() => setSelectedTask(task)}
                           >
                             <span className="line-clamp-2">{task.title}</span>
-                            <span className="mt-1 block truncate text-[10px] font-medium opacity-70">{task.assignee ?? "Unassigned"}</span>
+                            <span className="mt-1 block truncate text-[10px] font-medium opacity-70">{taskSourceDocument(task) ?? task.assignee ?? "Unassigned"}</span>
                           </button>
                         );
                       })}
-                      {dayTasks.length > 3 ? <button type="button" className="text-left text-[11px] font-semibold text-primary" onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>+{dayTasks.length - 3} more</button> : null}
+                      {dayTasks.length > 3 ? <button type="button" className="rounded-md px-1 text-left text-[11px] font-semibold text-primary transition hover:bg-accent/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20" onClick={() => { setTaskSelectedDay(key); setTaskViewMode("day"); }}>+{dayTasks.length - 3} more</button> : null}
                     </div>
                   </section>
                 );
