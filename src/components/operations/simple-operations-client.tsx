@@ -129,6 +129,8 @@ type MonthlySopImportSummary = {
   created: number;
   duplicatesSkipped: number;
   updated: number;
+  templatesVerified: number;
+  recurrence: string;
   month: string;
   calendarStart: string;
   sourceDocument: string;
@@ -2229,15 +2231,16 @@ export function SimpleOperationsClient({
 
         {monthlySopImportSummary ? (
           <Card className={cn(SOP_PANEL_CLASS, monthlySopImportSummary.processed === monthlySopImportSummary.expected ? "border-emerald-200 bg-emerald-50/35 dark:border-emerald-900 dark:bg-emerald-950/15" : "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15")}>
-            <CardContent className="grid gap-3 p-4 md:grid-cols-[1.1fr_repeat(4,auto)] md:items-center">
+            <CardContent className="grid gap-3 p-4 md:grid-cols-[1.1fr_repeat(5,auto)] md:items-center">
               <div>
                 <p className="font-semibold">{monthlySopImportSummary.message}</p>
-                <p className="mt-1 text-sm font-medium text-muted-foreground">Source document: {monthlySopImportSummary.sourceDocument} · Month: {monthlySopImportSummary.month} · Calendar start: {monthlySopImportSummary.calendarStart}</p>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">Source document: {monthlySopImportSummary.sourceDocument} · Month: {monthlySopImportSummary.month} · Calendar start: {monthlySopImportSummary.calendarStart} · Recurrence: {monthlySopImportSummary.recurrence}</p>
               </div>
               <Badge variant="outline">Expected {monthlySopImportSummary.expected}</Badge>
               <Badge variant="outline">Created {monthlySopImportSummary.created}</Badge>
               <Badge variant="outline">Skipped {monthlySopImportSummary.duplicatesSkipped}</Badge>
               <Badge variant="outline">Updated {monthlySopImportSummary.updated}</Badge>
+              <Badge variant="outline">Templates {monthlySopImportSummary.templatesVerified}</Badge>
             </CardContent>
           </Card>
         ) : null}
