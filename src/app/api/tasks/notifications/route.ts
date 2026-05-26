@@ -82,7 +82,16 @@ function maskEmail(email: string | null | undefined) {
 
 function sanitizeReason(reason: string) {
   let sanitized = reason;
-  for (const secret of [process.env.GMAIL_APP_PASSWORD, process.env.GMAIL_USER, process.env.OPERATIONS_MANAGER_EMAIL, process.env.OWNER_EMAIL, process.env.SEO_USER_EMAIL]) {
+  for (const secret of [
+    process.env.GMAIL_APP_PASSWORD,
+    process.env.GMAIL_USER,
+    process.env.RESEND_API_KEY,
+    process.env.SENDGRID_API_KEY,
+    process.env.EMAIL_FROM,
+    process.env.OPERATIONS_MANAGER_EMAIL,
+    process.env.OWNER_EMAIL,
+    process.env.SEO_USER_EMAIL,
+  ]) {
     if (secret) sanitized = sanitized.replaceAll(secret, "[redacted]");
   }
   return sanitized;

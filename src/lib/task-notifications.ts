@@ -143,11 +143,19 @@ function plainRows(rows: Record<string, string | null | undefined>) {
   return Object.entries(rows).map(([key, value]) => `${key}: ${formatValue(value)}`).join("\n");
 }
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+}
+
+function allowGmailSmtpFallback() {
+  return process.env.ALLOW_GMAIL_SMTP_FALLBACK === "true" || !isProductionRuntime();
+}
+
 export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_EMAIL" | "OWNER_EMAIL" | "SEO_USER_EMAIL") {
-  const hasGmailSmtp = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+  const hasGmailSmtp = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD && allowGmailSmtpFallback());
   const hasHttpsProvider = Boolean(process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
   const missing = [
-    !hasHttpsProvider && !hasGmailSmtp ? "RESEND_API_KEY or SENDGRID_API_KEY or GMAIL_USER/GMAIL_APP_PASSWORD" : null,
+    !hasHttpsProvider && !hasGmailSmtp ? "RESEND_API_KEY or SENDGRID_API_KEY" : null,
     !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
     requiredRecipientEnv && !process.env[requiredRecipientEnv] ? requiredRecipientEnv : null,
   ].filter((item): item is string => Boolean(item));
@@ -161,6 +169,7 @@ export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_
       resendApiKeyConfigured: Boolean(process.env.RESEND_API_KEY),
       sendGridApiKeyConfigured: Boolean(process.env.SENDGRID_API_KEY),
       emailFromConfigured: Boolean(process.env.EMAIL_FROM),
+      gmailSmtpFallbackEnabled: allowGmailSmtpFallback(),
       appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL),
       operationsManagerEmailConfigured: Boolean(process.env.OPERATIONS_MANAGER_EMAIL),
       ownerEmailConfigured: Boolean(process.env.OWNER_EMAIL),
@@ -428,9 +437,19 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
     failures.push(result);
   }
 
-  const smtpResult = await sendWithGmailSmtp({ to, subject, html, text });
-  if (smtpResult.sent) return smtpResult;
-  failures.push(smtpResult);
+  if (allowGmailSmtpFallback()) {
+    const smtpResult = await sendWithGmailSmtp({ to, subject, html, text });
+    if (smtpResult.sent) return smtpResult;
+    failures.push(smtpResult);
+  } else if (!process.env.RESEND_API_KEY && !process.env.SENDGRID_API_KEY) {
+    failures.push({
+      ok: false,
+      sent: false,
+      reason: "Production email provider is not configured. Add RESEND_API_KEY or SENDGRID_API_KEY in Render environment variables.",
+      code: "EMAIL_PROVIDER_MISSING",
+      transport: "https-email-provider",
+    });
+  }
 
   const details = failures.map((failure) => `${failure.transport ?? "email"}: ${failure.reason}${failure.code ? ` (${failure.code})` : ""}`).join(" | ");
   return {

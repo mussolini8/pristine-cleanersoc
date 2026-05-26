@@ -402,6 +402,24 @@ function actionLabel(action: string) {
   return action.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function cleanNotificationReason(reason: string | null) {
+  if (!reason) return null;
+  const lower = reason.toLowerCase();
+  if (
+    lower.includes("smtp.gmail.com") ||
+    lower.includes("gmail smtp") ||
+    lower.includes("esocket") ||
+    lower.includes("etimedout") ||
+    lower.includes("econnection")
+  ) {
+    return "Email could not be sent because Gmail SMTP is blocked in production. Configure RESEND_API_KEY or SENDGRID_API_KEY in Render.";
+  }
+  if (lower.includes("email_provider_missing") || lower.includes("production email provider is not configured")) {
+    return "Email provider is not configured. Add RESEND_API_KEY or SENDGRID_API_KEY in Render.";
+  }
+  return reason.length > 160 ? `${reason.slice(0, 157)}...` : reason;
+}
+
 function dateRangeLabel(start: string, end: string) {
   return `${displayDate(start)} - ${displayDate(end)}`;
 }
@@ -3744,12 +3762,15 @@ export function SimpleOperationsClient({
             <div className="mt-3 grid gap-2">
               {taskActivity.length === 0 ? <p className={cn(SOP_EMPTY_CLASS, "p-3 text-left")}>No activity yet.</p> : null}
               {taskActivity.slice(0, 12).map((item) => {
-                const reason = typeof item.details?.reason === "string" ? item.details.reason : null;
-                const messageText = typeof item.details?.message === "string" ? item.details.message : null;
+                const rawReason = typeof item.details?.reason === "string" ? item.details.reason : null;
+                const rawMessageText = typeof item.details?.message === "string" ? item.details.message : null;
+                const reason = cleanNotificationReason(rawReason);
+                const messageText = cleanNotificationReason(rawMessageText);
                 return (
-                  <div className="rounded-xl border border-border/70 bg-background/65 p-3 text-sm" key={item.id}>
-                    <strong>{actionLabel(item.action)}{reason ? ` - ${reason}` : ""}</strong>
-                    {messageText && !reason ? <p className="mt-1 text-xs font-medium text-muted-foreground">{messageText}</p> : null}
+                  <div className={cn("rounded-xl border border-border/70 bg-background/65 p-3 text-sm", item.action === "notification_failed" ? "border-amber-200 bg-amber-50/70 text-amber-950" : "")} key={item.id}>
+                    <strong className="block leading-snug">{actionLabel(item.action)}</strong>
+                    {reason ? <p className="mt-1 text-xs font-semibold leading-relaxed text-current/75">{reason}</p> : null}
+                    {messageText && !reason ? <p className="mt-1 text-xs font-medium leading-relaxed text-muted-foreground">{messageText}</p> : null}
                     <p className="mt-1 text-xs font-medium text-muted-foreground">{new Date(item.created_at).toLocaleString()}</p>
                   </div>
                 );
