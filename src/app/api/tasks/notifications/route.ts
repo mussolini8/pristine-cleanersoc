@@ -10,6 +10,8 @@ import {
   type TaskNotificationPayload,
 } from "@/lib/task-notifications";
 
+export const maxDuration = 60;
+
 type NotificationEvent = "task_assigned" | "task_completed";
 
 type RequestBody = {

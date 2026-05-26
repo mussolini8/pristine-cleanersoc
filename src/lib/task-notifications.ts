@@ -268,6 +268,9 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
     host: "smtp.gmail.com",
     port: 465,
     secure: true,
+    connectionTimeout: 30000,
+    greetingTimeout: 20000,
+    socketTimeout: 45000,
     auth: {
       user: gmailUser,
       pass: gmailPassword,

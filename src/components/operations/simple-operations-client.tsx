@@ -453,15 +453,15 @@ function AppMetricCard({
 }) {
   return (
     <Card className={cn(
-      "min-h-28 rounded-2xl border-border/70 shadow-[0_18px_54px_-48px_hsl(215_40%_20%)]",
+      "rounded-2xl border-border/70 shadow-[0_18px_54px_-48px_hsl(215_40%_20%)]",
       tone === "warn" ? "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15" : "",
       tone === "good" ? "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900 dark:bg-emerald-950/15" : "",
     )}>
-      <CardContent className="flex min-h-28 items-start justify-between gap-4 p-[18px]">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-muted-foreground">{label}</p>
-          <p className="mt-3 text-[2rem] font-semibold leading-none tracking-normal">{value}</p>
-          {note ? <p className="mt-2 line-clamp-2 text-xs font-medium leading-snug text-muted-foreground">{note}</p> : null}
+      <CardContent className="flex h-[118px] items-center justify-between gap-4 px-5 py-4">
+        <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <p className="text-sm font-medium leading-tight text-muted-foreground">{label}</p>
+          <p className="mt-3 text-[2rem] font-semibold leading-none tracking-normal text-foreground">{value}</p>
+          {note ? <p className="mt-2 line-clamp-2 text-sm font-medium leading-snug text-muted-foreground">{note}</p> : null}
         </div>
         <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-border/70 bg-background/80 text-primary">
           <Icon className="size-5" />
@@ -983,7 +983,7 @@ export function SimpleOperationsClient({
     actorName = "Pristine Operations",
   ) {
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 60000);
     try {
       const response = await fetch("/api/tasks/notifications", {
         method: "POST",
@@ -1021,7 +1021,7 @@ export function SimpleOperationsClient({
       if (!response.ok) return { sent: false, reason: `Notification request failed with HTTP ${response.status}` };
       return data?.notification ?? { sent: false, reason: "Notification service returned no status." };
     } catch (error) {
-      const reason = error instanceof Error && error.name === "AbortError" ? "Notification request timed out." : error instanceof Error ? error.message : "Notification request failed.";
+      const reason = error instanceof Error && error.name === "AbortError" ? "Notification request timed out after 60 seconds. Gmail SMTP did not respond in time." : error instanceof Error ? error.message : "Notification request failed.";
       await writeTaskAudit(task.id, "notification_failed", { event, reason });
       return { sent: false, reason };
     } finally {
