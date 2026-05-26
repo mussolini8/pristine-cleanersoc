@@ -42,6 +42,10 @@ export type EmailSendResult = {
   transport?: string;
 };
 
+type EmailTransportResult = EmailSendResult & {
+  status?: number;
+};
+
 type SendEmailInput = {
   to?: string | null;
   recipientEnvName?: string;
@@ -140,9 +144,10 @@ function plainRows(rows: Record<string, string | null | undefined>) {
 }
 
 export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_EMAIL" | "OWNER_EMAIL" | "SEO_USER_EMAIL") {
+  const hasGmailSmtp = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+  const hasHttpsProvider = Boolean(process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
   const missing = [
-    !process.env.GMAIL_USER ? "GMAIL_USER" : null,
-    !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
+    !hasHttpsProvider && !hasGmailSmtp ? "RESEND_API_KEY or SENDGRID_API_KEY or GMAIL_USER/GMAIL_APP_PASSWORD" : null,
     !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
     requiredRecipientEnv && !process.env[requiredRecipientEnv] ? requiredRecipientEnv : null,
   ].filter((item): item is string => Boolean(item));
@@ -153,6 +158,9 @@ export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_
     safeStatus: {
       gmailUserConfigured: Boolean(process.env.GMAIL_USER),
       gmailPasswordConfigured: Boolean(process.env.GMAIL_APP_PASSWORD),
+      resendApiKeyConfigured: Boolean(process.env.RESEND_API_KEY),
+      sendGridApiKeyConfigured: Boolean(process.env.SENDGRID_API_KEY),
+      emailFromConfigured: Boolean(process.env.EMAIL_FROM),
       appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL),
       operationsManagerEmailConfigured: Boolean(process.env.OPERATIONS_MANAGER_EMAIL),
       ownerEmailConfigured: Boolean(process.env.OWNER_EMAIL),
@@ -163,7 +171,16 @@ export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_
 
 function sanitizeMailerMessage(message: string) {
   let sanitized = message;
-  for (const secret of [process.env.GMAIL_APP_PASSWORD, process.env.GMAIL_USER, process.env.OPERATIONS_MANAGER_EMAIL, process.env.OWNER_EMAIL, process.env.SEO_USER_EMAIL]) {
+  for (const secret of [
+    process.env.GMAIL_APP_PASSWORD,
+    process.env.GMAIL_USER,
+    process.env.RESEND_API_KEY,
+    process.env.SENDGRID_API_KEY,
+    process.env.EMAIL_FROM,
+    process.env.OPERATIONS_MANAGER_EMAIL,
+    process.env.OWNER_EMAIL,
+    process.env.SEO_USER_EMAIL,
+  ]) {
     if (secret) sanitized = sanitized.replaceAll(secret, "[redacted]");
   }
   return sanitized.replace(/AUTH\s+\S+/gi, "AUTH [redacted]").slice(0, 220);
@@ -237,34 +254,96 @@ function classifyMailerError(error: unknown): EmailSendResult {
   };
 }
 
-async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmailInput): Promise<EmailSendResult> {
-  const missing = [
-    !process.env.GMAIL_USER ? "GMAIL_USER" : null,
-    !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
-    !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
-    !to && recipientEnvName ? recipientEnvName : null,
-  ].filter((item): item is string => Boolean(item));
+function emailFromAddress() {
+  return process.env.EMAIL_FROM || process.env.GMAIL_USER || "notifications@pristinecleanersoc.com";
+}
 
-  if (missing.length > 0) {
+function emailFromPayload() {
+  const from = emailFromAddress();
+  return from.includes("<") ? from : `"Pristine Operations" <${from}>`;
+}
+
+async function readProviderError(response: Response) {
+  const body = await response.text().catch(() => "");
+  return sanitizeMailerMessage(body || response.statusText || "Email API request failed");
+}
+
+async function sendWithResend({ to, subject, html, text }: Required<Pick<SendEmailInput, "subject" | "html" | "text">> & { to: string }): Promise<EmailTransportResult> {
+  if (!process.env.RESEND_API_KEY) {
+    return { ok: false, sent: false, reason: "RESEND_API_KEY is not configured.", code: "RESEND_NOT_CONFIGURED", transport: "resend" };
+  }
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: emailFromPayload(),
+        to: [to],
+        subject,
+        html,
+        text,
+      }),
+    });
+    const responseBody = await response.json().catch(() => null) as { id?: string; message?: string; error?: string } | null;
+    if (!response.ok) {
+      const reason = responseBody?.message ?? responseBody?.error ?? await readProviderError(response);
+      return { ok: false, sent: false, reason: `Resend API failed: ${sanitizeMailerMessage(reason)}`, code: "RESEND_API_ERROR", status: response.status, transport: "resend" };
+    }
+    return { ok: true, sent: true, reason: "sent", messageId: responseBody?.id, transport: "resend" };
+  } catch (error) {
+    return { ok: false, sent: false, reason: `Resend API failed: ${sanitizeMailerMessage(error instanceof Error ? error.message : "Unknown error")}`, code: "RESEND_API_ERROR", transport: "resend" };
+  }
+}
+
+async function sendWithSendGrid({ to, subject, html, text }: Required<Pick<SendEmailInput, "subject" | "html" | "text">> & { to: string }): Promise<EmailTransportResult> {
+  if (!process.env.SENDGRID_API_KEY) {
+    return { ok: false, sent: false, reason: "SENDGRID_API_KEY is not configured.", code: "SENDGRID_NOT_CONFIGURED", transport: "sendgrid" };
+  }
+
+  try {
+    const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: emailFromAddress().replace(/^.*<(.+)>.*$/, "$1"), name: "Pristine Operations" },
+        subject,
+        content: [
+          { type: "text/plain", value: text },
+          { type: "text/html", value: html },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      const reason = await readProviderError(response);
+      return { ok: false, sent: false, reason: `SendGrid API failed: ${reason}`, code: "SENDGRID_API_ERROR", status: response.status, transport: "sendgrid" };
+    }
+    return { ok: true, sent: true, reason: "sent", messageId: response.headers.get("x-message-id") ?? undefined, transport: "sendgrid" };
+  } catch (error) {
+    return { ok: false, sent: false, reason: `SendGrid API failed: ${sanitizeMailerMessage(error instanceof Error ? error.message : "Unknown error")}`, code: "SENDGRID_API_ERROR", transport: "sendgrid" };
+  }
+}
+
+async function sendWithGmailSmtp({ to, subject, html, text }: Required<Pick<SendEmailInput, "subject" | "html" | "text">> & { to: string }): Promise<EmailSendResult> {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
     return {
       ok: false,
       sent: false,
-      reason: `Missing required env vars: ${missing.join(", ")}`,
-      code: "EMAIL_CONFIG_MISSING",
+      reason: "Gmail SMTP is not configured.",
+      code: "GMAIL_SMTP_NOT_CONFIGURED",
+      transport: "smtp.gmail.com:465,smtp.gmail.com:587",
     };
   }
 
-  if (!to) {
-    return {
-      ok: false,
-      sent: false,
-      reason: "Missing email recipient.",
-      code: "MISSING_RECIPIENT",
-    };
-  }
-
-  const gmailUser = process.env.GMAIL_USER ?? "";
-  const gmailPassword = process.env.GMAIL_APP_PASSWORD ?? "";
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPassword = process.env.GMAIL_APP_PASSWORD;
   const transports = [
     { port: 465, secure: true, label: "smtp.gmail.com:465" },
     { port: 587, secure: false, label: "smtp.gmail.com:587" },
@@ -289,7 +368,7 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
     try {
       const info = await transporter.sendMail({
         from: `"Pristine Operations" <${gmailUser}>`,
-        to: to ?? undefined,
+        to,
         subject,
         html,
         text,
@@ -310,6 +389,58 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
     command: failures[0]?.command,
     responseCode: failures[0]?.responseCode,
     transport: "smtp.gmail.com:465,smtp.gmail.com:587",
+  };
+}
+
+async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmailInput): Promise<EmailSendResult> {
+  const missing = [
+    !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
+    !to && recipientEnvName ? recipientEnvName : null,
+  ].filter((item): item is string => Boolean(item));
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      sent: false,
+      reason: `Missing required env vars: ${missing.join(", ")}`,
+      code: "EMAIL_CONFIG_MISSING",
+    };
+  }
+
+  if (!to) {
+    return {
+      ok: false,
+      sent: false,
+      reason: "Missing email recipient.",
+      code: "MISSING_RECIPIENT",
+    };
+  }
+
+  const failures: EmailSendResult[] = [];
+  if (process.env.RESEND_API_KEY) {
+    const result = await sendWithResend({ to, subject, html, text });
+    if (result.sent) return result;
+    failures.push(result);
+  }
+  if (process.env.SENDGRID_API_KEY) {
+    const result = await sendWithSendGrid({ to, subject, html, text });
+    if (result.sent) return result;
+    failures.push(result);
+  }
+
+  const smtpResult = await sendWithGmailSmtp({ to, subject, html, text });
+  if (smtpResult.sent) return smtpResult;
+  failures.push(smtpResult);
+
+  const details = failures.map((failure) => `${failure.transport ?? "email"}: ${failure.reason}${failure.code ? ` (${failure.code})` : ""}`).join(" | ");
+  return {
+    ok: false,
+    sent: false,
+    reason: details || "Email delivery failed.",
+    code: failures[0]?.code,
+    command: failures[0]?.command,
+    responseCode: failures[0]?.responseCode,
+    transport: failures.map((failure) => failure.transport).filter(Boolean).join(","),
   };
 }
 
