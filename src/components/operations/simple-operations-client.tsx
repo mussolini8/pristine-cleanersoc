@@ -2224,6 +2224,8 @@ export function SimpleOperationsClient({
         ? `Monthly SOP not generated for ${visibleTaskMonth.label}`
         : "56 active SOP templates start in June 2026";
     const calendarButtonClass = "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-border/70 bg-card px-3 text-sm font-semibold text-foreground shadow-none transition hover:border-primary/25 hover:bg-accent/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-55";
+    const taskControlButtonClass = "h-9 rounded-md px-3 text-sm font-medium text-muted-foreground transition hover:bg-accent/45 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/15";
+    const taskControlActiveClass = "bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground";
     const taskChipClass = (task: OperationTaskRow, dayKey: string) => {
       const status = normalizeTaskStatus(task.status);
       const overdue = status === "pending" && dayKey < today;
@@ -2231,6 +2233,12 @@ export function SimpleOperationsClient({
       if (status === "completed") return "border-emerald-200/80 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
       return "border-amber-200/70 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100";
     };
+    const compactMetrics = [
+      { label: "Pending", value: taskStats.pending.length, Icon: Clock, note: "Open reminders", tone: "neutral" },
+      { label: "Overdue", value: taskStats.overdue.length, Icon: AlertTriangle, note: "Past due", tone: taskStats.overdue.length ? "warn" : "good" },
+      { label: "Completed", value: taskStats.completed.length, Icon: CheckCircle2, note: "Closed tasks", tone: "good" },
+      { label: "Monthly SOP", value: monthlySopTaskCount >= 56 ? 56 : monthlySopTaskCount, Icon: FileText, note: monthlySopNote, tone: monthlySopTaskCount === 56 ? "good" : "warn" },
+    ];
 
     function renderTaskList(rows: OperationTaskRow[], emptyText: string) {
       return (
@@ -2264,10 +2272,27 @@ export function SimpleOperationsClient({
     return (
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-4">
-          <MetricCard icon={Clock} label="Pending" value={taskStats.pending.length} />
-          <MetricCard icon={AlertTriangle} label="Overdue" value={taskStats.overdue.length} tone={taskStats.overdue.length ? "warn" : "good"} />
-          <MetricCard icon={CheckCircle2} label="Completed" value={taskStats.completed.length} tone="good" />
-          <MetricCard icon={FileText} label="Monthly SOP" value={monthlySopTaskCount >= 56 ? "56" : monthlySopTaskCount} note={monthlySopNote} tone={monthlySopTaskCount === 56 ? "good" : "warn"} />
+          {compactMetrics.map(({ label, value, Icon, note, tone }) => (
+            <div
+              className={cn(
+                "rounded-lg border border-border/65 bg-card p-4 shadow-[0_14px_42px_-38px_hsl(215_40%_20%)]",
+                tone === "warn" && "border-amber-200 bg-amber-50/45 dark:border-amber-900 dark:bg-amber-950/15",
+                tone === "good" && "border-emerald-200/75 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/12",
+              )}
+              key={label}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold leading-none text-muted-foreground">{label}</p>
+                  <p className="mt-4 text-3xl font-semibold leading-none tracking-normal text-foreground">{value}</p>
+                  <p className="mt-3 min-h-4 truncate text-xs font-medium text-muted-foreground" title={note}>{note}</p>
+                </div>
+                <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-border/65 bg-background/70 text-primary">
+                  <Icon className="size-4" />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
 
         {selectedMonthCanGenerateSop && monthlySopTaskCount < 56 ? (
@@ -2283,28 +2308,35 @@ export function SimpleOperationsClient({
         ) : null}
 
         {monthlySopImportSummary ? (
-          <Card className={cn(SOP_PANEL_CLASS, monthlySopImportSummary.processed === monthlySopImportSummary.expected ? "border-emerald-200 bg-emerald-50/35 dark:border-emerald-900 dark:bg-emerald-950/15" : "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15")}>
-            <CardContent className="grid gap-3 p-4 md:grid-cols-[1.1fr_repeat(5,auto)] md:items-center">
-              <div>
-                <p className="font-semibold">{monthlySopImportSummary.message}</p>
-                <p className="mt-1 text-sm font-medium text-muted-foreground">Source document: {monthlySopImportSummary.sourceDocument} · Month: {monthlySopImportSummary.month} · Calendar start: {monthlySopImportSummary.calendarStart} · Recurrence: {monthlySopImportSummary.recurrence}</p>
+          <Card className={cn("rounded-lg border shadow-none", monthlySopImportSummary.processed === monthlySopImportSummary.expected ? "border-emerald-200 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/15" : "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15")}>
+            <CardContent className="grid gap-4 p-4 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div className="min-w-0">
+                <p className="text-lg font-semibold leading-tight">{monthlySopImportSummary.message}</p>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm font-medium text-muted-foreground">
+                  <span>{monthlySopImportSummary.sourceDocument}</span>
+                  <span>{monthlySopImportSummary.month}</span>
+                  <span>{monthlySopImportSummary.recurrence}</span>
+                </div>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">{monthlySopImportSummary.calendarStart}</p>
               </div>
-              <Badge variant="outline">Expected {monthlySopImportSummary.expected}</Badge>
-              <Badge variant="outline">Created {monthlySopImportSummary.created}</Badge>
-              <Badge variant="outline">Skipped {monthlySopImportSummary.duplicatesSkipped}</Badge>
-              <Badge variant="outline">Updated {monthlySopImportSummary.updated}</Badge>
-              <Badge variant="outline">Templates {monthlySopImportSummary.templatesVerified}</Badge>
+              <div className="flex flex-wrap gap-2 lg:justify-end">
+                <Badge variant="outline">Expected {monthlySopImportSummary.expected}</Badge>
+                <Badge variant="outline">Created {monthlySopImportSummary.created}</Badge>
+                <Badge variant="outline">Skipped {monthlySopImportSummary.duplicatesSkipped}</Badge>
+                <Badge variant="outline">Updated {monthlySopImportSummary.updated}</Badge>
+                <Badge variant="outline">Templates {monthlySopImportSummary.templatesVerified}</Badge>
+              </div>
             </CardContent>
           </Card>
         ) : null}
 
-        <div className={cn(SOP_PANEL_CLASS, "flex flex-wrap items-center justify-between gap-3 p-3")}>
-          <div className="flex flex-wrap gap-2">
-            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/70 bg-background/80 p-1 shadow-sm">
+        <div className="grid gap-3 rounded-lg border border-border/65 bg-card p-3 shadow-[0_14px_42px_-40px_hsl(215_40%_20%)] lg:grid-cols-[auto_1fr] lg:items-center">
+          <div className="flex min-w-0 flex-wrap gap-2">
+            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/65 bg-background/75 p-1">
               {(["month", "day", "list"] as TaskViewMode[]).map((mode) => (
                 <button
                   type="button"
-                  className={cn("whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground", taskViewMode === mode && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
+                  className={cn(taskControlButtonClass, taskViewMode === mode && taskControlActiveClass)}
                   key={mode}
                   onClick={() => setTaskViewMode(mode)}
                 >
@@ -2312,11 +2344,11 @@ export function SimpleOperationsClient({
                 </button>
               ))}
             </div>
-            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/70 bg-background/80 p-1 shadow-sm">
+            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border/65 bg-background/75 p-1">
               {(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => (
                 <button
                   type="button"
-                  className={cn("whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground", taskTab === tab && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground")}
+                  className={cn(taskControlButtonClass, taskTab === tab && taskControlActiveClass)}
                   key={tab}
                   onClick={() => setTaskTab(tab)}
                 >
@@ -2325,14 +2357,14 @@ export function SimpleOperationsClient({
               ))}
             </div>
           </div>
-          <div className="flex min-w-64 flex-1 flex-wrap justify-end gap-2">
-            <input className={cn(PAYMENT_FIELD_CLASS, "w-full max-w-md")} placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(220px,1fr)_180px_auto]">
+            <input className="h-10 min-w-0 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary/45 focus:ring-2 focus:ring-primary/10" placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
             {taskViewMode === "day" ? <input className={PAYMENT_FIELD_CLASS} type="date" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
-            <select className={PAYMENT_FIELD_CLASS} value={taskSourceFilter} onChange={(event) => setTaskSourceFilter(event.target.value as "all" | "monthly_sop")} aria-label="Task source filter">
+            <select className="h-10 min-w-0 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none transition focus:border-primary/45 focus:ring-2 focus:ring-primary/10" value={taskSourceFilter} onChange={(event) => setTaskSourceFilter(event.target.value as "all" | "monthly_sop")} aria-label="Task source filter">
               <option value="all">All sources</option>
               <option value="monthly_sop">Monthly SOP</option>
             </select>
-            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => { setTaskSearch(""); setTaskSourceFilter("all"); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw className="size-4" /> Clear</Button>
+            <Button className="h-10 rounded-lg px-3 text-sm font-semibold" variant="outline" onClick={() => { setTaskSearch(""); setTaskSourceFilter("all"); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw className="size-4" /> Clear</Button>
           </div>
         </div>
 
