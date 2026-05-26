@@ -1,4 +1,8 @@
 import nodemailer from "nodemailer";
+import { setDefaultResultOrder } from "node:dns";
+import type SMTPTransport from "nodemailer/lib/smtp-transport";
+
+setDefaultResultOrder("ipv4first");
 
 export type TaskNotificationPerson = {
   name: string;
@@ -263,9 +267,10 @@ async function sendWithGmailSmtp({ to, subject, html, text }: Required<Pick<Send
   const failures: EmailSendResult[] = [];
 
   for (const transport of transports) {
-    const transporter = nodemailer.createTransport({
+    const smtpOptions = {
       host: "smtp.gmail.com",
       port: transport.port,
+      family: 4,
       secure: transport.secure,
       requireTLS: !transport.secure,
       connectionTimeout: 20000,
@@ -278,7 +283,8 @@ async function sendWithGmailSmtp({ to, subject, html, text }: Required<Pick<Send
         user: gmailUser,
         pass: gmailPassword,
       },
-    });
+    } as SMTPTransport.Options & { family: 4 };
+    const transporter = nodemailer.createTransport(smtpOptions);
 
     try {
       const info = await transporter.sendMail({
