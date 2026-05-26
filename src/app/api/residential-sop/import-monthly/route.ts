@@ -94,6 +94,22 @@ function taskMetadata(instance: MonthlySopInstance, dedupeKey: string, templateI
   };
 }
 
+function fallbackDedupeKey(instance: MonthlySopInstance) {
+  return monthlySopDedupeKey(instance, null);
+}
+
+function legacyDedupeKey(row: ExistingMonthlySopTask) {
+  const metadata = row.metadata ?? {};
+  return [
+    MONTHLY_SOP_IMPORT.sourceDocumentName,
+    metadata.target_month,
+    metadata.target_year,
+    metadata.sop_week,
+    metadata.sop_day,
+    String(row.title ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
+  ].join("|");
+}
+
 async function requestTarget(request: NextRequest) {
   try {
     const body = await request.json() as { month?: number; year?: number };
@@ -166,20 +182,49 @@ export async function POST(request: NextRequest) {
   }
 
   const existingByDedupeKey = new Map<string, ExistingMonthlySopTask>();
+  const duplicateIdsToArchive = new Set<string>();
   for (const row of (existingRows ?? []) as ExistingMonthlySopTask[]) {
     const dedupeKey = typeof row.metadata?.dedupe_key === "string" ? row.metadata.dedupe_key : null;
-    if (dedupeKey) existingByDedupeKey.set(dedupeKey, row);
+    const keys = Array.from(new Set([dedupeKey, legacyDedupeKey(row)].filter((key): key is string => Boolean(key))));
+    for (const key of keys) {
+      const existing = existingByDedupeKey.get(key);
+      if (!existing) {
+        existingByDedupeKey.set(key, row);
+        continue;
+      }
+      if (existing.id === row.id) continue;
+      const keepExisting = existing.status === "completed" || row.status !== "completed";
+      duplicateIdsToArchive.add(keepExisting ? row.id : existing.id);
+      if (!keepExisting) existingByDedupeKey.set(key, row);
+    }
   }
 
   let created = 0;
   let duplicatesSkipped = 0;
   let updated = 0;
+  let archivedDuplicates = 0;
+
+  if (duplicateIdsToArchive.size > 0) {
+    const { error } = await supabase
+      .from("operation_tasks")
+      .update({
+        deleted_at: now,
+        updated_at: now,
+        metadata: {
+          archived_reason: "duplicate_monthly_sop_task",
+          archived_at: now,
+        },
+      })
+      .in("id", Array.from(duplicateIdsToArchive));
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    archivedDuplicates = duplicateIdsToArchive.size;
+  }
 
   for (const instance of instances) {
     const templateKey = monthlySopTemplateKey(instance);
     const templateId = templateIdByKey.get(templateKey) ?? null;
     const dedupeKey = monthlySopDedupeKey(instance, templateId);
-    const existing = existingByDedupeKey.get(dedupeKey);
+    const existing = existingByDedupeKey.get(dedupeKey) ?? existingByDedupeKey.get(fallbackDedupeKey(instance));
     const metadata = taskMetadata(instance, dedupeKey, templateId);
     const status = existing?.status === "completed" ? "completed" : "pending";
     const payload = {
@@ -248,6 +293,7 @@ export async function POST(request: NextRequest) {
     expected: EXPECTED_TASKS,
     created,
     duplicatesSkipped,
+    archivedDuplicates,
     updated,
     templatesVerified,
     recurrence: templatesVerified === EXPECTED_TASKS ? "active monthly" : "Monthly SOP tasks were imported, but recurrence templates were not created.",

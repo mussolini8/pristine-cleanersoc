@@ -39,6 +39,7 @@ export type EmailSendResult = {
   command?: string;
   responseCode?: number;
   messageId?: string;
+  transport?: string;
 };
 
 type SendEmailInput = {
@@ -264,32 +265,52 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
 
   const gmailUser = process.env.GMAIL_USER ?? "";
   const gmailPassword = process.env.GMAIL_APP_PASSWORD ?? "";
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    connectionTimeout: 30000,
-    greetingTimeout: 20000,
-    socketTimeout: 45000,
-    auth: {
-      user: gmailUser,
-      pass: gmailPassword,
-    },
-  });
+  const transports = [
+    { port: 465, secure: true, label: "smtp.gmail.com:465" },
+    { port: 587, secure: false, label: "smtp.gmail.com:587" },
+  ];
+  const failures: EmailSendResult[] = [];
 
-  try {
-    const info = await transporter.sendMail({
-      from: `"Pristine Operations" <${gmailUser}>`,
-      to: to ?? undefined,
-      subject,
-      html,
-      text,
-    }) as { messageId?: string };
+  for (const transport of transports) {
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: transport.port,
+      secure: transport.secure,
+      requireTLS: !transport.secure,
+      connectionTimeout: 30000,
+      greetingTimeout: 20000,
+      socketTimeout: 45000,
+      auth: {
+        user: gmailUser,
+        pass: gmailPassword,
+      },
+    });
 
-    return { ok: true, sent: true, reason: "sent", messageId: info.messageId };
-  } catch (error) {
-    return classifyMailerError(error);
+    try {
+      const info = await transporter.sendMail({
+        from: `"Pristine Operations" <${gmailUser}>`,
+        to: to ?? undefined,
+        subject,
+        html,
+        text,
+      }) as { messageId?: string };
+
+      return { ok: true, sent: true, reason: "sent", messageId: info.messageId, transport: transport.label };
+    } catch (error) {
+      failures.push({ ...classifyMailerError(error), transport: transport.label });
+    }
   }
+
+  const details = failures.map((failure) => `${failure.transport}: ${failure.reason}${failure.code ? ` (${failure.code})` : ""}`).join(" | ");
+  return {
+    ok: false,
+    sent: false,
+    reason: details || "Could not connect to Gmail SMTP.",
+    code: failures[0]?.code,
+    command: failures[0]?.command,
+    responseCode: failures[0]?.responseCode,
+    transport: "smtp.gmail.com:465,smtp.gmail.com:587",
+  };
 }
 
 export async function sendTaskAssignedEmail(task: TaskNotificationPayload, assignee: TaskNotificationPerson) {

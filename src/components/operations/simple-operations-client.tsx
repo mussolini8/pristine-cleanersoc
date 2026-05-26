@@ -129,6 +129,7 @@ type MonthlySopImportSummary = {
   expected: number;
   created: number;
   duplicatesSkipped: number;
+  archivedDuplicates?: number;
   updated: number;
   templatesVerified: number;
   recurrence: string;
@@ -271,6 +272,39 @@ function taskIsOperationsReminder(task: OperationTaskRow) {
 function taskSourceDocument(task: OperationTaskRow) {
   const metadata = task.metadata ?? {};
   return typeof metadata.source_document_name === "string" ? metadata.source_document_name : null;
+}
+
+function normalizedTaskTitle(title: string | null | undefined) {
+  return String(title ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function operationTaskDedupeKey(task: OperationTaskRow) {
+  const metadata = task.metadata ?? {};
+  if (typeof metadata.dedupe_key === "string" && metadata.dedupe_key.trim()) return metadata.dedupe_key;
+  return [
+    taskSourceDocument(task) ?? "manual",
+    metadata.target_month ?? "",
+    metadata.target_year ?? "",
+    metadata.source_section ?? "",
+    dateKeyFromValue(task.due_date) ?? "",
+    normalizedTaskTitle(task.title),
+  ].join("|");
+}
+
+function dedupeOperationTasks(rows: OperationTaskRow[]) {
+  const byKey = new Map<string, OperationTaskRow>();
+  for (const task of rows) {
+    const key = operationTaskDedupeKey(task);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, task);
+      continue;
+    }
+    const existingCompleted = normalizeTaskStatus(existing.status) === "completed";
+    const currentCompleted = normalizeTaskStatus(task.status) === "completed";
+    if (currentCompleted && !existingCompleted) byKey.set(key, task);
+  }
+  return Array.from(byKey.values());
 }
 
 function isJuanRomero(name: string | null | undefined) {
@@ -675,7 +709,7 @@ export function SimpleOperationsClient({
       });
     }
 
-      setTasks(((taskResult.data ?? []) as unknown as OperationTaskRow[]).filter(taskIsOperationsReminder));
+      setTasks(dedupeOperationTasks(((taskResult.data ?? []) as unknown as OperationTaskRow[]).filter(taskIsOperationsReminder)));
       setActivity((activityResult.data ?? []) as unknown as ActivityRow[]);
       setAccounts(isMissingSchemaTableError(accountResult.error) ? [] : (accountResult.data ?? []) as unknown as ResidentialAccountRow[]);
       setWorkLogs(isMissingSchemaTableError(workLogResult.error) ? [] : (workLogResult.data ?? []) as unknown as ResidentialWorkLogRow[]);
@@ -2434,6 +2468,7 @@ export function SimpleOperationsClient({
                 <Badge variant="outline">Expected {monthlySopImportSummary.expected}</Badge>
                 <Badge variant="outline">Created {monthlySopImportSummary.created}</Badge>
                 <Badge variant="outline">Skipped {monthlySopImportSummary.duplicatesSkipped}</Badge>
+                {monthlySopImportSummary.archivedDuplicates ? <Badge variant="outline">Archived duplicates {monthlySopImportSummary.archivedDuplicates}</Badge> : null}
                 <Badge variant="outline">Updated {monthlySopImportSummary.updated}</Badge>
                 <Badge variant="outline">Templates {monthlySopImportSummary.templatesVerified}</Badge>
               </div>

@@ -11,6 +11,7 @@ import {
 } from "@/lib/task-notifications";
 
 export const maxDuration = 60;
+export const runtime = "nodejs";
 
 type NotificationEvent = "task_assigned" | "task_completed";
 
@@ -118,6 +119,7 @@ async function writeNotificationAudit(
     responseCode?: number;
     messageId?: string;
     skipped?: boolean;
+    transport?: string;
   },
   recipient: {
     name: string;
@@ -136,6 +138,7 @@ async function writeNotificationAudit(
     command: result.command,
     responseCode: result.responseCode,
     messageId: result.messageId,
+    transport: result.transport,
     message: result.sent
       ? event === "task_assigned"
         ? `Assignment email sent to ${recipient.name}`
