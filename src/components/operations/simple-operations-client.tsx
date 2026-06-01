@@ -363,14 +363,23 @@ function staffDraftStatus(person: StaffMemberRow): StaffPipelineStatus {
 }
 
 function normalizePaymentMode(value: string | null | undefined, name: string | null | undefined): PaymentMode {
-  void value;
   if (isJuanRomero(name)) return "mixed";
+  if (value === "mixed") return "mixed";
   return "residential_only";
 }
 
 function isMixedPaySummary(summary: { team?: StaffMemberRow; teamName: string }) {
-  void summary.team;
-  return isJuanRomero(summary.teamName);
+  return isJuanRomero(summary.teamName) || staffScope(summary.team ?? { role: "", team_scope: null }) === "mixed";
+}
+
+function canScheduleResidential(person: StaffMemberRow) {
+  const scope = staffScope(person);
+  return scope === "residential" || scope === "mixed";
+}
+
+function canScheduleCommercial(person: StaffMemberRow) {
+  const scope = staffScope(person);
+  return scope === "commercial" || scope === "mixed";
 }
 
 function teamKey(teamId: string | null | undefined, teamName: string) {
@@ -762,6 +771,8 @@ export function SimpleOperationsClient({
   const periodRange = getPeriodRange(periodMode, periodAnchor);
   const activeAccounts = useMemo(() => accounts.filter((account) => account.active !== false), [accounts]);
   const activeTeams = useMemo(() => staff.filter((person) => staffIsActive(person) && !["owner", "operations manager"].includes(String(person.role ?? "").toLowerCase()) && !["jake ivan-pal", "carlos lopez"].includes(person.name.toLowerCase())), [staff]);
+  const activeResidentialTeams = useMemo(() => activeTeams.filter(canScheduleResidential), [activeTeams]);
+  const activeCommercialTeams = useMemo(() => activeTeams.filter(canScheduleCommercial), [activeTeams]);
   const potentialCleaners = useMemo(() => staff.filter((person) => staffIsPotentialCleaner(person) && !["jake ivan-pal", "carlos lopez"].includes(person.name.toLowerCase())), [staff]);
   const potentialResidentialCleaners = useMemo(() => potentialCleaners.filter((person) => staffScope(person) !== "commercial"), [potentialCleaners]);
   const potentialCommercialCleaners = useMemo(() => potentialCleaners.filter((person) => staffScope(person) !== "residential"), [potentialCleaners]);
@@ -936,7 +947,7 @@ export function SimpleOperationsClient({
 
     function ensureSummary(teamId: string | null, teamName: string) {
       const key = teamKey(teamId, teamName);
-      const team = activeTeams.find((item) => item.id === teamId || item.name === teamName) ?? teamByKey.get(key) ?? teamByKey.get(teamName.toLowerCase());
+      const team = activeResidentialTeams.find((item) => item.id === teamId || item.name === teamName) ?? teamByKey.get(key) ?? teamByKey.get(teamName.toLowerCase());
       const displayName = isJuanRomero(teamName) ? JUAN_ROMERO_NAME : teamName;
       const current = map.get(key) ?? {
         key,
@@ -960,16 +971,18 @@ export function SimpleOperationsClient({
       return current;
     }
 
-    for (const team of activeTeams) {
+    for (const team of activeResidentialTeams) {
       ensureSummary(team.id, team.name);
     }
 
-    const juanTeam = activeTeams.find((team) => isJuanRomero(team.name)) ?? staff.find((person) => isJuanRomero(person.name));
+    const juanTeam = activeResidentialTeams.find((team) => isJuanRomero(team.name)) ?? staff.find((person) => isJuanRomero(person.name));
     ensureSummary(juanTeam?.id ?? null, JUAN_ROMERO_NAME);
     const carlosTeam = staff.find((person) => isCarlosLopez(person.name));
     ensureSummary(carlosTeam?.id ?? null, CARLOS_LOPEZ_NAME);
 
     for (const log of logsInPaymentWeek) {
+      const team = teamByKey.get(teamKey(log.team_id, log.team_name)) ?? teamByKey.get(log.team_name.toLowerCase());
+      if (team && !canScheduleResidential(team)) continue;
       const current = ensureSummary(log.team_id, log.team_name);
       current.totalHours = roundHours(current.totalHours + toNumber(log.hours_worked));
       current.accounts.add(log.account_name);
@@ -977,6 +990,8 @@ export function SimpleOperationsClient({
     }
 
     for (const row of paymentRowsInWeek) {
+      const team = teamByKey.get(teamKey(row.cleaner_id, row.cleaner_name)) ?? teamByKey.get(row.cleaner_name.toLowerCase());
+      if (team && !canScheduleResidential(team)) continue;
       const current = ensureSummary(row.cleaner_id, row.cleaner_name);
       current.rows.push(row);
       const rowHasAmount = paymentLineTotal(row) > 0;
@@ -988,13 +1003,15 @@ export function SimpleOperationsClient({
     }
 
     for (const payment of weeklyPayments.filter((item) => item.week_start === weekRange.start)) {
+      const team = teamByKey.get(teamKey(payment.team_id, payment.team_name)) ?? teamByKey.get(payment.team_name.toLowerCase());
+      if (team && !canScheduleResidential(team)) continue;
       const current = ensureSummary(payment.team_id, payment.team_name);
       if (!current.totalHours) current.totalHours = toNumber(payment.total_hours);
       current.payment = payment;
     }
 
     return Array.from(map.values()).sort((a, b) => a.teamName.localeCompare(b.teamName));
-  }, [activeTeams, logsInPaymentWeek, paymentRowsInWeek, staff, teamByKey, weekRange.start, weeklyPayments]);
+  }, [activeResidentialTeams, logsInPaymentWeek, paymentRowsInWeek, staff, teamByKey, weekRange.start, weeklyPayments]);
 
   const pendingPaymentTotal = useMemo(() => weeklyPaymentSummaries.reduce((sum, item) => {
     return paymentSummaryStatus(item) === "paid" ? sum : sum + item.paymentTotal;
@@ -1348,7 +1365,7 @@ export function SimpleOperationsClient({
       setMessage({ tone: "error", text: "Residential account could not be saved: account name is required." });
       return;
     }
-    const selectedTeam = activeTeams.find((team) => team.id === accountDraft.assignedTeamId);
+    const selectedTeam = activeResidentialTeams.find((team) => team.id === accountDraft.assignedTeamId);
     const now = new Date().toISOString();
     const payload = {
       user_id: userId,
@@ -1420,7 +1437,7 @@ export function SimpleOperationsClient({
     event.preventDefault();
     if (!userId || savingWorkLog) return;
     const account = accounts.find((item) => item.id === workLogDraft.accountId);
-    const team = activeTeams.find((item) => item.id === workLogDraft.teamId);
+    const team = activeResidentialTeams.find((item) => item.id === workLogDraft.teamId);
     const validation = validateInput(workLogSchema, {
       accountId: workLogDraft.accountId,
       teamId: workLogDraft.teamId,
@@ -1532,7 +1549,7 @@ export function SimpleOperationsClient({
       display_role: role,
       team_scope: teamScope,
       hourly_rate: Number(staffDraft.hourlyRate) || null,
-      payment_mode: isJuanRomero(staffDraft.name) ? "mixed" : staffDraft.paymentMode,
+      payment_mode: isJuanRomero(staffDraft.name) || teamScope === "mixed" ? "mixed" : "residential_only",
       active: isActiveStatus ? staffDraft.active : false,
       status,
       commercial_payroll_eligible: isActiveStatus && (teamScope === "commercial" || teamScope === "mixed") && !isJuanRomero(staffDraft.name),
@@ -1619,7 +1636,7 @@ export function SimpleOperationsClient({
   async function savePaymentRow(summary: (typeof weeklyPaymentSummaries)[number]) {
     if (!userId || savingPaymentKey) return;
     const draft = paymentDraftForSummary(summary);
-    const mixed = isJuanRomero(summary.teamName);
+    const mixed = isMixedPaySummary(summary);
     const paymentAmount = toNumber(draft.paymentAmount);
     const residentialAmount = toNumber(draft.residentialAmount);
     const commercialAmount = toNumber(draft.commercialAmount);
@@ -1891,7 +1908,7 @@ export function SimpleOperationsClient({
       });
       return;
     }
-    const team = activeTeams.find((person) => person.name === entry.team_name);
+    const team = activeCommercialTeams.find((person) => person.name === entry.team_name);
     setCommercialHoursDraft({
       id: entry.id,
       accountId: entry.account_id ?? "",
@@ -1910,7 +1927,7 @@ export function SimpleOperationsClient({
     event.preventDefault();
     if (!userId || savingPaymentKey) return;
     const account = commercialAccounts.find((item) => item.id === commercialHoursDraft.accountId);
-    const team = activeTeams.find((item) => item.id === commercialHoursDraft.teamId);
+    const team = activeCommercialTeams.find((item) => item.id === commercialHoursDraft.teamId);
     const teamName = team?.name ?? commercialHoursDraft.teamName.trim();
     const hours = toNumber(commercialHoursDraft.hours);
     const verified = commercialHoursDraft.verified || commercialHoursDraft.status === "verified" || commercialHoursDraft.status === "paid";
@@ -1977,7 +1994,7 @@ export function SimpleOperationsClient({
     event.preventDefault();
     if (!userId || savingPaymentKey) return;
     const account = commercialAccounts.find((item) => item.id === commercialScheduleDraft.accountId);
-    const team = activeTeams.find((item) => item.id === commercialScheduleDraft.assignedTeamId);
+    const team = activeCommercialTeams.find((item) => item.id === commercialScheduleDraft.assignedTeamId);
     const assignedName = team?.name ?? commercialScheduleDraft.assignedTeamName.trim();
     const dayPayloads = commercialScheduleDraft.selectedDays.map((day) => {
       const hours = toNumber(commercialScheduleDraft.dayHours[day]);
@@ -2079,10 +2096,10 @@ export function SimpleOperationsClient({
     const residentialPaymentsTotal = weeklyPaymentSummaries.reduce((sum, summary) => {
       return sum + (isMixedPaySummary(summary) ? summary.residentialTotal : summary.paymentTotal);
     }, 0);
-    const juanCommercialAddOn = weeklyPaymentSummaries.reduce((sum, summary) => {
+    const mixedCommercialAddOn = weeklyPaymentSummaries.reduce((sum, summary) => {
       return isMixedPaySummary(summary) ? sum + summary.commercialTotal : sum;
     }, 0);
-    const grandTotal = residentialPaymentsTotal + juanCommercialAddOn;
+    const grandTotal = residentialPaymentsTotal + mixedCommercialAddOn;
     const paidTotal = weeklyPaymentSummaries
       .filter((summary) => paymentSummaryStatus(summary) === "paid")
       .reduce((sum, summary) => sum + summary.paymentTotal, 0);
@@ -2090,7 +2107,7 @@ export function SimpleOperationsClient({
     const summaryRows = [
       { metric: "Week range", value: dateRangeLabel(weekRange.start, weekRange.end) },
       { metric: "Payments total", value: residentialPaymentsTotal },
-      { metric: "Juan commercial add-on", value: juanCommercialAddOn },
+      { metric: "Mixed commercial add-on", value: mixedCommercialAddOn },
       { metric: "Grand total", value: grandTotal },
       { metric: "Pending total", value: pendingTotal },
       { metric: "Paid total", value: paidTotal },
@@ -2708,7 +2725,7 @@ export function SimpleOperationsClient({
               </select></label>
               <label className={PAYMENT_LABEL_CLASS}>Team<select className={PAYMENT_FIELD_CLASS} value={workLogDraft.teamId} onChange={(event) => setWorkLogDraft((current) => ({ ...current, teamId: event.target.value }))}>
                 <option value="">Select team</option>
-                {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                {activeResidentialTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
               </select></label>
               <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={workLogDraft.workDate} onChange={(event) => setWorkLogDraft((current) => ({ ...current, workDate: event.target.value }))} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Hours worked<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={workLogDraft.hoursWorked} onChange={(event) => setWorkLogDraft((current) => ({ ...current, hoursWorked: event.target.value }))} /></label>
@@ -2845,7 +2862,7 @@ export function SimpleOperationsClient({
             <select className={PAYMENT_FIELD_CLASS} value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)} aria-label="Payment kind filter">
               <option value="all">All cleaners</option>
               <option value="residential">Residential cleaners</option>
-              <option value="mixed">Juan Romero format</option>
+              <option value="mixed">Mixed cleaners</option>
             </select>
             <select className={PAYMENT_FIELD_CLASS} value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)} aria-label="Payment status filter">
               <option value="all">All statuses</option>
@@ -2943,7 +2960,7 @@ export function SimpleOperationsClient({
                 <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(paymentSummaryStatus(summary)))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
               </div>
             </div>
-            <Button className="h-10 rounded-xl px-2.5 text-xs font-semibold" size="sm" variant="outline" onClick={() => mixed ? openJuanPaymentModal() : openPaymentModal(summary, "residential")}><Plus className="size-[18px]" /> Row</Button>
+            <Button className="h-10 rounded-xl px-2.5 text-xs font-semibold" size="sm" variant="outline" onClick={() => mixed ? openPaymentModal(summary, "juan") : openPaymentModal(summary, "residential")}><Plus className="size-[18px]" /> Row</Button>
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-4 pt-0">
@@ -2968,7 +2985,7 @@ export function SimpleOperationsClient({
                         <div className="mt-2 flex items-center gap-1.5">
                           <Badge className={cn("rounded-full px-2 py-0 text-[10px] font-semibold", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
                           <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openJuanPaymentModal(row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-[18px]" /></button>
+                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openPaymentModal(summary, "juan", row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-[18px]" /></button>
                             <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-[18px]" /></button>
                             <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-700")} aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><Check className="size-[18px]" /></button>
                             <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-rose-700")} aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-[18px]" /></button>
@@ -2992,7 +3009,7 @@ export function SimpleOperationsClient({
             </div>
             {mixed && hasRows ? (
               <div className="flex items-center justify-between gap-3 border-t border-emerald-200/70 bg-emerald-50/75 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-900/70 dark:bg-emerald-950/25 dark:text-emerald-100">
-                <span className="font-medium">Juan total</span>
+                <span className="font-medium">{summary.teamName} total</span>
                 <strong className="font-semibold">{formatMoney(summary.paymentTotal)}</strong>
               </div>
             ) : null}
@@ -3012,9 +3029,9 @@ export function SimpleOperationsClient({
                 <Button className="self-end rounded-xl" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
               </div>
             ) : null}
-            {mixed && summary.rows.length > 0 ? (
+            {mixed && isJuanRomero(summary.teamName) && summary.rows.length > 0 ? (
               <Button className="h-10 justify-center rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
-                <Trash2 className="size-[18px]" /> Clear Juan total
+                <Trash2 className="size-[18px]" /> Clear mixed total
               </Button>
             ) : null}
             <div className="grid grid-cols-3 gap-2">
@@ -3047,7 +3064,7 @@ export function SimpleOperationsClient({
       );
     }
     if (paymentModalMode === "commercial_schedule") {
-      const commercialTeamChoices = activeTeams.filter((team) => !isJuanRomero(team.name));
+      const commercialTeamChoices = activeCommercialTeams;
       return (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm sm:p-6">
           <div className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-5xl")}>
@@ -3065,7 +3082,7 @@ export function SimpleOperationsClient({
                   {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
                 </select></label>
                 <label className={PAYMENT_LABEL_CLASS}>Assigned team<select className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.assignedTeamId} onChange={(event) => {
-                  const team = activeTeams.find((item) => item.id === event.target.value);
+                  const team = activeCommercialTeams.find((item) => item.id === event.target.value);
                   setCommercialScheduleDraft({ ...commercialScheduleDraft, assignedTeamId: event.target.value, assignedTeamName: team?.name ?? "" });
                 }}>
                   <option value="">Manual name</option>
@@ -3117,7 +3134,7 @@ export function SimpleOperationsClient({
         <div className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-2xl")}>
           <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
             <div>
-              <h2 className="text-lg font-semibold tracking-normal">{mixed ? "Add Juan payment row" : carlos ? "Add Carlos Lopez payment" : "Add residential payment"}</h2>
+              <h2 className="text-lg font-semibold tracking-normal">{mixed ? "Add mixed payment row" : carlos ? "Add Carlos Lopez payment" : "Add residential payment"}</h2>
               <p className="mt-1 text-sm font-medium text-muted-foreground">{mixed ? "Residential and commercial amounts stay separated." : "Quick entry for a residential payment row."}</p>
             </div>
             <button type="button" className="grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close payment modal" onClick={closePaymentModal}><X className="size-[18px]" /></button>
@@ -3127,7 +3144,7 @@ export function SimpleOperationsClient({
               const next = weeklyPaymentSummaries.find((item) => item.key === event.target.value);
               if (next) setActivePaymentSummaryKey(next.key);
             }}>
-              {weeklyPaymentSummaries.filter((item) => paymentModalMode === "juan" ? isJuanRomero(item.teamName) : !isMixedPaySummary(item)).map((item) => <option key={item.key} value={item.key}>{item.teamName}</option>)}
+              {weeklyPaymentSummaries.filter((item) => paymentModalMode === "juan" ? isMixedPaySummary(item) : !isMixedPaySummary(item)).map((item) => <option key={item.key} value={item.key}>{item.teamName}</option>)}
             </select></label>
             <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
             <label className={PAYMENT_LABEL_CLASS}>City<select className={PAYMENT_FIELD_CLASS} value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? draft.customCity : "" })}>
@@ -3159,8 +3176,8 @@ export function SimpleOperationsClient({
   }
 
   function renderCommercialHoursForm() {
-    const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
-    const commercialTeamChoices = activeTeams.filter((team) => !isJuanRomero(team.name));
+    const lucia = activeCommercialTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
+    const commercialTeamChoices = activeCommercialTeams;
     return (
       <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" onSubmit={saveCommercialHours}>
         <label className={PAYMENT_LABEL_CLASS}>Commercial account<select className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.accountId} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, accountId: event.target.value })}>
@@ -3168,7 +3185,7 @@ export function SimpleOperationsClient({
           {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
         </select></label>
         <label className={PAYMENT_LABEL_CLASS}>Team/person<select className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.teamId} onChange={(event) => {
-          const team = activeTeams.find((item) => item.id === event.target.value);
+          const team = activeCommercialTeams.find((item) => item.id === event.target.value);
           setCommercialHoursDraft({ ...commercialHoursDraft, teamId: event.target.value, teamName: team?.name ?? "", manualEntry: true });
         }}>
           <option value="">Manual name</option>
@@ -3202,7 +3219,7 @@ export function SimpleOperationsClient({
   }
 
   function renderCommercialHoursPanel() {
-    const lucia = activeTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
+    const lucia = activeCommercialTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
     const teamOptions = Array.from(new Set(commercialRowsInWeek.map((entry) => entry.team_name).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b));
     return (
       <div className="space-y-5">
@@ -3652,7 +3669,7 @@ export function SimpleOperationsClient({
                 "Hours calculation: weekly, biweekly, monthly approximation",
                 "Records are archived instead of removed from operating history",
                 "Cleaner details are managed from Staff / Teams",
-                "Juan Romero uses the mixed residential and commercial payment format",
+                "Mixed cleaners use separated residential and commercial payment fields",
               ].map((row) => <div className="rounded-xl border border-border/70 bg-background/65 px-3 py-2.5 text-sm font-medium text-muted-foreground" key={row}>{row}</div>)}
             </CardContent>
           </Card>
@@ -3825,7 +3842,7 @@ export function SimpleOperationsClient({
               {accountDraft.city === OUTSIDE_OC_CITY ? <label className={PAYMENT_LABEL_CLASS}>Custom city<input className={PAYMENT_FIELD_CLASS} value={accountDraft.customCity} onChange={(event) => setAccountDraft({ ...accountDraft, customCity: event.target.value })} /></label> : null}
               <label className={PAYMENT_LABEL_CLASS}>Assigned team<select className={PAYMENT_FIELD_CLASS} value={accountDraft.assignedTeamId} onChange={(event) => setAccountDraft({ ...accountDraft, assignedTeamId: event.target.value })}>
                 <option value="">Unassigned</option>
-                {activeTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                {activeResidentialTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
               </select></label>
               <label className={PAYMENT_LABEL_CLASS}>Status<select className={PAYMENT_FIELD_CLASS} value={accountDraft.active ? "active" : "inactive"} onChange={(event) => setAccountDraft({ ...accountDraft, active: event.target.value === "active" })}>
                 <option value="active">Active</option>
@@ -3879,7 +3896,7 @@ export function SimpleOperationsClient({
                   ...staffDraft,
                   teamScope,
                   role: scopeRoles.includes(staffDraft.role) ? roleForStaffScope(teamScope) : staffDraft.role,
-                  paymentMode: teamScope === "mixed" ? "mixed" : staffDraft.paymentMode,
+                  paymentMode: teamScope === "mixed" ? "mixed" : "residential_only",
                 });
               }}>
                 <option value="residential">Residential</option>
