@@ -3053,114 +3053,185 @@ export function SimpleOperationsClient({
     const carlos = isCarlosLopez(summary.teamName);
     const validJobRows = mixed ? summary.rows.filter((row) => toNumber(row.residential_amount) > 0 || toNumber(row.commercial_amount) > 0) : summary.rows.filter((row) => toNumber(row.payment_amount) > 0);
     const hasRows = validJobRows.length > 0;
-    const paid = summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
-    const pending = summary.paymentTotal - paid;
+    const paidAmount = summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
+    const pendingAmount = summary.paymentTotal - paidAmount;
     const overtimeAmount = roundHours(toNumber(carlosOvertimeHours) * CARLOS_OVERTIME_RATE);
+    const overallStatus = paymentSummaryStatus(summary);
+    const initials = summary.teamName.split(" ").map((w: string) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
+    const paidPct = summary.paymentTotal > 0 ? Math.round((paidAmount / summary.paymentTotal) * 100) : 0;
+
+    const headerGradient = mixed ? "from-amber-950 via-amber-900 to-amber-800" : carlos ? "from-emerald-950 via-emerald-900 to-emerald-800" : "from-slate-950 via-slate-900 to-slate-800";
+    const avatarBg = mixed ? "bg-amber-700/70" : carlos ? "bg-emerald-700/70" : "bg-slate-700/70";
+    const typePillStyle = mixed ? "bg-amber-400/15 text-amber-200 border-amber-400/30" : carlos ? "bg-emerald-400/15 text-emerald-200 border-emerald-400/30" : "bg-slate-400/15 text-slate-300 border-slate-400/30";
+    const statusPillStyle = overallStatus === "paid" ? "bg-emerald-400/20 text-emerald-300 border-emerald-400/40" : (overallStatus as string) === "verified" ? "bg-sky-400/20 text-sky-300 border-sky-400/40" : "bg-orange-400/20 text-orange-300 border-orange-400/40";
+
+    function rowStatusAccent(st: string | null | undefined) {
+      if (st === "paid") return "border-l-[3px] border-l-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10";
+      if (st === "verified") return "border-l-[3px] border-l-sky-400 bg-sky-50/30 dark:bg-sky-950/10";
+      return "border-l-[3px] border-l-orange-400/60";
+    }
 
     return (
-      <Card className={cn("overflow-hidden rounded-xl border-border/70 bg-card shadow-[0_18px_50px_-46px_hsl(215_40%_20%)]", mixed ? "border-amber-200 bg-amber-50/15 dark:border-amber-900 dark:bg-amber-950/10" : carlos ? "border-emerald-200 bg-emerald-50/20 dark:border-emerald-900 dark:bg-emerald-950/10" : "")} key={summary.key}>
-        <CardHeader className="px-4 pb-3 pt-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <CardTitle className="truncate text-base font-semibold tracking-normal">{summary.teamName}</CardTitle>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <Badge className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", mixed ? "border-amber-200 bg-amber-50 text-amber-800" : carlos ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-border bg-background text-muted-foreground")} variant="outline">{mixed ? "Residential + commercial" : carlos ? "Operations manager" : "Residential"}</Badge>
-                <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(paymentSummaryStatus(summary)))} variant="outline">{statusLabel(paymentSummaryStatus(summary))}</Badge>
+      <div className={cn("overflow-hidden rounded-2xl ring-1 shadow-[0_4px_24px_-4px_hsl(215_40%_12%/0.14)]", mixed ? "ring-amber-200/60 dark:ring-amber-800/40" : carlos ? "ring-emerald-200/60 dark:ring-emerald-800/40" : "ring-border/70")} key={summary.key}>
+        {/* HEADER */}
+        <div className={cn("bg-gradient-to-br px-4 py-3.5", headerGradient)}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white", avatarBg)}>{initials}</div>
+              <div className="min-w-0">
+                <p className="truncate text-[15px] font-semibold leading-tight text-white">{summary.teamName}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", typePillStyle)}>{mixed ? "Res + Com" : carlos ? "Ops Mgr." : "Residential"}</span>
+                  <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", statusPillStyle)}>{statusLabel(overallStatus)}</span>
+                </div>
               </div>
             </div>
-            <Button className="h-10 rounded-xl px-2.5 text-xs font-semibold" size="sm" variant="outline" onClick={() => mixed ? openPaymentModal(summary, "juan") : openPaymentModal(summary, "residential")}><Plus className="size-[18px]" /> Row</Button>
+            <button
+              type="button"
+              onClick={() => mixed ? openPaymentModal(summary, "juan") : openPaymentModal(summary, "residential")}
+              className="flex shrink-0 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-[12px] font-semibold text-white/90 transition hover:bg-white/20 active:scale-95"
+            >
+              <Plus className="size-3.5" /> Row
+            </button>
           </div>
-        </CardHeader>
-        <CardContent className="px-4 pb-4 pt-0">
-          <div className="overflow-hidden rounded-xl border border-border/70 bg-background/60">
-            <div className="overflow-x-auto">
-              <table className={cn("sop-table w-full min-w-[360px] table-fixed border-separate border-spacing-0 text-[13px]", mixed && "min-w-[520px]")}>
-                <thead>
-                  <tr className="bg-muted/25 text-left text-[11px] font-semibold uppercase text-muted-foreground">
-                    <th className="w-[15%] border-b border-border/70 px-3 py-2">Date</th>
-                    <th className={cn("border-b border-border/70 px-3 py-2", mixed ? "w-[22%]" : "w-[28%]")}>City</th>
-                    {mixed ? (
-                      <>
-                        <th className="w-[18%] border-b border-border/70 px-3 py-2 text-right">Residential</th>
-                        <th className="w-[18%] border-b border-border/70 px-3 py-2 text-right">Commercial</th>
-                      </>
-                    ) : (
-                      <th className="w-[20%] border-b border-border/70 px-3 py-2 text-right">Payment</th>
-                    )}
-                    <th className={cn("border-b border-border/70 px-3 py-2 text-right", mixed ? "w-[27%]" : "w-[37%]")}>Actions</th>
+        </div>
+
+        {/* BODY */}
+        <div className="bg-card">
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className={cn("sop-table w-full table-fixed border-separate border-spacing-0 text-[13px]", mixed ? "min-w-[480px]" : "min-w-[300px]")}>
+              <thead>
+                <tr className="text-left">
+                  <th className="w-[22%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</th>
+                  <th className={cn("border-b border-border/60 bg-muted/30 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground", mixed ? "w-[18%]" : "w-[28%]")}>City</th>
+                  {mixed ? (
+                    <>
+                      <th className="w-[15%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Res.</th>
+                      <th className="w-[15%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Com.</th>
+                    </>
+                  ) : (
+                    <th className="w-[22%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payment</th>
+                  )}
+                  <th className="border-b border-border/60 bg-muted/30 px-2 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {validJobRows.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-8 text-center text-[13px] font-medium text-muted-foreground/60" colSpan={mixed ? 5 : 4}>
+                      No payments recorded for this period.
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {validJobRows.length === 0 ? <tr><td className="px-3 py-8 text-center text-sm font-medium text-muted-foreground" colSpan={mixed ? 5 : 4}>No payments recorded for this period.</td></tr> : null}
-                  {validJobRows.map((row) => (
-                    <tr className="align-top" key={row.id}>
-                      <td className="border-b border-border/60 px-3 py-2.5 font-medium text-foreground">{displayShortDate(row.work_date)}</td>
-                      <td className="border-b border-border/60 px-3 py-2.5">
-                        <span className="block truncate font-medium text-foreground" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
-                      </td>
-                      <td className={cn("border-b border-border/60 px-3 py-2.5 text-right font-semibold text-foreground", mixed && "text-foreground")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
-                      {mixed ? <td className="border-b border-border/60 px-3 py-2.5 text-right font-semibold text-foreground">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
-                      <td className="border-b border-border/60 px-3 py-2.5">
-                        <div className="flex flex-col items-end gap-1.5">
-                          <Badge className={cn("rounded-full px-2 py-0 text-[10px] font-semibold", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
-                          <div className="flex items-center gap-0.5">
-                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openPaymentModal(summary, "juan", row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-4" /></button>
-                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-4" /></button>
-                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-600")} aria-label="Mark verified" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "verified")}><BadgeCheck className="size-4" /></button>
-                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-700")} aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-4" /></button>
-                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-rose-700")} aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></button>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-emerald-50/65 text-[13px] font-semibold text-emerald-950 dark:bg-emerald-950/20 dark:text-emerald-100">
-                    <td className="px-3 py-2.5">TOTAL</td>
-                    <td className="px-3 py-2.5 text-center">{validJobRows.length}</td>
-                    <td className="px-3 py-2.5 text-right">{hasRows ? formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal) : ""}</td>
-                    {mixed ? <td className="px-3 py-2.5 text-right">{hasRows ? formatMoney(summary.commercialTotal) : ""}</td> : null}
-                    <td className="px-3 py-2.5" />
+                ) : null}
+                {validJobRows.map((row) => (
+                  <tr className={cn("group align-middle transition-colors hover:brightness-[0.97] dark:hover:brightness-110", rowStatusAccent(row.status))} key={row.id}>
+                    <td className="border-b border-border/50 px-3 py-2.5 font-semibold text-foreground">{displayShortDate(row.work_date)}</td>
+                    <td className="border-b border-border/50 px-3 py-2.5">
+                      <span className="block truncate font-medium text-foreground/90" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
+                    </td>
+                    <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                    {mixed ? <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : <span className="text-muted-foreground/40">—</span>}</td> : null}
+                    <td className="border-b border-border/50 px-1.5 py-2">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-accent hover:text-foreground" title="Edit" aria-label="Edit row" onClick={() => mixed ? openPaymentModal(summary, "juan", row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-3.5" /></button>
+                        <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/30" title="Pending" aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-3.5" /></button>
+                        <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-sky-50 hover:text-sky-600 dark:hover:bg-sky-950/30" title="Verify" aria-label="Mark verified" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "verified")}><BadgeCheck className="size-3.5" /></button>
+                        <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/30" title="Paid" aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-3.5" /></button>
+                        <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30" title="Delete" aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-3.5" /></button>
+                      </div>
+                    </td>
                   </tr>
-                </tfoot>
-              </table>
-            </div>
-            {mixed && hasRows ? (
-              <div className="flex items-center justify-between gap-3 border-t border-emerald-200/70 bg-emerald-50/75 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-900/70 dark:bg-emerald-950/25 dark:text-emerald-100">
-                <span className="font-medium">{summary.teamName} total</span>
-                <strong className="font-semibold">{formatMoney(summary.paymentTotal)}</strong>
-              </div>
-            ) : null}
+                ))}
+              </tbody>
+            </table>
           </div>
 
-          <div className="mt-3 grid gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-              <span>Paid {formatMoney(paid)}</span>
-              <span>Pending {formatMoney(pending)}</span>
+          {/* TOTAL FOOTER */}
+          <div className={cn("flex items-center justify-between gap-3 border-t border-border/60 px-4 py-3", mixed ? "bg-amber-50/40 dark:bg-amber-950/10" : carlos ? "bg-emerald-50/40 dark:bg-emerald-950/10" : "bg-muted/15")}>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Total</span>
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">{validJobRows.length}</span>
             </div>
-            {carlos ? (
-              <div className="grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-950 md:grid-cols-[1fr_auto]">
-                <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
-                  Overtime hours
-                  <input className="h-10 rounded-xl border border-emerald-200 bg-white px-2 text-sm font-semibold normal-case text-slate-950" inputMode="decimal" min="0" step="any" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
-                </label>
-                <Button className="self-end rounded-xl" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
-              </div>
-            ) : null}
-            {mixed && isJuanRomero(summary.teamName) && summary.rows.length > 0 ? (
-              <Button className="h-10 justify-center rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
-                <Trash2 className="size-[18px]" /> Clear mixed total
-              </Button>
-            ) : null}
-            <div className="grid grid-cols-3 gap-2">
-              <Button className="h-10 rounded-xl px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "verified")}><BadgeCheck className="size-[18px]" /> Verified</Button>
-              <Button className="h-10 rounded-xl px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} onClick={() => updatePaymentRowsStatus(summary, "paid")}><CheckCircle2 className="size-[18px]" /> Paid</Button>
-              <Button className="h-10 rounded-xl px-2 text-xs font-semibold" disabled={savingPaymentKey === summary.key || summary.rows.length === 0} variant="outline" onClick={() => updatePaymentRowsStatus(summary, "pending")}><Clock className="size-[18px]" /> Pending</Button>
-            </div>
+            <span className={cn("text-xl font-bold tabular-nums tracking-tight", hasRows ? (mixed ? "text-amber-700 dark:text-amber-400" : carlos ? "text-emerald-700 dark:text-emerald-400" : "text-foreground") : "text-muted-foreground/40")}>
+              {formatMoney(summary.paymentTotal)}
+            </span>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* PAID/PENDING PROGRESS BAR */}
+          {hasRows && (
+            <div className="border-t border-border/40 px-4 pb-3 pt-2.5">
+              <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
+                <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${paidPct}%` }} />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                  <span className="inline-block size-1.5 rounded-full bg-emerald-500" />Paid {formatMoney(paidAmount)}
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-orange-600 dark:text-orange-400">
+                  <span className="inline-block size-1.5 rounded-full bg-orange-400" />Pending {formatMoney(pendingAmount)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* MIXED COMBINED TOTAL */}
+          {mixed && hasRows ? (
+            <div className="mx-4 mb-3 mt-1 flex items-center justify-between gap-3 rounded-xl border border-amber-200/60 bg-amber-50/60 px-3 py-2 dark:border-amber-800/40 dark:bg-amber-950/20">
+              <span className="text-[12px] font-semibold text-amber-900 dark:text-amber-300">{summary.teamName} combined</span>
+              <strong className="text-[13px] font-bold tabular-nums text-amber-900 dark:text-amber-200">{formatMoney(summary.paymentTotal)}</strong>
+            </div>
+          ) : null}
+
+          {/* CARLOS OVERTIME */}
+          {carlos ? (
+            <div className="mx-4 mb-3 mt-1 grid gap-2 rounded-xl border border-emerald-200/60 bg-emerald-50/60 p-3 dark:border-emerald-800/40 dark:bg-emerald-950/20 md:grid-cols-[1fr_auto]">
+              <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900 dark:text-emerald-300")}>
+                Overtime hours
+                <input className="h-9 rounded-xl border border-emerald-200/70 bg-white px-2 text-sm font-semibold text-slate-950 dark:bg-emerald-950/30 dark:text-emerald-100" inputMode="decimal" min="0" step="any" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
+              </label>
+              <Button className="self-end rounded-xl" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
+            </div>
+          ) : null}
+
+          {/* JUAN CLEAR */}
+          {mixed && isJuanRomero(summary.teamName) && summary.rows.length > 0 ? (
+            <div className="mx-4 mb-3">
+              <Button className="h-9 w-full justify-center rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-800 dark:text-rose-400" disabled={savingPaymentKey === "juan-clear"} variant="outline" onClick={clearJuanPaymentRows} type="button">
+                <Trash2 className="size-[15px]" /> Clear mixed total
+              </Button>
+            </div>
+          ) : null}
+
+          {/* BULK ACTION BUTTONS */}
+          <div className="grid grid-cols-3 gap-2 border-t border-border/50 bg-muted/10 px-3 py-3">
+            <button
+              type="button"
+              disabled={savingPaymentKey === summary.key || summary.rows.length === 0}
+              onClick={() => updatePaymentRowsStatus(summary, "verified")}
+              className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 text-[12px] font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-sky-800/60 dark:bg-sky-950/20 dark:text-sky-400"
+            >
+              <BadgeCheck className="size-3.5" /> Verified
+            </button>
+            <button
+              type="button"
+              disabled={savingPaymentKey === summary.key || summary.rows.length === 0}
+              onClick={() => updatePaymentRowsStatus(summary, "paid")}
+              className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-[12px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-700 dark:hover:bg-emerald-600"
+            >
+              <CheckCircle2 className="size-3.5" /> Paid
+            </button>
+            <button
+              type="button"
+              disabled={savingPaymentKey === summary.key || summary.rows.length === 0}
+              onClick={() => updatePaymentRowsStatus(summary, "pending")}
+              className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 text-[12px] font-semibold text-orange-700 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-orange-800/60 dark:bg-orange-950/20 dark:text-orange-400"
+            >
+              <Clock className="size-3.5" /> Pending
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 

@@ -1,9 +1,23 @@
 import nodemailer from "nodemailer";
-import { setDefaultResultOrder } from "node:dns";
+import { promises as dnsPromises, setDefaultResultOrder } from "node:dns";
 import net from "node:net";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
 setDefaultResultOrder("ipv4first");
+
+/**
+ * Resolves a hostname to its first IPv4 address.
+ * Falls back to the original hostname if resolution fails so we never block email sending.
+ */
+async function resolveToIPv4(hostname: string): Promise<string> {
+  try {
+    const addresses = await dnsPromises.resolve4(hostname);
+    if (addresses.length > 0) return addresses[0];
+  } catch {
+    // DNS resolution failed — use hostname as-is (OS will resolve)
+  }
+  return hostname;
+}
 
 export type TaskNotificationPerson = {
   name: string;
@@ -466,20 +480,34 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
     };
   }
 
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
+  // Pre-resolve smtp.gmail.com to an explicit IPv4 address.
+  // This completely bypasses any OS/container IPv6 preference — the transport
+  // connects directly to the resolved IP so no IPv6 fallback can happen.
+  const smtpHostname = "smtp.gmail.com";
+  const smtpIp = await resolveToIPv4(smtpHostname);
+  const usingResolvedIp = smtpIp !== smtpHostname;
+
+  // Build transport options as a plain object (no type cast that strips properties).
+  // We pass `servername` to keep TLS SNI working even when connecting by IP.
+  const transportOptions = {
+    host: smtpIp,
+    port: 587 as const,
     secure: false,
     requireTLS: true,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 30000,
+    tls: {
+      servername: smtpHostname,
     },
-    connectionTimeout: 8000,
-    greetingTimeout: 8000,
-    socketTimeout: 10000,
-    family: 4, // INNEGOCIABLE: Fuerza IPv4 para evadir el bug del contenedor
-  } as SMTPTransport.Options);
+    auth: {
+      user: process.env.GMAIL_USER!,
+      pass: process.env.GMAIL_APP_PASSWORD!,
+    },
+  };
+
+  const transportLabel = `${smtpHostname}:587${usingResolvedIp ? ` (resolved: ${smtpIp})` : ""}`;
+  const transporter = nodemailer.createTransport(transportOptions as SMTPTransport.Options);
 
   try {
     const info = await transporter.sendMail({
@@ -490,16 +518,21 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
       text,
     }) as { messageId?: string };
 
-    console.log("Activity log: Notification sent");
-    return { ok: true, sent: true, reason: "sent", messageId: info.messageId, transport: "smtp.gmail.com:587" };
+    console.log(`Activity log: Notification sent via ${transportLabel}`);
+    return { ok: true, sent: true, reason: "sent", messageId: info.messageId, transport: transportLabel };
   } catch (error) {
-    const err = error as Error & { code?: string };
+    const err = error as Error & { code?: string; command?: string; responseCode?: number; response?: string };
+    const details = getMailerErrorDetails(err);
     if (err?.code === "ETIMEDOUT" || err?.code === "ESOCKETTIMEDOUT") {
-      console.error("Activity log: SMTP timeout");
-      return { ok: false, sent: false, reason: "SMTP timeout", code: err.code, transport: "smtp.gmail.com:587" };
+      console.error(`Activity log: SMTP timeout via ${transportLabel}\ncode: ${details.code}\nmessage: ${details.message}`);
+      return { ok: false, sent: false, reason: "SMTP timeout", code: err.code, transport: transportLabel };
     }
-    console.error("Activity log: SMTP unavailable");
-    return { ok: false, sent: false, reason: "SMTP unavailable", code: err?.code, transport: "smtp.gmail.com:587" };
+    if (err?.code === "EAUTH" || err?.responseCode === 535) {
+      console.error(`Activity log: SMTP auth failed via ${transportLabel}\ncode: ${details.code}\nmessage: ${details.message}`);
+      return { ok: false, sent: false, reason: "SMTP authentication failed — check GMAIL_USER and GMAIL_APP_PASSWORD", code: err.code, transport: transportLabel };
+    }
+    console.error(`Activity log: SMTP unavailable via ${transportLabel}\ncode: ${details.code}\nmessage: ${details.message}`);
+    return { ok: false, sent: false, reason: `SMTP unavailable: ${details.message}`, code: err?.code, transport: transportLabel };
   }
 }
 

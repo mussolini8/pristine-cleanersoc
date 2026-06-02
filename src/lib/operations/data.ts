@@ -49,7 +49,7 @@ export async function loadOperationsData(supabase: SupabaseClient) {
     commercialScheduleResult,
     commercialHoursResult,
   ] = await Promise.all([
-    supabase.from("operation_tasks").select(OPERATION_TASK_COLUMNS).order("due_date", { ascending: true, nullsFirst: false }).limit(1000),
+    supabase.from("operation_tasks").select(OPERATION_TASK_COLUMNS).is("deleted_at", null).order("due_date", { ascending: true, nullsFirst: false }).limit(1000),
     supabase.from("operation_task_audit_log").select(ACTIVITY_COLUMNS).order("created_at", { ascending: false }).limit(800),
     supabase.from("residential_recurring_cleaning_accounts").select(RESIDENTIAL_ACCOUNT_COLUMNS).is("deleted_at", null).order("account_name").limit(1000),
     supabase.from("residential_work_logs").select(RESIDENTIAL_WORK_LOG_COLUMNS).is("deleted_at", null).order("work_date", { ascending: false }).limit(1500),
