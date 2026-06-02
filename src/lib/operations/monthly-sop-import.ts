@@ -192,7 +192,7 @@ export function monthlySopTemplateKey(template: MonthlySopTemplate) {
 }
 
 export function monthlySopDedupeKey(instance: MonthlySopInstance, templateId?: string | null) {
-  if (templateId) return `${templateId}|${instance.targetMonth}|${instance.targetYear}`;
+  void templateId;
   return [
     MONTHLY_SOP_IMPORT.sourceDocumentName,
     instance.targetMonth,

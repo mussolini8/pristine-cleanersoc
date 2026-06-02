@@ -118,7 +118,7 @@ export function toNumber(value: number | string | null | undefined) {
 }
 
 export function formatHours(value: number) {
-  return roundHours(value).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return roundHours(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function formatMoney(value: number) {

@@ -158,6 +158,11 @@ export type CommercialAccountRow = {
   frequency: string | null;
   contract_start?: string | null;
   contract_end?: string | null;
+  cleaner_pay_type?: string | null;
+  cleaner_hourly_rate?: number | string | null;
+  cleaner_flat_rate?: number | string | null;
+  revenue?: number | string | null;
+  cost?: number | string | null;
 };
 
 export type CommercialScheduleRuleRow = {

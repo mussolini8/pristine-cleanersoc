@@ -32,7 +32,7 @@ const RESIDENTIAL_WORK_LOG_COLUMNS = "id,user_id,account_id,account_name,team_id
 const RESIDENTIAL_WEEKLY_PAYMENT_COLUMNS = "id,user_id,team_id,team_name,week_start,week_end,total_hours,hourly_rate,total_payment,status,paid_at,notes,deleted_at,created_at,updated_at";
 const RESIDENTIAL_WEEKLY_PAYMENT_ROW_COLUMNS = "id,user_id,cleaner_id,cleaner_name,work_date,city,custom_city,payment_amount,residential_amount,commercial_amount,payment_type,payment_mode,week_start,week_end,status,paid_at,notes,deleted_at,created_at,updated_at";
 const STAFF_COLUMNS = "id,user_id,name,email,role,display_role,team_scope,status,hourly_rate,payment_mode,commercial_payroll_eligible,active,deleted_at,created_at,updated_at";
-const COMMERCIAL_ACCOUNT_COLUMNS = "id,user_id,name,city,cleaner_name,hours,frequency,contract_start,contract_end";
+const COMMERCIAL_ACCOUNT_COLUMNS = "id,user_id,name,city,cleaner_name,hours,frequency,contract_start,contract_end,cleaner_pay_type,cleaner_hourly_rate,cleaner_flat_rate,revenue,cost";
 const COMMERCIAL_SCHEDULE_COLUMNS = "id,user_id,commercial_account_id,day_of_week,paid_hours,assigned_cleaner_name,active,effective_start_date,effective_end_date,notes,frequency_type,frequency_interval,anchor_date,scheduled_hours,effective_from,effective_until";
 const COMMERCIAL_HOURS_COLUMNS = "id,user_id,account_id,account_name,team_id,team_name,work_date,scheduled_day,scheduled_hours,completed_hours,verified_hours,status,verified,paid_at,notes,manual_entry,deleted_at,created_at,updated_at";
 

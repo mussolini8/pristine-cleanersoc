@@ -89,7 +89,7 @@ function taskMetadata(instance: MonthlySopInstance, dedupeKey: string, templateI
     active: true,
     template_id: templateId,
     dedupe_key: dedupeKey,
-    notify_assignee_on_assignment: false,
+    notify_assignee_on_assignment: true,
     notify_owner_on_completed: true,
   };
 }
@@ -210,10 +210,6 @@ export async function POST(request: NextRequest) {
       .update({
         deleted_at: now,
         updated_at: now,
-        metadata: {
-          archived_reason: "duplicate_monthly_sop_task",
-          archived_at: now,
-        },
       })
       .in("id", Array.from(duplicateIdsToArchive));
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

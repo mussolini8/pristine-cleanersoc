@@ -37,7 +37,6 @@ import { exportRows, exportWorkbook } from "@/lib/export/workbook";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
   buildCommercialOccurrences,
-  calculateCommercialHoursForPeriod,
   commercialScheduleSummary,
   getPayableCommercialHours,
 } from "@/lib/operations/commercial-hours";
@@ -1018,6 +1017,28 @@ export function SimpleOperationsClient({
   }, 0), [weeklyPaymentSummaries]);
   const carlosPaymentSummary = useMemo(() => weeklyPaymentSummaries.find((summary) => isCarlosLopez(summary.teamName)), [weeklyPaymentSummaries]);
 
+  const getCommercialEntryHours = useCallback((entry: CommercialHoursEntryRow) => {
+    return toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours);
+  }, []);
+
+  const getCommercialEntryAmount = useCallback((entry: CommercialHoursEntryRow) => {
+    const account = commercialAccounts.find((acc) => acc.id === entry.account_id);
+    if (!account) return 0;
+    const hours = getCommercialEntryHours(entry);
+    const payType = String(account.cleaner_pay_type ?? "").toLowerCase();
+    if (payType === "hourly") {
+      return hours * toNumber(account.cleaner_hourly_rate);
+    }
+    if (payType === "flat") {
+      return toNumber(account.cleaner_flat_rate);
+    }
+    const staffMember = staff.find((s) => s.id === entry.team_id || s.name.toLowerCase() === entry.team_name?.toLowerCase());
+    if (staffMember && staffMember.hourly_rate) {
+      return hours * toNumber(staffMember.hourly_rate);
+    }
+    return 0;
+  }, [commercialAccounts, staff, getCommercialEntryHours]);
+
   const commercialRowsInWeek = useMemo(() => {
     return buildCommercialOccurrences({
       accounts: commercialAccounts,
@@ -1046,7 +1067,53 @@ export function SimpleOperationsClient({
     });
   }, [commercialAccountFilter, commercialRowsInWeek, commercialSearchFilter, commercialSourceFilter, commercialStatusFilter, commercialTeamFilter, commercialVerifiedFilter]);
 
-  const commercialTotals = useMemo(() => calculateCommercialHoursForPeriod(commercialRowsInWeek), [commercialRowsInWeek]);
+  const commercialTotals = useMemo(() => {
+    let scheduledHours = 0;
+    let completedHours = 0;
+    let verifiedHours = 0;
+    let totalHours = 0;
+    let completedCount = 0;
+    let verifiedCount = 0;
+    let needsReviewCount = 0;
+    let totalAmount = 0;
+
+    for (const entry of filteredCommercialRows) {
+      const sch = toNumber(entry.scheduled_hours);
+      const comp = toNumber(entry.completed_hours);
+      const ver = entry.verified || entry.status === "verified" || entry.status === "paid"
+        ? toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours)
+        : 0;
+
+      scheduledHours += sch;
+      completedHours += comp;
+      verifiedHours += ver;
+      totalHours += getCommercialEntryHours(entry);
+
+      const status = entry.status ?? "scheduled";
+      if (status !== "scheduled" && status !== "skipped") {
+        completedCount++;
+      }
+      if (status === "verified" || status === "paid" || entry.verified) {
+        verifiedCount++;
+      }
+      if (status === "needs_review") {
+        needsReviewCount++;
+      }
+
+      totalAmount += getCommercialEntryAmount(entry);
+    }
+
+    return {
+      scheduled: roundHours(scheduledHours),
+      completed: roundHours(completedHours),
+      verified: roundHours(verifiedHours),
+      hours: roundHours(totalHours),
+      completedCount,
+      verifiedCount,
+      needsReview: needsReviewCount,
+      amount: totalAmount,
+    };
+  }, [filteredCommercialRows, getCommercialEntryHours, getCommercialEntryAmount]);
 
   async function writeTaskAudit(taskId: string, action: string, details: Record<string, unknown>) {
     await writeOperationTaskAudit(supabase, taskId, action, details);
@@ -1599,14 +1666,14 @@ export function SimpleOperationsClient({
     if (row) editPaymentRow(row);
   }
 
-  function openJuanPaymentModal(row?: ResidentialWeeklyPaymentLineRow) {
-    const juanSummary = weeklyPaymentSummaries.find((summary) => isJuanRomero(summary.teamName));
-    if (!juanSummary) {
-      setMessage({ tone: "error", text: "Juan Romero profile is not available yet. Add Juan Romero in Staff / Teams first." });
-      return;
-    }
-    openPaymentModal(juanSummary, "juan", row);
-  }
+  // function openJuanPaymentModal(row?: ResidentialWeeklyPaymentLineRow) {
+  //   const juanSummary = weeklyPaymentSummaries.find((summary) => isJuanRomero(summary.teamName));
+  //   if (!juanSummary) {
+  //     setMessage({ tone: "error", text: "Juan Romero profile is not available yet. Add Juan Romero in Staff / Teams first." });
+  //     return;
+  //   }
+  //   openPaymentModal(juanSummary, "juan", row);
+  // }
 
   function closePaymentModal() {
     setPaymentModalMode(null);
@@ -2922,7 +2989,7 @@ export function SimpleOperationsClient({
           </label>
           <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
             Overtime notes
-            <input className={cn(PAYMENT_FIELD_CLASS, "border-emerald-200 bg-background")} inputMode="decimal" min="0" step="0.5" type="number" value={overtimeHoursValue} onChange={(event) => setCarlosOvertimeHours(event.target.value)} placeholder="0" />
+            <input className={cn(PAYMENT_FIELD_CLASS, "border-emerald-200 bg-background")} inputMode="decimal" min="0" step="any" type="number" value={overtimeHoursValue} onChange={(event) => setCarlosOvertimeHours(event.target.value)} placeholder="0" />
             {overtimeHours ? <span className="text-xs font-medium text-muted-foreground">{formatMoney(overtimeAmount)} overtime add-on</span> : null}
           </label>
           <div className="flex flex-wrap items-end justify-between gap-2 lg:justify-end">
@@ -3024,7 +3091,7 @@ export function SimpleOperationsClient({
               <div className="grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-950 md:grid-cols-[1fr_auto]">
                 <label className={cn(PAYMENT_LABEL_CLASS, "text-emerald-900")}>
                   Overtime hours
-                  <input className="h-10 rounded-xl border border-emerald-200 bg-white px-2 text-sm font-semibold normal-case text-slate-950" inputMode="decimal" min="0" step="0.5" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
+                  <input className="h-10 rounded-xl border border-emerald-200 bg-white px-2 text-sm font-semibold normal-case text-slate-950" inputMode="decimal" min="0" step="any" type="number" value={carlosOvertimeHours} onChange={(event) => setCarlosOvertimeHours(event.target.value)} />
                 </label>
                 <Button className="self-end rounded-xl" size="sm" disabled={savingPaymentKey === "carlos-weekly-payment"} onClick={() => saveCarlosWeeklyPayment(summary)} type="button">+ {formatMoney(overtimeAmount)}</Button>
               </div>
@@ -3110,7 +3177,7 @@ export function SimpleOperationsClient({
                           selectedDays: event.target.checked ? [...current.selectedDays, dayKey] : current.selectedDays.filter((item) => item !== dayKey),
                         }));
                       }} /> {day}</span>
-                      <input className={cn(PAYMENT_FIELD_CLASS, "bg-card disabled:opacity-50")} disabled={!selected} inputMode="decimal" min="0" placeholder="Hours" type="number" value={commercialScheduleDraft.dayHours[dayKey] ?? ""} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, dayHours: { ...commercialScheduleDraft.dayHours, [dayKey]: event.target.value } })} />
+                      <input className={cn(PAYMENT_FIELD_CLASS, "bg-card disabled:opacity-50")} disabled={!selected} inputMode="decimal" min="0" step="any" placeholder="Hours" type="number" value={commercialScheduleDraft.dayHours[dayKey] ?? ""} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, dayHours: { ...commercialScheduleDraft.dayHours, [dayKey]: event.target.value } })} />
                     </label>
                   );
                 })}
@@ -3193,7 +3260,7 @@ export function SimpleOperationsClient({
         </select></label>
         {!commercialHoursDraft.teamId ? <label className={PAYMENT_LABEL_CLASS}>Manual name<input className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
         <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
-        <label className={PAYMENT_LABEL_CLASS}>Hours<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
+        <label className={PAYMENT_LABEL_CLASS}>Hours<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" step="any" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
         <label className={PAYMENT_LABEL_CLASS}>Source<select className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.manualEntry ? "manual" : "scheduled"} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, manualEntry: event.target.value === "manual" })}>
           <option value="manual">Manual</option>
           <option value="scheduled">Scheduled</option>
@@ -3344,40 +3411,70 @@ export function SimpleOperationsClient({
 
           <div className="overflow-hidden rounded-xl border border-border/70">
             <div className="overflow-auto">
-              <table className="sop-table w-full min-w-[980px] border-separate border-spacing-0 text-sm">
+              <table className="sop-table w-full border-separate border-spacing-0 text-sm">
+                <colgroup>
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "28%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "8%" }} />
+                </colgroup>
                 <thead>
                   <tr className="bg-muted/40 text-left text-[11px] font-semibold uppercase text-muted-foreground">
                     <th className="border-b border-border/70 px-4 py-3">Date</th>
                     <th className="border-b border-border/70 px-4 py-3">Commercial Account</th>
                     <th className="border-b border-border/70 px-4 py-3">Team</th>
-                    <th className="border-b border-border/70 px-4 py-3">Scheduled day</th>
-                    <th className="border-b border-border/70 px-4 py-3 text-right">Scheduled</th>
-                    <th className="border-b border-border/70 px-4 py-3 text-right">Completed</th>
-                    <th className="border-b border-border/70 px-4 py-3 text-right">Verified</th>
+                    <th className="border-b border-border/70 px-4 py-3 text-right">Hours</th>
+                    <th className="border-b border-border/70 px-4 py-3 text-right">Total Amount</th>
                     <th className="border-b border-border/70 px-4 py-3">Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCommercialRows.length === 0 ? <tr><td className="px-4 py-10 text-center font-medium text-muted-foreground" colSpan={9}>{emptyCommercialText}</td></tr> : null}
+                  {filteredCommercialRows.length === 0 ? <tr><td className="px-4 py-10 text-center font-medium text-muted-foreground" colSpan={7}>{emptyCommercialText}</td></tr> : null}
                   {filteredCommercialRows.map((entry) => {
                     const isLucia = String(entry.team_name ?? "").toLowerCase() === "lucia portillo";
-                    const verifiedHours = entry.verified || entry.status === "verified" || entry.status === "paid" ? toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours) : 0;
+                    const sch = toNumber(entry.scheduled_hours);
+                    const comp = toNumber(entry.completed_hours);
                     return (
                       <tr className="align-top" key={entry.id}>
-                        <td className="border-b border-border/60 px-4 py-3 font-medium">{displayDate(entry.work_date)}</td>
-                        <td className="border-b border-border/60 px-4 py-3"><p className="font-semibold">{entry.account_name}</p><p className="text-xs font-medium text-muted-foreground">{commercialAccounts.find((account) => account.id === entry.account_id)?.city ?? "No city"}</p></td>
-                        <td className="border-b border-border/60 px-4 py-3 font-medium">{entry.team_name ?? "Unassigned"} {isLucia ? <Badge className="ml-2 rounded-full border-sky-200 bg-sky-50 text-[11px] font-semibold text-sky-950" variant="outline">Manual</Badge> : null}</td>
-                        <td className="border-b border-border/60 px-4 py-3 text-muted-foreground">{entry.scheduled_day ?? "-"}</td>
-                        <td className="border-b border-border/60 px-4 py-3 text-right font-semibold">{formatHours(toNumber(entry.scheduled_hours))}</td>
-                        <td className="border-b border-border/60 px-4 py-3 text-right font-semibold">{formatHours(toNumber(entry.completed_hours))}</td>
-                        <td className="border-b border-border/60 px-4 py-3 text-right font-semibold">{formatHours(verifiedHours)}</td>
-                        <td className="border-b border-border/60 px-4 py-3"><Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">{statusLabel(entry.status ?? "scheduled")}</Badge></td>
+                        <td className="border-b border-border/60 px-4 py-3 font-medium text-foreground">
+                          <div>{displayDate(entry.work_date)}</div>
+                          <div className="text-xs text-muted-foreground font-medium mt-0.5">{entry.scheduled_day ?? "-"}</div>
+                        </td>
                         <td className="border-b border-border/60 px-4 py-3">
-                          <div className="flex justify-end gap-2">
-                            <Button className="size-10 rounded-xl" size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-[18px]" /></Button>
-                            <Button className="size-10 rounded-xl" size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-[18px]" /></Button>
-                            <Button className="size-10 rounded-xl" size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-[18px]" /></Button>
+                          <p className="font-semibold text-foreground">{entry.account_name}</p>
+                          <p className="text-xs font-medium text-muted-foreground mt-0.5">{commercialAccounts.find((account) => account.id === entry.account_id)?.city ?? "No city"}</p>
+                        </td>
+                        <td className="border-b border-border/60 px-4 py-3 font-medium text-foreground">
+                          <div className="flex items-center gap-1.5">
+                            <span>{entry.team_name ?? "Unassigned"}</span>
+                            {isLucia ? <Badge className="rounded-full border-sky-200 bg-sky-50 text-[10px] font-semibold text-sky-950 px-1.5 py-0" variant="outline">Manual</Badge> : null}
+                          </div>
+                        </td>
+                        <td className="border-b border-border/60 px-4 py-3 text-right">
+                          <div className="font-semibold text-foreground">{formatHours(getCommercialEntryHours(entry))}</div>
+                          {comp !== sch && (
+                            <div className="text-[10px] text-muted-foreground font-medium mt-0.5" title={`Scheduled: ${formatHours(sch)} | Completed: ${formatHours(comp)}`}>
+                              sch: {formatHours(sch)} | comp: {formatHours(comp)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="border-b border-border/60 px-4 py-3 text-right font-semibold text-foreground">
+                          {formatMoney(getCommercialEntryAmount(entry))}
+                        </td>
+                        <td className="border-b border-border/60 px-4 py-3 align-middle">
+                          <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">
+                            {statusLabel(entry.status ?? "scheduled")}
+                          </Badge>
+                        </td>
+                        <td className="border-b border-border/60 px-4 py-3">
+                          <div className="flex justify-end gap-1.5">
+                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-3.5" /></Button>
+                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-3.5" /></Button>
+                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-3.5" /></Button>
                           </div>
                         </td>
                       </tr>
@@ -3385,16 +3482,33 @@ export function SimpleOperationsClient({
                   })}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-emerald-50/65 text-sm font-semibold text-emerald-950 dark:bg-emerald-950/20 dark:text-emerald-100">
-                    <td className="px-4 py-3">TOTAL</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">Scheduled</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">Completed</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">Verified</td>
-                    <td className="px-4 py-3 text-right">{formatHours(commercialTotals.scheduled)}</td>
-                    <td className="px-4 py-3 text-right">{formatHours(commercialTotals.completed)}</td>
-                    <td className="px-4 py-3 text-right">{formatHours(commercialTotals.verified)}</td>
-                    <td className="px-4 py-3"><Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", commercialTotals.needsReview ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900")} variant="outline">{commercialTotals.needsReview} needs review</Badge></td>
-                    <td className="px-4 py-3" />
+                  <tr className="bg-emerald-50/65 font-semibold text-emerald-950 dark:bg-emerald-950/20 dark:text-emerald-100 border-t-2 border-emerald-300">
+                    <td colSpan={3} className="px-4 py-3.5 font-bold tracking-wider text-sm text-emerald-900 dark:text-emerald-300">
+                      {commercialTeamFilter === "all" ? "GRAND TOTAL" : "TEAM TOTAL"}
+                    </td>
+                    <td className="px-4 py-3.5 text-right">
+                      <div className="font-bold text-foreground">{formatHours(commercialTotals.hours)}</div>
+                      <div className="text-[10px] text-muted-foreground font-medium mt-0.5">
+                        Completed: {commercialTotals.completedCount}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground font-medium">
+                        Verified: {commercialTotals.verifiedCount}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 text-right font-bold text-emerald-900 dark:text-emerald-300 text-sm">
+                      {formatMoney(commercialTotals.amount)}
+                    </td>
+                    <td colSpan={2} className="px-4 py-3.5 align-middle">
+                      {commercialTotals.needsReview > 0 ? (
+                        <Badge className="border-amber-200 bg-amber-50 text-amber-900 font-semibold rounded-full" variant="outline">
+                          {commercialTotals.needsReview} needs review
+                        </Badge>
+                      ) : (
+                        <Badge className="border-emerald-200 bg-emerald-50 text-emerald-900 font-semibold rounded-full" variant="outline">
+                          All verified
+                        </Badge>
+                      )}
+                    </td>
                   </tr>
                 </tfoot>
               </table>

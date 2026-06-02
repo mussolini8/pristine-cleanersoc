@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { applyCommercialAccountChangesGoingForward } from "@/lib/payroll";
+import { displayDate } from "@/lib/dates/periods";
 
 // ─────────────────────────────────────────────
 type Account = {
@@ -175,14 +176,7 @@ function isPersistedAccount(account: Pick<Account, "id"> | null | undefined) {
   return Boolean(account?.id && !account.id.startsWith("import-"));
 }
 
-function displayDate(value: string | null) {
-  if (!value) return "—";
-  const [datePart] = value.split("T");
-  const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return datePart || value;
-  const [, year, month, day] = match;
-  return `${month}/${day}/${year}`;
-}
+// displayDate is imported from periods utility
 
 function numericHours(value: Account["hours"]) {
   return typeof value === "number" ? value : Number(value) || 0;

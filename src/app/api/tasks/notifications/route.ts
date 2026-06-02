@@ -12,6 +12,7 @@ type NotificationEvent = "task_assigned" | "task_completed";
 
 type RequestBody = {
   event?: NotificationEvent;
+  enabled?: boolean;
   task?: TaskNotificationPayload;
   actorName?: string | null;
 };
@@ -32,7 +33,8 @@ const seoSpecialist = {
 };
 
 function isCarlos(value: string | null | undefined) {
-  return String(value ?? "").trim().toLowerCase() === "carlos lopez";
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "carlos lopez" || normalized === "carlos";
 }
 
 function isSeoTask(task: TaskNotificationPayload) {
@@ -75,6 +77,14 @@ export async function POST(request: Request) {
     assignee: body.task.assignedTo,
     status: body.task.status,
   });
+
+  if (body.enabled === false) {
+    await writeAudit(supabase, body.task.id, "notification_skipped", {
+      event: body.event,
+      reason: "Notification disabled for this task.",
+    });
+    return NextResponse.json({ ok: true, notification: { sent: false, skipped: true, reason: "Notification disabled for this task." } });
+  }
 
   try {
     if (body.event === "task_assigned" && isSeoTask(body.task)) {

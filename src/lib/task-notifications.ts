@@ -172,7 +172,7 @@ export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_
   const missing = [
     !process.env.GMAIL_USER ? "GMAIL_USER" : null,
     !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
-    !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
+    !process.env.APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL ? "APP_BASE_URL or NEXT_PUBLIC_APP_URL" : null,
     requiredRecipientEnv && !process.env[requiredRecipientEnv] ? requiredRecipientEnv : null,
   ].filter((item): item is string => Boolean(item));
 
@@ -182,7 +182,7 @@ export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_
     safeStatus: {
       gmailUserConfigured: Boolean(process.env.GMAIL_USER),
       gmailPasswordConfigured: Boolean(process.env.GMAIL_APP_PASSWORD),
-      appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL),
+      appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL),
       operationsManagerEmailConfigured: Boolean(process.env.OPERATIONS_MANAGER_EMAIL),
       ownerEmailConfigured: Boolean(process.env.OWNER_EMAIL),
       seoUserEmailConfigured: Boolean(process.env.SEO_USER_EMAIL),
@@ -569,7 +569,7 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
   const missing = [
     !process.env.GMAIL_USER ? "GMAIL_USER" : null,
     !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
-    !process.env.APP_BASE_URL ? "APP_BASE_URL" : null,
+    !process.env.APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL ? "APP_BASE_URL or NEXT_PUBLIC_APP_URL" : null,
     !to && recipientEnvName ? recipientEnvName : null,
   ].filter((item): item is string => Boolean(item));
 

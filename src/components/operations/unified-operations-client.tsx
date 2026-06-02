@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { displayDate } from "@/lib/dates/periods";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -353,11 +354,7 @@ function dateKeyFromValue(value: string | null | undefined) {
   return date ? formatDateKey(date) : "";
 }
 
-function displayDate(value: string | null | undefined) {
-  const date = parseDate(value);
-  if (!date) return "No date";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+// displayDate is imported from periods utility
 
 function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

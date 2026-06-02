@@ -94,11 +94,54 @@ export function dateKeyFromValue(value: string | null | undefined) {
   return normalizeDateOnly(value);
 }
 
-export function formatDisplayDate(value: string | null | undefined) {
-  const date = parseDateOnly(value);
-  if (!date) return "No date";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+export function formatDisplayDate(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return "—";
+    const mm = String(value.getMonth() + 1).padStart(2, "0");
+    const dd = String(value.getDate()).padStart(2, "0");
+    const yyyy = value.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  }
+
+  const str = String(value).trim();
+  if (!str) return "—";
+
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) {
+    return str;
+  }
+
+  const ymdMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymdMatch) {
+    return `${ymdMatch[2]}/${ymdMatch[3]}/${ymdMatch[1]}`;
+  }
+
+  const mdyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (mdyMatch) {
+    return `${mdyMatch[1].padStart(2, "0")}/${mdyMatch[2].padStart(2, "0")}/${mdyMatch[3]}`;
+  }
+
+  const date = parseDateOnly(str);
+  if (date) {
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    const yyyy = date.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  }
+
+  const genericDate = new Date(str);
+  if (!isNaN(genericDate.getTime())) {
+    const mm = String(genericDate.getMonth() + 1).padStart(2, "0");
+    const dd = String(genericDate.getDate()).padStart(2, "0");
+    const yyyy = genericDate.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  }
+
+  return str;
 }
+
+export const displayDate = formatDisplayDate;
+
 
 export function weekRangeFromStart(weekStartKey: string) {
   const start = parseDateOnly(weekStartKey) ?? startOfWeek(new Date());
