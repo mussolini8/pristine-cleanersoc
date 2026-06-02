@@ -612,7 +612,7 @@ function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (valu
 const PAYMENT_PANEL_CLASS = "sop-toolbar";
 const PAYMENT_FIELD_CLASS = "h-11 min-w-0 rounded-xl border border-input bg-card/80 px-3.5 text-sm font-medium text-foreground outline-none shadow-sm transition placeholder:text-muted-foreground focus:border-primary/45 focus:ring-2 focus:ring-primary/10";
 const PAYMENT_LABEL_CLASS = "grid min-w-0 gap-1.5 text-sm font-medium text-muted-foreground";
-const PAYMENT_ICON_BUTTON_CLASS = "inline-grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-45";
+const PAYMENT_ICON_BUTTON_CLASS = "inline-grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-45";
 const PAYMENT_MODAL_PANEL_CLASS = "max-h-[90dvh] w-full overflow-auto rounded-2xl border border-border/70 bg-card shadow-[0_28px_80px_-42px_hsl(215_40%_18%)]";
 const SOP_PANEL_CLASS = "sop-card";
 const SOP_TABLE_WRAP_CLASS = "overflow-hidden rounded-2xl border border-border/70 bg-card/70";
@@ -3077,17 +3077,17 @@ export function SimpleOperationsClient({
               <table className={cn("sop-table w-full min-w-[360px] table-fixed border-separate border-spacing-0 text-[13px]", mixed && "min-w-[520px]")}>
                 <thead>
                   <tr className="bg-muted/25 text-left text-[11px] font-semibold uppercase text-muted-foreground">
-                    <th className="w-[18%] border-b border-border/70 px-3 py-2">Date</th>
-                    <th className={cn("border-b border-border/70 px-3 py-2", mixed ? "w-[26%]" : "w-[30%]")}>City</th>
+                    <th className="w-[15%] border-b border-border/70 px-3 py-2">Date</th>
+                    <th className={cn("border-b border-border/70 px-3 py-2", mixed ? "w-[22%]" : "w-[28%]")}>City</th>
                     {mixed ? (
                       <>
                         <th className="w-[18%] border-b border-border/70 px-3 py-2 text-right">Residential</th>
                         <th className="w-[18%] border-b border-border/70 px-3 py-2 text-right">Commercial</th>
                       </>
                     ) : (
-                      <th className="w-[22%] border-b border-border/70 px-3 py-2 text-right">Payment</th>
+                      <th className="w-[20%] border-b border-border/70 px-3 py-2 text-right">Payment</th>
                     )}
-                    <th className={cn("border-b border-border/70 px-3 py-2 text-right", mixed ? "w-[20%]" : "w-[30%]")}>Actions</th>
+                    <th className={cn("border-b border-border/70 px-3 py-2 text-right", mixed ? "w-[27%]" : "w-[37%]")}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3104,10 +3104,11 @@ export function SimpleOperationsClient({
                         <div className="flex flex-col items-end gap-1.5">
                           <Badge className={cn("rounded-full px-2 py-0 text-[10px] font-semibold", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
                           <div className="flex items-center gap-0.5">
-                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openPaymentModal(summary, "juan", row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-[18px]" /></button>
-                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-[18px]" /></button>
-                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-700")} aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><Check className="size-[18px]" /></button>
-                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-rose-700")} aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-[18px]" /></button>
+                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openPaymentModal(summary, "juan", row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-4" /></button>
+                            <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-4" /></button>
+                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-600")} aria-label="Mark verified" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "verified")}><BadgeCheck className="size-4" /></button>
+                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-700")} aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-4" /></button>
+                            <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-rose-700")} aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-4" /></button>
                           </div>
                         </div>
                       </td>
