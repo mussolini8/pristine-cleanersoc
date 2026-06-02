@@ -1872,7 +1872,7 @@ export function SimpleOperationsClient({
         work_date: weekRange.end,
         city: "Operations",
         custom_city: null,
-        payment_amount: 0,
+        payment_amount: weeklyPayment + overtimeAmount,
         residential_amount: weeklyPayment,
         commercial_amount: overtimeAmount,
         payment_type: "operations_overtime",
