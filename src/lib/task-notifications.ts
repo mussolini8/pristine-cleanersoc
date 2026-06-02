@@ -604,7 +604,7 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
     greetingTimeout: 8000,
     socketTimeout: 10000,
     family: 4, // INNEGOCIABLE: Fuerza IPv4 para evadir el bug del contenedor
-  });
+  } as SMTPTransport.Options);
 
   try {
     const info = await transporter.sendMail({
