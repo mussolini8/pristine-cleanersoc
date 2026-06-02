@@ -591,7 +591,40 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
     };
   }
 
-  return sendWithGmailSmtp({ to, subject, html, text });
+  const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    requireTLS: true,
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000,
+    family: 4, // INNEGOCIABLE: Fuerza IPv4 para evadir el bug del contenedor
+  });
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"Pristine Operations" <${process.env.GMAIL_USER}>`,
+      to,
+      subject,
+      html,
+      text,
+    }) as { messageId?: string };
+
+    console.log("Activity log: Notification sent");
+    return { ok: true, sent: true, reason: "sent", messageId: info.messageId, transport: "smtp.gmail.com:587" };
+  } catch (error: any) {
+    if (error?.code === "ETIMEDOUT" || error?.code === "ESOCKETTIMEDOUT") {
+      console.error("Activity log: SMTP timeout");
+      return { ok: false, sent: false, reason: "SMTP timeout", code: error.code, transport: "smtp.gmail.com:587" };
+    }
+    console.error("Activity log: SMTP unavailable");
+    return { ok: false, sent: false, reason: "SMTP unavailable", code: error?.code, transport: "smtp.gmail.com:587" };
+  }
 }
 
 export async function sendTaskAssignedEmail(task: TaskNotificationPayload, assignee: TaskNotificationPerson) {

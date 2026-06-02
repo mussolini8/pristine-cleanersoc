@@ -522,7 +522,7 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
               <div className="schedule-rule-summary"><strong>{scheduleRuleSummary(rule)}</strong><span>{needsAnchor ? "Anchor date required for this cadence" : "Payroll-ready cadence"}</span></div>
               <div className="form-grid four">
                 <div className="studio-field day-chip-field"><span>Cleaning days</span><div className="day-chip-list">{DAY_OPTIONS.map(([value, label]) => { const day = Number(value); const active = selectedDays.includes(day); return <button className={active ? "day-chip active" : "day-chip"} key={value} type="button" onClick={() => updateRule(index, { day_of_week: day, selected_days: active ? selectedDays.filter((item) => item !== day) : [...selectedDays, day].sort((a, b) => a - b) })}>{label}</button>; })}</div></div>
-                <label className="studio-field"><span>Paid hours</span><input min="0" step="0.25" type="number" value={rule.paid_hours ?? ""} onChange={(event) => updateRule(index, { paid_hours: event.target.value })} /></label>
+                <label className="studio-field"><span>Paid hours</span><input min="0" step="any" type="number" value={rule.paid_hours ?? ""} onChange={(event) => updateRule(index, { paid_hours: event.target.value })} /></label>
                 <label className="studio-field"><span>Frequency</span><select value={rule.frequency_type ?? "weekly"} onChange={(event) => updateRule(index, { frequency_type: event.target.value as ScheduleFrequencyType })}><option value="weekly">Weekly</option><option value="biweekly">Every 2 weeks</option><option value="monthly">Monthly</option><option value="custom">Custom</option></select></label>
                 <label className="studio-field"><span>Interval</span><input min="1" step="1" type="number" value={rule.frequency_interval ?? interval} onChange={(event) => updateRule(index, { frequency_interval: event.target.value })} /></label>
               </div>
@@ -692,7 +692,7 @@ function AccountStudio({
               <span>{draft.cleaner_pay_type === "hourly" ? "Hours to work" : "Hours"}</span>
               <input
                 min="0"
-                step="0.25"
+                step="any"
                 type="number"
                 value={draft.hours ?? ""}
                 onChange={(e) => {
