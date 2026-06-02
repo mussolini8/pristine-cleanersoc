@@ -22,6 +22,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { applyCommercialAccountChangesGoingForward } from "@/lib/payroll";
@@ -250,7 +251,7 @@ function Pill({ yes }: { yes: boolean }) {
 }
 
 // ─────────────────────────────────────────────
-function AccountRow({ acc, onEdit }: { acc: Account; onEdit: (account: Account) => void }) {
+function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account: Account) => void; onDelete: (account: Account) => void }) {
   const [expanded, setExpanded] = useState(false);
 
   const realCost = getRealCost(acc);
@@ -323,10 +324,15 @@ function AccountRow({ acc, onEdit }: { acc: Account; onEdit: (account: Account) 
         </td>
 
         {/* Actions */}
-        <td className="acc-cell" style={{ width: 70 }}>
-          <button className="action-btn edit-btn" onClick={() => onEdit(acc)} aria-label="Edit account">
-            <Edit2 size={13} />
-          </button>
+        <td className="acc-cell" style={{ width: 80 }}>
+          <div className="row-actions">
+            <button className="action-btn edit-btn" onClick={() => onEdit(acc)} aria-label="Edit account">
+              <Edit2 size={13} />
+            </button>
+            <button className="action-btn delete-btn" onClick={() => onDelete(acc)} aria-label="Delete account">
+              <Trash2 size={13} />
+            </button>
+          </div>
         </td>
       </tr>
 
@@ -829,6 +835,24 @@ export default function CommercialPage() {
     if (!error) setAccounts(mergeImportedAccounts((data ?? []) as Account[]));
   }
 
+  async function handleDeleteAccount(account: Account) {
+    if (!isPersistedAccount(account)) {
+      alert("This account is imported from spreadsheet data and cannot be deleted from the database.");
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to delete the account "${account.name}"? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      const { error } = await supabase.from("commercial_accounts").delete().eq("id", account.id);
+      if (error) throw error;
+      setAccounts((current) => current.filter((item) => item.id !== account.id));
+      alert("Account deleted successfully.");
+    } catch (err) {
+      alert(`Could not delete account: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   function openCreateStudio() {
     setAccountFormMode("create");
     setEditingAccount(null);
@@ -1217,6 +1241,8 @@ export default function CommercialPage() {
           border-radius:7px; border:none; cursor:pointer; transition:all .12s; }
         .edit-btn { background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); }
         .edit-btn:hover { background:hsl(var(--primary)/.12); color:hsl(var(--primary)); }
+        .delete-btn { background:hsl(0 84% 60%/.1); color:hsl(0 84% 50%); }
+        .delete-btn:hover { background:hsl(0 84% 60%/.2); color:hsl(0 84% 45%); }
         .save-btn { background:hsl(142 76% 36%/.12); color:hsl(142 76% 30%); margin-right:3px; }
         .save-btn:hover { background:hsl(142 76% 36%/.25); }
         .cancel-btn { background:hsl(0 84% 60%/.1); color:hsl(0 84% 50%); }
@@ -1368,7 +1394,7 @@ export default function CommercialPage() {
                 </thead>
                 <tbody>
                   {filteredAccounts.map((acc) => (
-                    <AccountRow key={acc.id} acc={acc} onEdit={openEditStudio} />
+                    <AccountRow key={acc.id} acc={acc} onEdit={openEditStudio} onDelete={handleDeleteAccount} />
                   ))}
                 </tbody>
               </table>

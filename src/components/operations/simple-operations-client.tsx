@@ -5,6 +5,7 @@ import { type ComponentProps, type FormEvent, type ReactNode, useCallback, useEf
 import {
   AlertTriangle,
   BadgeCheck,
+  Building2,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -37,7 +38,6 @@ import { exportRows, exportWorkbook } from "@/lib/export/workbook";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
   buildCommercialOccurrences,
-  commercialScheduleSummary,
   getPayableCommercialHours,
 } from "@/lib/operations/commercial-hours";
 import {
@@ -2123,9 +2123,46 @@ export function SimpleOperationsClient({
   }
 
   async function updateCommercialHoursStatus(entry: CommercialHoursEntryRow, status: CommercialHoursStatus) {
+    if (savingPaymentKey) return;
     if (entry.id.startsWith("scheduled-")) {
-      editCommercialHours(entry);
-      setMessage({ tone: "info", text: "Scheduled hours need to be saved as a completed or verified entry before payroll status changes." });
+      setSavingPaymentKey(entry.id);
+      const now = new Date().toISOString();
+      const hours = toNumber(entry.scheduled_hours);
+      const verified = status === "verified" || status === "paid";
+      try {
+        const payload = {
+          user_id: userId,
+          account_id: entry.account_id,
+          account_name: entry.account_name,
+          team_id: entry.team_id || null,
+          team_name: entry.team_name,
+          work_date: entry.work_date,
+          scheduled_day: entry.scheduled_day,
+          scheduled_hours: hours,
+          completed_hours: hours,
+          verified_hours: verified ? hours : 0,
+          status,
+          verified,
+          notes: entry.notes || null,
+          manual_entry: false,
+          updated_at: now,
+        };
+        const { error } = await supabase.from("commercial_hours_entries").insert({ ...payload, created_at: now });
+        if (error) throw error;
+        await writePayrollAudit(supabase, {
+          entityType: "commercial_hours_entries",
+          action: `commercial_hours_marked_${status}_from_schedule`,
+          before: null,
+          after: payload,
+          actorId: userId,
+        });
+        setMessage({ tone: "success", text: `Commercial hours marked ${status.replace("_", " ")}.` });
+        await loadData();
+      } catch (error) {
+        setMessage({ tone: "error", text: `Commercial hours status could not be updated: ${parseSupabaseError(error as Error)}` });
+      } finally {
+        setSavingPaymentKey(null);
+      }
       return;
     }
     if (entry.status === "paid" && status !== "paid" && !window.confirm("This record is already marked as paid. Editing it may affect payroll history.")) return;
@@ -2138,21 +2175,25 @@ export function SimpleOperationsClient({
       paid_at: status === "paid" ? now : entry.paid_at ?? null,
       updated_at: now,
     };
-    const { error } = await supabase.from("commercial_hours_entries").update(payload).eq("id", entry.id);
-    if (error) {
-      setMessage({ tone: "error", text: `Commercial hours status could not be updated: ${parseSupabaseError(error)}` });
-      return;
+    setSavingPaymentKey(entry.id);
+    try {
+      const { error } = await supabase.from("commercial_hours_entries").update(payload).eq("id", entry.id);
+      if (error) throw error;
+      await writePayrollAudit(supabase, {
+        entityType: "commercial_hours_entries",
+        entityId: entry.id,
+        action: `commercial_hours_marked_${status}`,
+        before: { status: entry.status, verified: entry.verified, paid_at: entry.paid_at },
+        after: payload,
+        actorId: userId,
+      });
+      setMessage({ tone: "success", text: `Commercial hours marked ${status.replace("_", " ")}.` });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Commercial hours status could not be updated: ${parseSupabaseError(error as Error)}` });
+    } finally {
+      setSavingPaymentKey(null);
     }
-    await writePayrollAudit(supabase, {
-      entityType: "commercial_hours_entries",
-      entityId: entry.id,
-      action: `commercial_hours_marked_${status}`,
-      before: { status: entry.status, verified: entry.verified, paid_at: entry.paid_at },
-      after: payload,
-      actorId: userId,
-    });
-    setMessage({ tone: "success", text: `Commercial hours marked ${status.replace("_", " ")}.` });
-    await loadData();
   }
 
   async function exportCurrentReport() {
@@ -3036,22 +3077,33 @@ export function SimpleOperationsClient({
               <table className={cn("sop-table w-full min-w-[360px] table-fixed border-separate border-spacing-0 text-[13px]", mixed && "min-w-[520px]")}>
                 <thead>
                   <tr className="bg-muted/25 text-left text-[11px] font-semibold uppercase text-muted-foreground">
-                    <th className="w-[22%] border-b border-border/70 px-3 py-2">Date</th>
-                    <th className={cn("border-b border-border/70 px-3 py-2", mixed ? "w-[34%]" : "w-[43%]")}>City</th>
-                    {mixed ? <th className="w-[22%] border-b border-border/70 px-3 py-2 text-right">Residential</th> : <th className="w-[35%] border-b border-border/70 px-3 py-2 text-right">Payment</th>}
-                    {mixed ? <th className="w-[22%] border-b border-border/70 px-3 py-2 text-right">Commercial</th> : null}
+                    <th className="w-[18%] border-b border-border/70 px-3 py-2">Date</th>
+                    <th className={cn("border-b border-border/70 px-3 py-2", mixed ? "w-[26%]" : "w-[30%]")}>City</th>
+                    {mixed ? (
+                      <>
+                        <th className="w-[18%] border-b border-border/70 px-3 py-2 text-right">Residential</th>
+                        <th className="w-[18%] border-b border-border/70 px-3 py-2 text-right">Commercial</th>
+                      </>
+                    ) : (
+                      <th className="w-[22%] border-b border-border/70 px-3 py-2 text-right">Payment</th>
+                    )}
+                    <th className={cn("border-b border-border/70 px-3 py-2 text-right", mixed ? "w-[20%]" : "w-[30%]")}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {validJobRows.length === 0 ? <tr><td className="px-3 py-8 text-center text-sm font-medium text-muted-foreground" colSpan={mixed ? 4 : 3}>No payments recorded for this period.</td></tr> : null}
+                  {validJobRows.length === 0 ? <tr><td className="px-3 py-8 text-center text-sm font-medium text-muted-foreground" colSpan={mixed ? 5 : 4}>No payments recorded for this period.</td></tr> : null}
                   {validJobRows.map((row) => (
                     <tr className="align-top" key={row.id}>
                       <td className="border-b border-border/60 px-3 py-2.5 font-medium text-foreground">{displayShortDate(row.work_date)}</td>
                       <td className="border-b border-border/60 px-3 py-2.5">
                         <span className="block truncate font-medium text-foreground" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
-                        <div className="mt-2 flex items-center gap-1.5">
+                      </td>
+                      <td className={cn("border-b border-border/60 px-3 py-2.5 text-right font-semibold text-foreground", mixed && "text-foreground")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                      {mixed ? <td className="border-b border-border/60 px-3 py-2.5 text-right font-semibold text-foreground">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
+                      <td className="border-b border-border/60 px-3 py-2.5">
+                        <div className="flex flex-col items-end gap-1.5">
                           <Badge className={cn("rounded-full px-2 py-0 text-[10px] font-semibold", statusBadgeClass(row.status))} variant="outline">{statusLabel(row.status)}</Badge>
-                          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                          <div className="flex items-center gap-0.5">
                             <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Edit row" onClick={() => mixed ? openPaymentModal(summary, "juan", row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-[18px]" /></button>
                             <button type="button" className={PAYMENT_ICON_BUTTON_CLASS} aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-[18px]" /></button>
                             <button type="button" className={cn(PAYMENT_ICON_BUTTON_CLASS, "hover:text-emerald-700")} aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><Check className="size-[18px]" /></button>
@@ -3059,8 +3111,6 @@ export function SimpleOperationsClient({
                           </div>
                         </div>
                       </td>
-                      <td className={cn("border-b border-border/60 px-3 py-2.5 text-right font-semibold text-foreground", mixed && "text-foreground")}>{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
-                      {mixed ? <td className="border-b border-border/60 px-3 py-2.5 text-right font-semibold text-foreground">{toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : "-"}</td> : null}
                     </tr>
                   ))}
                 </tbody>
@@ -3070,6 +3120,7 @@ export function SimpleOperationsClient({
                     <td className="px-3 py-2.5 text-center">{validJobRows.length}</td>
                     <td className="px-3 py-2.5 text-right">{hasRows ? formatMoney(mixed ? summary.residentialTotal : summary.paymentTotal) : ""}</td>
                     {mixed ? <td className="px-3 py-2.5 text-right">{hasRows ? formatMoney(summary.commercialTotal) : ""}</td> : null}
+                    <td className="px-3 py-2.5" />
                   </tr>
                 </tfoot>
               </table>
@@ -3286,7 +3337,6 @@ export function SimpleOperationsClient({
   }
 
   function renderCommercialHoursPanel() {
-    const lucia = activeCommercialTeams.find((team) => team.name.toLowerCase() === "lucia portillo");
     const teamOptions = Array.from(new Set(commercialRowsInWeek.map((entry) => entry.team_name).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b));
     return (
       <div className="space-y-5">
@@ -3364,51 +3414,33 @@ export function SimpleOperationsClient({
           </div>
         </div>
 
-        {renderCommercialHoursCard(lucia)}
+        {renderCommercialHoursCard()}
         {renderPaymentModal(null)}
       </div>
     );
   }
 
-  function renderCommercialHoursCard(lucia: StaffMemberRow | undefined) {
+  function renderCommercialHoursCard() {
     const emptyCommercialText = commercialRowsInWeek.length === 0 ? "No eligible cleanings before this pay date." : "No commercial hours match these filters.";
     return (
       <Card className="overflow-hidden rounded-xl border-border/70 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]">
         <CardHeader className="border-b border-border/70 bg-background/55 px-5 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="text-xl font-semibold tracking-normal">Commercial hours</CardTitle>
               <p className="mt-1 text-sm font-medium text-muted-foreground">Review scheduled, completed, and verified hours before closing payroll.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild size="sm" variant="outline" className="h-10 rounded-xl px-2.5 text-xs font-semibold">
+                <Link href="/commercial/accounts">
+                  <Building2 className="size-[18px] mr-1" /> Manage Accounts
+                </Link>
+              </Button>
               <Badge className="rounded-full border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900" variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
             </div>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 p-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {commercialAccounts.slice(0, 6).map((account) => {
-              const rules = commercialScheduleRules.filter((rule) => rule.commercial_account_id === account.id);
-              const hasSchedule = rules.some((rule) => rule.active !== false);
-              return (
-                <article className="rounded-xl border border-border/70 bg-background/70 p-3 text-sm" key={account.id}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-foreground" title={account.name}>{account.name}</p>
-                      <p className="mt-1 line-clamp-2 text-xs font-medium text-muted-foreground">{commercialScheduleSummary(rules)}</p>
-                    </div>
-                    <Badge className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", hasSchedule ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-border bg-card text-muted-foreground")} variant="outline">{hasSchedule ? "Scheduled" : "Needs setup"}</Badge>
-                  </div>
-                  <Button className="mt-3 h-10 w-full rounded-xl text-xs font-semibold" size="sm" variant="outline" onClick={() => {
-                    setCommercialScheduleDraft({ ...EMPTY_COMMERCIAL_SCHEDULE_DRAFT, accountId: account.id, effectiveFrom: todayKey() });
-                    setPaymentModalMode("commercial_schedule");
-                  }}><Settings2 className="size-[18px]" /> Configure</Button>
-                </article>
-              );
-            })}
-            {lucia ? <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
-          </div>
-
           <div className="overflow-hidden rounded-xl border border-border/70">
             <div className="overflow-auto">
               <table className="sop-table w-full border-separate border-spacing-0 text-sm">
