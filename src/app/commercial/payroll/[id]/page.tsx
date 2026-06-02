@@ -454,7 +454,7 @@ export default function PayrollPeriodPage() {
   return (
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <div className="space-y-5">
-        <section className="rounded-lg border border-border/80 bg-card p-5 shadow-[0_22px_60px_-52px_hsl(210_40%_20%)] sm:p-6">
+        <section className="py-2">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <Button className="mb-3" size="sm" type="button" variant="outline" onClick={() => router.push("/commercial/payroll")}><ArrowLeft className="size-4" /> Back</Button>
@@ -471,7 +471,7 @@ export default function PayrollPeriodPage() {
           {message ? <p className="mt-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm font-bold">{message}</p> : null}
         </section>
 
-        <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <Metric icon={FileClock} label="Total hours" value={summary.totalHours.toFixed(2)} />
           <Metric icon={WalletCards} label="Estimated" value={money(summary.totalEstimated)} />
           <Metric icon={PencilLine} label="Adjustments" value={money(summary.totalAdjustments)} />
@@ -495,12 +495,12 @@ export default function PayrollPeriodPage() {
         <Card className="border-border/80">
           <CardHeader><CardTitle>Payroll Filters</CardTitle><p className="mt-1 text-sm font-semibold text-muted-foreground">Filter by date, team, account, review state, or missing data without changing payroll records.</p></CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Date view</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={dateFilterMode} onChange={(event) => setDateFilterMode(event.target.value as DateFilterMode)}><option value="day">Day</option><option value="week">Week</option><option value="pay_period">15 Days / Pay Period</option><option value="month">Month</option><option value="custom">Custom Range</option></select></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Selected date</span><input className="h-10 w-full rounded-md border bg-background px-3 font-bold" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} /></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Custom start</span><input className="h-10 w-full rounded-md border bg-background px-3 font-bold" disabled={dateFilterMode !== "custom"} type="date" value={customStartDate} onChange={(event) => setCustomStartDate(event.target.value)} /></label>
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Custom end</span><input className="h-10 w-full rounded-md border bg-background px-3 font-bold" disabled={dateFilterMode !== "custom"} type="date" value={customEndDate} onChange={(event) => setCustomEndDate(event.target.value)} /></label>
-              <div className="rounded-md border bg-muted/30 px-3 py-2"><p className="text-xs font-black uppercase text-muted-foreground">Visible entries</p><p className="text-lg font-black">{filteredEntries.length}/{entries.length}</p></div>
+              <div className="rounded-md border bg-muted/15 px-3 py-2"><p className="text-xs font-black uppercase text-muted-foreground">Visible entries</p><p className="text-lg font-black">{filteredEntries.length}/{entries.length}</p></div>
             </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
               <label className="space-y-1"><span className="text-xs font-black uppercase text-muted-foreground">Cleaner/team</span><select className="h-10 w-full rounded-md border bg-background px-3 font-bold" value={cleanerFilter} onChange={(event) => setCleanerFilter(event.target.value)}><option value="all">All teams</option>{filterOptions.cleaners.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner}</option>)}</select></label>
@@ -532,7 +532,7 @@ export default function PayrollPeriodPage() {
               <Metric icon={AlertTriangle} label="Excluded mixed-route rows" value={String(summary.excludedMixedRoute)} />
               <Metric icon={WalletCards} label="Expected account hours" value={summary.expectedHours.toFixed(2)} />
             </div>
-            <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 p-1 text-sm md:grid-cols-2 xl:grid-cols-4">
               <div><p className="text-xs font-black uppercase text-muted-foreground">Date range</p><p className="font-black">{dateLabel(activeRange.start)} to {dateLabel(activeRange.end)}</p></div>
               <div><p className="text-xs font-black uppercase text-muted-foreground">Cleaner/team</p><p className="font-black">{cleanerFilter === "all" ? "All teams" : cleanerFilter}</p></div>
               <div><p className="text-xs font-black uppercase text-muted-foreground">Account</p><p className="font-black">{accountFilter === "all" ? "All accounts" : accountFilter}</p></div>

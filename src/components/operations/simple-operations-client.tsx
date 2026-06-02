@@ -579,12 +579,12 @@ function AppSegmentedControl<T extends string>({
   ariaLabel: string;
 }) {
   return (
-    <div className="inline-flex h-11 max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1" aria-label={ariaLabel}>
+    <div className="inline-flex h-10 max-w-full overflow-x-auto rounded-xl border border-border/70 bg-background/80 p-1" aria-label={ariaLabel}>
       {options.map((option) => (
         <button
           type="button"
           className={cn(
-            "h-9 whitespace-nowrap rounded-lg px-3 text-sm font-semibold text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
+            "h-8 whitespace-nowrap rounded-lg px-3 text-xs font-semibold text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
             value === option.value && "bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground",
           )}
           key={option.value}
@@ -610,15 +610,15 @@ function PeriodSegment({ value, onChange }: { value: PeriodMode; onChange: (valu
 }
 
 const PAYMENT_PANEL_CLASS = "sop-toolbar";
-const PAYMENT_FIELD_CLASS = "h-11 min-w-0 rounded-xl border border-input bg-card/80 px-3.5 text-sm font-medium text-foreground outline-none shadow-sm transition placeholder:text-muted-foreground focus:border-primary/45 focus:ring-2 focus:ring-primary/10";
-const PAYMENT_LABEL_CLASS = "grid min-w-0 gap-1.5 text-sm font-medium text-muted-foreground";
+const PAYMENT_FIELD_CLASS = "h-10 min-w-0 rounded-xl border border-input bg-card/80 px-3 text-xs font-semibold text-foreground outline-none shadow-sm transition placeholder:text-muted-foreground focus:border-primary/45 focus:ring-2 focus:ring-primary/10";
+const PAYMENT_LABEL_CLASS = "grid min-w-0 gap-1.5 text-xs font-medium text-muted-foreground";
 const PAYMENT_ICON_BUTTON_CLASS = "inline-grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-45";
 const PAYMENT_MODAL_PANEL_CLASS = "max-h-[90dvh] w-full overflow-auto rounded-2xl border border-border/70 bg-card shadow-[0_28px_80px_-42px_hsl(215_40%_18%)]";
 const SOP_PANEL_CLASS = "sop-card";
 const SOP_TABLE_WRAP_CLASS = "overflow-hidden rounded-2xl border border-border/70 bg-card/70";
-const SOP_ACTION_BUTTON_CLASS = "h-11 rounded-xl px-4 text-sm font-semibold";
-const SOP_EMPTY_CLASS = "rounded-2xl border border-dashed border-border/70 bg-background/50 p-6 text-center text-sm font-medium text-muted-foreground";
-const SOP_ROW_CLASS = "rounded-xl border border-border/70 bg-card/60 p-3.5 transition hover:border-primary/30 hover:bg-accent/20";
+const SOP_ACTION_BUTTON_CLASS = "h-10 rounded-xl px-3.5 text-xs font-semibold";
+const SOP_EMPTY_CLASS = "rounded-2xl border border-dashed border-border/70 bg-background/50 p-6 text-center text-xs font-medium text-muted-foreground";
+const SOP_ROW_CLASS = "rounded-xl border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20";
 const SOP_CLOSE_BUTTON_CLASS = "grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50";
 
 export function SimpleOperationsClient({
@@ -2340,7 +2340,9 @@ export function SimpleOperationsClient({
     const headers: Record<SimpleOperationsView, { title: string; sub: string; icon: LucideIcon }> = {
       dashboard: { title: "Operations dashboard", sub: "Daily reminders, residential payments, and commercial hours.", icon: CheckCircle2 },
       tasks: { title: "Task reminders", sub: "Operational reminders for Jake and Carlos.", icon: Clock },
-      residential: { title: "Residential payments / commercial hours", sub: "Weekly residential payments and commercial team hours tracking.", icon: WalletCards },
+      residential: commercialPanelOpen
+        ? { title: "Commercial hours", sub: "Track commercial team hours by account, schedule, and pay period.", icon: Clock }
+        : { title: "Residential payments", sub: "Weekly residential payments and tracking.", icon: WalletCards },
       staff: { title: "Staff / Teams", sub: "Manage team roles, areas, and payment sources.", icon: Users },
       reports: { title: "Reports", sub: "Task, hours, and weekly payment exports.", icon: FileText },
       settings: { title: "Settings", sub: "Notification setup and residential operations defaults.", icon: Settings2 },
@@ -2361,15 +2363,24 @@ export function SimpleOperationsClient({
               </>
             ) : null}
             {view === "residential" ? (
-              <>
-                <Button onClick={() => {
-                  setCommercialPanelOpen(false);
-                  const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary));
-                  if (first) openPaymentModal(first, "residential");
-                }}><Plus /> Add residential payment</Button>
-                <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock /> Commercial hours</Button>
-                <Button variant="outline" onClick={commercialPanelOpen ? exportCommercialHours : exportWeeklyPayments}><FileDown /> Export</Button>
-              </>
+              commercialPanelOpen ? (
+                <>
+                  <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
+                  <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
+                  <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure</Button>
+                  <Button variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
+                </>
+              ) : (
+                <>
+                  <Button onClick={() => {
+                    setCommercialPanelOpen(false);
+                    const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary));
+                    if (first) openPaymentModal(first, "residential");
+                  }}><Plus className="size-4" /> Add residential payment</Button>
+                  <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
+                  <Button variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
+                </>
+              )
             ) : null}
             {view === "staff" ? <Button onClick={() => openStaffDraft()}><Plus /> Add cleaner</Button> : null}
           </>
@@ -2960,8 +2971,8 @@ export function SimpleOperationsClient({
 
         {carlosPaymentSummary ? renderCarlosPaymentPanel(carlosPaymentSummary) : null}
 
-        <div className={cn(PAYMENT_PANEL_CLASS, "p-4")}>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2.5">
+        <div className={cn(PAYMENT_PANEL_CLASS, "p-2.5")}>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2">
             <input aria-label="Search cleaner or city" className={PAYMENT_FIELD_CLASS} placeholder="Search cleaner or city" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
             <select className={PAYMENT_FIELD_CLASS} value={paymentCleanerFilter} onChange={(event) => setPaymentCleanerFilter(event.target.value)} aria-label="Cleaner filter">
               <option value="all">All cleaner names</option>
@@ -3413,19 +3424,6 @@ export function SimpleOperationsClient({
     return (
       <div className="space-y-5">
         <section className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-border/70 bg-card/80 p-4">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-normal">Commercial hours</h2>
-              <p className="mt-1 text-sm font-medium text-muted-foreground">Track commercial team hours by account, schedule, and pay period.</p>
-            </div>
-            <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-              <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft /> Residential payments</Button>
-              <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus /> Add commercial hours</Button>
-              <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 /> Configure</Button>
-              <Button variant="outline" onClick={exportCommercialHours}><FileDown /> Export</Button>
-            </div>
-          </div>
-
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3 shadow-sm">
             <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft /></Button>
             <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(commercialRange.start, commercialRange.end)}</div>
@@ -3452,8 +3450,8 @@ export function SimpleOperationsClient({
           </div>
         </section>
 
-        <div className={cn(PAYMENT_PANEL_CLASS, "p-3")}>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2.5">
+        <div className={cn(PAYMENT_PANEL_CLASS, "p-2.5")}>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2">
             <input aria-label="Search commercial hours" className={PAYMENT_FIELD_CLASS} placeholder="Search account, team, note" value={commercialSearchFilter} onChange={(event) => setCommercialSearchFilter(event.target.value)} />
             <select className={PAYMENT_FIELD_CLASS} value={commercialAccountFilter} onChange={(event) => setCommercialAccountFilter(event.target.value)} aria-label="Commercial account filter">
               <option value="all">All commercial accounts</option>
@@ -3496,19 +3494,16 @@ export function SimpleOperationsClient({
     const emptyCommercialText = commercialRowsInWeek.length === 0 ? "No eligible cleanings before this pay date." : "No commercial hours match these filters.";
     return (
       <Card className="overflow-hidden rounded-xl border-border/70 shadow-[0_18px_55px_-48px_hsl(215_40%_20%)]">
-        <CardHeader className="border-b border-border/70 bg-background/55 px-5 py-4">
+        <CardHeader className="border-b border-border/70 bg-background/55 px-5 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle className="text-xl font-semibold tracking-normal">Commercial hours</CardTitle>
-              <p className="mt-1 text-sm font-medium text-muted-foreground">Review scheduled, completed, and verified hours before closing payroll.</p>
-            </div>
+            <p className="text-xs font-semibold text-muted-foreground">Review scheduled, completed, and verified hours before closing payroll.</p>
             <div className="flex flex-wrap items-center gap-2">
-              <Button asChild size="sm" variant="outline" className="h-10 rounded-xl px-2.5 text-xs font-semibold">
+              <Button asChild size="sm" variant="outline" className="h-9 rounded-xl px-2.5 text-xs font-semibold">
                 <Link href="/commercial/accounts">
-                  <Building2 className="size-[18px] mr-1" /> Manage Accounts
+                  <Building2 className="size-4 mr-1" /> Manage Accounts
                 </Link>
               </Button>
-              <Badge className="rounded-full border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900" variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
+              <Badge className="rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-900" variant="outline">{formatHours(commercialTotals.verified)} verified payable hours</Badge>
             </div>
           </div>
         </CardHeader>
@@ -3736,7 +3731,7 @@ export function SimpleOperationsClient({
             <Button className={SOP_ACTION_BUTTON_CLASS} onClick={() => openStaffDraft()}><Plus className="size-[18px]" /> Add cleaner</Button>
           </CardHeader>
           <CardContent className="grid gap-3">
-            <div className={cn(PAYMENT_PANEL_CLASS, "grid gap-2 p-4 md:grid-cols-[1fr_170px_160px_auto]")}>
+            <div className={cn(PAYMENT_PANEL_CLASS, "grid gap-2 p-2.5 md:grid-cols-[1fr_170px_160px_auto]")}>
               <input className={PAYMENT_FIELD_CLASS} placeholder="Search team member, role, email" value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} />
               <select className={PAYMENT_FIELD_CLASS} value={staffScopeFilter} onChange={(event) => setStaffScopeFilter(event.target.value as "all" | StaffTeamScope)} aria-label="Staff area filter">
                 <option value="all">All areas</option>

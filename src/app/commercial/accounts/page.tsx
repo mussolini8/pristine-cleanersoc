@@ -1045,15 +1045,14 @@ export default function CommercialPage() {
     <DashboardShell userEmail="pristinecleanersoc@gmail.com">
       <style>{`
         .commercial-page { display:flex; flex-direction:column; gap:18px; }
-        .commercial-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:14px;
-          padding:18px; border:1px solid hsl(var(--border)/.82); border-radius:8px; background:
-          linear-gradient(135deg, hsl(var(--card)/.96), hsl(var(--primary)/.08) 58%, hsl(42 95% 55%/.08)); box-shadow:0 22px 60px -52px hsl(215 40% 20%); }
-        .dark .commercial-head { background:linear-gradient(135deg, hsl(var(--card)/.92), hsl(var(--primary)/.12) 58%, hsl(42 55% 14%/.28)); }
-        .page-title { font-size:1.7rem; font-weight:800; color:hsl(var(--foreground)); line-height:1.05; }
+        .commercial-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;
+          padding:4px 0 12px 0; border:none; background:transparent; box-shadow:none; }
+        .dark .commercial-head { background:transparent; }
+        .page-title { font-size:2.2rem; font-weight:800; color:hsl(var(--foreground)); line-height:1.05; letter-spacing:-0.02em; }
         .page-sub { font-size:0.88rem; color:hsl(var(--muted-foreground)); margin-top:6px; font-weight:500; }
-        .add-account-btn { display:flex; align-items:center; gap:7px; border:none; border-radius:8px;
-          background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); padding:9px 16px;
-          font-size:.84rem; font-weight:800; cursor:pointer; box-shadow:0 12px 28px -18px hsl(var(--primary)); }
+        .add-account-btn { display:flex; align-items:center; gap:7px; border:none; border-radius:12px;
+          background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); padding:8px 14px; height:40px;
+          font-size:.78rem; font-weight:700; cursor:pointer; transition: transform 0.2s; }
         .add-account-btn:hover { transform:translateY(-1px); }
 
         .account-studio { border:1px solid hsl(var(--border)); background:hsl(var(--card));
@@ -1147,8 +1146,8 @@ export default function CommercialPage() {
         .schedule-warning { margin:0; border:1px solid hsl(42 92% 50%/.28); background:hsl(42 92% 50%/.1); color:hsl(32 90% 34%); border-radius:8px; padding:9px 10px; font-size:.78rem; font-weight:900; }
 
         .stat-bar { display:grid; grid-template-columns:1.4fr 1fr 1fr 1.2fr 1fr 1fr; gap:10px; }
-        .stat-card { min-width:0; padding:14px; border-radius:8px; background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82);
-          box-shadow:0 16px 44px -42px hsl(210 40% 20%); }
+        .stat-card { min-width:0; padding:12px 14px; border-radius:12px; background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.55);
+          box-shadow:0 8px 24px -20px hsl(210 40% 20%); }
         .stat-card.accent { background:linear-gradient(135deg, hsl(var(--primary)), hsl(160 42% 28%)); border-color:hsl(var(--primary)); }
         .stat-label { font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:hsl(var(--muted-foreground)); }
         .stat-card.accent .stat-label { color:hsl(var(--primary-foreground)/.7); }
@@ -1161,7 +1160,7 @@ export default function CommercialPage() {
 
         .analytics-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
         @media (max-width:900px) { .analytics-grid { grid-template-columns:1fr; } }
-        .analytics-card { background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82); border-radius:8px; padding:18px; box-shadow:0 16px 44px -42px hsl(210 40% 20%); }
+        .analytics-card { background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.55); border-radius:12px; padding:16px; box-shadow:0 8px 24px -20px hsl(210 40% 20%); }
         .analytics-title { font-size:0.9rem; font-weight:800; color:hsl(var(--foreground)); margin-bottom:16px; }
 
         .cleaner-table { width:100%; border-collapse:collapse; font-size:0.78rem; }
@@ -1173,9 +1172,9 @@ export default function CommercialPage() {
         .pct-bar-wrap { width:100%; background:hsl(var(--muted)); border-radius:99px; height:6px; }
         .pct-bar { height:6px; border-radius:99px; background:hsl(var(--primary)); }
 
-        .table-card { background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82); border-radius:8px; overflow:hidden; box-shadow:0 20px 58px -48px hsl(210 40% 20%); }
+        .table-card { background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.55); border-radius:12px; overflow:hidden; box-shadow:0 12px 32px -24px hsl(210 40% 20%); }
         .table-header { display:grid; grid-template-columns:minmax(220px, 1fr) auto; align-items:center; gap:12px;
-          padding:14px 16px; border-bottom:1px solid hsl(var(--border)); background:hsl(var(--muted)/.28); }
+          padding:12px 16px; border-bottom:1px solid hsl(var(--border)/.55); background:hsl(var(--muted)/.15); }
         .table-title { display:flex; align-items:center; gap:8px; font-size:0.95rem; font-weight:900; color:hsl(var(--foreground)); }
         .account-controls { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
         .account-search { position:relative; min-width:230px; }
