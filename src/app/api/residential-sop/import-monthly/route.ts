@@ -4,6 +4,7 @@ import {
   generateMonthlySopTasks,
   monthlySopDedupeKey,
   monthlySopTemplateKey,
+  normalizeMonthlySopTitle,
   type MonthlySopInstance,
   type MonthlySopTemplate,
 } from "@/lib/operations/monthly-sop-import";
@@ -110,16 +111,11 @@ function legacyDedupeKey(row: ExistingMonthlySopTask) {
   ].join("|");
 }
 
-async function requestTarget(request: NextRequest) {
-  try {
-    const body = await request.json() as { month?: number; year?: number };
-    return {
-      month: body.month ?? 6,
-      year: body.year ?? 2026,
-    };
-  } catch {
-    return { month: 6, year: 2026 };
-  }
+function requestTarget(body: any) {
+  return {
+    month: body?.month ? Number(body.month) : 6,
+    year: body?.year ? Number(body.year) : 2026,
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -140,7 +136,14 @@ export async function POST(request: NextRequest) {
     }, { status: 500 });
   }
 
-  const target = await requestTarget(request);
+  let body: any = {};
+  try {
+    body = await request.json();
+  } catch {
+    // Ignore empty body
+  }
+
+  const target = requestTarget(body);
   const instances = generateMonthlySopTasks(target.month, target.year);
   const now = new Date().toISOString();
 
@@ -166,37 +169,66 @@ export async function POST(request: NextRequest) {
 
   const templateIdByKey = new Map(((templateRows ?? []) as TemplateRow[]).map((template) => [template.natural_key, template.id]));
 
+  // Calculate start and end of target month to fetch all active tasks in this range
+  const startOfMonth = `${target.year}-${String(target.month).padStart(2, "0")}-01`;
+  const endOfMonth = `${target.year}-${String(target.month).padStart(2, "0")}-${new Date(target.year, target.month, 0).getDate()}`;
+
   const { data: existingRows, error: readError } = await supabase
     .from("operation_tasks")
-    .select("id,title,due_date,assignee,recurrence,status,metadata")
+    .select("id,title,due_date,assignee,recurrence,status,metadata,sop_source_key")
     .eq("user_id", user.id)
     .is("deleted_at", null)
-    .contains("metadata", {
-      source_document_name: MONTHLY_SOP_IMPORT.sourceDocumentName,
-      target_month: instances[0]?.targetMonth,
-      target_year: target.year,
-    });
+    .gte("due_date", startOfMonth)
+    .lte("due_date", endOfMonth);
 
   if (readError) {
     return NextResponse.json({ ok: false, error: readError.message }, { status: 500 });
   }
 
-  const existingByDedupeKey = new Map<string, ExistingMonthlySopTask>();
-  const duplicateIdsToArchive = new Set<string>();
+  // Group existing tasks by normalized key: title|due_date
+  const existingRowsMap = new Map<string, ExistingMonthlySopTask[]>();
   for (const row of (existingRows ?? []) as ExistingMonthlySopTask[]) {
-    const dedupeKey = typeof row.metadata?.dedupe_key === "string" ? row.metadata.dedupe_key : null;
-    const keys = Array.from(new Set([dedupeKey, legacyDedupeKey(row)].filter((key): key is string => Boolean(key))));
-    for (const key of keys) {
-      const existing = existingByDedupeKey.get(key);
-      if (!existing) {
-        existingByDedupeKey.set(key, row);
-        continue;
-      }
-      if (existing.id === row.id) continue;
-      const keepExisting = existing.status === "completed" || row.status !== "completed";
-      duplicateIdsToArchive.add(keepExisting ? row.id : existing.id);
-      if (!keepExisting) existingByDedupeKey.set(key, row);
+    if (!row.title || !row.due_date) continue;
+    const normTitle = normalizeMonthlySopTitle(row.title);
+    const dueDateStr = row.due_date.split("T")[0];
+    const key = `${normTitle}|${dueDateStr}`;
+    if (!existingRowsMap.has(key)) {
+      existingRowsMap.set(key, []);
     }
+    existingRowsMap.get(key)!.push(row);
+  }
+
+  const duplicateIdsToArchive = new Set<string>();
+  const instancesToProcess: { instance: any; existing: ExistingMonthlySopTask | null }[] = [];
+
+  for (const instance of instances) {
+    const templateKey = monthlySopTemplateKey(instance);
+    const templateId = templateIdByKey.get(templateKey) ?? null;
+    const dedupeKey = monthlySopDedupeKey(instance, templateId);
+    const normTitle = normalizeMonthlySopTitle(instance.title);
+    const key = `${normTitle}|${instance.dueDate}`;
+
+    const matchingTasks = existingRowsMap.get(key) ?? [];
+    let existing: ExistingMonthlySopTask | null = null;
+
+    if (matchingTasks.length > 0) {
+      // Prioritize completed tasks first, then stable sort by ID
+      matchingTasks.sort((a, b) => {
+        const aComp = a.status === "completed" ? 1 : 0;
+        const bComp = b.status === "completed" ? 1 : 0;
+        if (aComp !== bComp) return bComp - aComp;
+        return a.id.localeCompare(b.id);
+      });
+
+      existing = matchingTasks[0];
+
+      // Mark all other duplicates to be archived
+      for (let i = 1; i < matchingTasks.length; i++) {
+        duplicateIdsToArchive.add(matchingTasks[i].id);
+      }
+    }
+
+    instancesToProcess.push({ instance, existing });
   }
 
   let created = 0;
@@ -216,11 +248,10 @@ export async function POST(request: NextRequest) {
     archivedDuplicates = duplicateIdsToArchive.size;
   }
 
-  for (const instance of instances) {
+  for (const { instance, existing } of instancesToProcess) {
     const templateKey = monthlySopTemplateKey(instance);
     const templateId = templateIdByKey.get(templateKey) ?? null;
     const dedupeKey = monthlySopDedupeKey(instance, templateId);
-    const existing = existingByDedupeKey.get(dedupeKey) ?? existingByDedupeKey.get(fallbackDedupeKey(instance));
     const metadata = taskMetadata(instance, dedupeKey, templateId);
     const status = existing?.status === "completed" ? "completed" : "pending";
     const payload = {
@@ -262,7 +293,7 @@ export async function POST(request: NextRequest) {
       existingMetadata.sop_week === metadata.sop_week &&
       existingMetadata.sop_day === metadata.sop_day &&
       existingMetadata.target_month === metadata.target_month &&
-      existingMetadata.target_year === metadata.target_year &&
+      Number(existingMetadata.target_year) === Number(metadata.target_year) &&
       existingMetadata.recurrence_type === metadata.recurrence_type &&
       existingMetadata.recurrence_rule === metadata.recurrence_rule &&
       existingMetadata.template_id === metadata.template_id &&
