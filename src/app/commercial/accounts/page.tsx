@@ -216,21 +216,22 @@ function toAccount(account: ImportedCommercialAccount): Account {
 }
 
 function mergeImportedAccounts(remoteAccounts: Account[]) {
-  const merged = new Map<string, Account>();
-
+  const importedMap = new Map<string, Account>();
   for (const imported of importedCommercialAccounts.map(toAccount)) {
-    merged.set(normalizeAccountKey(imported), imported);
+    importedMap.set(normalizeAccountKey(imported), imported);
   }
+
+  const merged: Account[] = [];
 
   for (const remote of remoteAccounts) {
     const key = normalizeAccountKey(remote);
-    const imported = merged.get(key);
-    merged.set(key, {
+    const imported = importedMap.get(key);
+    merged.push({
       ...imported,
       ...remote,
       supply_delivery_date: remote.supply_delivery_date ?? imported?.supply_delivery_date ?? null,
       estimated_fill_date: remote.estimated_fill_date ?? imported?.estimated_fill_date ?? null,
-      source_sheet: imported?.source_sheet ?? remote.source_sheet ?? null,
+      source_sheet: remote.source_sheet ?? imported?.source_sheet ?? "Manual entry",
       supplies_notes: remote.supplies_notes ?? imported?.supplies_notes ?? null,
       cleaner_pay_type: remote.cleaner_pay_type ?? imported?.cleaner_pay_type ?? null,
       cleaner_hourly_rate: remote.cleaner_hourly_rate ?? imported?.cleaner_hourly_rate ?? null,
@@ -238,7 +239,7 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     });
   }
 
-  return [...merged.values()].sort((a, b) =>
+  return merged.sort((a, b) =>
     `${a.name} ${a.city ?? ""}`.localeCompare(`${b.name} ${b.city ?? ""}`),
   );
 }
@@ -833,17 +834,11 @@ export default function CommercialPage() {
 
         const remoteAccounts = (remoteData ?? []) as Account[];
 
-        // Check if there are missing imported accounts
-        const remoteKeys = new Set(remoteAccounts.map(normalizeAccountKey));
-        const missingImports = importedCommercialAccounts.filter(
-          (imported) => !remoteKeys.has(normalizeAccountKey(imported))
-        );
-
-        if (missingImports.length > 0) {
+        if (remoteAccounts.length === 0 && importedCommercialAccounts.length > 0) {
           const { data: { user } } = await supabase.auth.getUser();
           const userId = user?.id;
 
-          const payloads = missingImports.map((imported) => {
+          const payloads = importedCommercialAccounts.map((imported) => {
             return {
               user_id: userId,
               name: imported.name,

@@ -58,24 +58,25 @@ function toCommercialAccount(account: ImportedCommercialAccount): CommercialAcco
 }
 
 function mergeCommercialAccounts(remoteAccounts: CommercialAccount[]) {
-  const merged = new Map<string, CommercialAccount>();
-
+  const importedMap = new Map<string, CommercialAccount>();
   for (const imported of importedCommercialAccounts.map(toCommercialAccount)) {
-    merged.set(normalizeAccountKey(imported), imported);
+    importedMap.set(normalizeAccountKey(imported), imported);
   }
+
+  const merged: CommercialAccount[] = [];
 
   for (const remote of remoteAccounts) {
     const key = normalizeAccountKey(remote);
-    const imported = merged.get(key);
-    merged.set(key, {
+    const imported = importedMap.get(key);
+    merged.push({
       ...imported,
       ...remote,
-      schedule_rules: imported?.schedule_rules ?? remote.schedule_rules ?? [],
-      source_sheet: imported?.source_sheet ?? remote.source_sheet ?? null,
+      schedule_rules: remote.schedule_rules ?? imported?.schedule_rules ?? [],
+      source_sheet: remote.source_sheet ?? imported?.source_sheet ?? "Manual entry",
     });
   }
 
-  return [...merged.values()].sort((a, b) => `${a.name} ${a.city ?? ""}`.localeCompare(`${b.name} ${b.city ?? ""}`));
+  return merged.sort((a, b) => `${a.name} ${a.city ?? ""}`.localeCompare(`${b.name} ${b.city ?? ""}`));
 }
 
 async function getUserId(supabase: SupabaseClient) {
