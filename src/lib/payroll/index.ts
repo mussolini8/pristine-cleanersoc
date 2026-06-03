@@ -44,7 +44,8 @@ const LUCIA_REVIEW_SETTING: CleanerPaymentSetting = {
 };
 
 function normalizeAccountKey(account: Pick<CommercialAccount, "name" | "city">) {
-  return `${account.name} ${account.city ?? ""}`.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const city = !account.city || account.city.toLowerCase() === "unknown" ? "" : account.city;
+  return `${account.name} ${city}`.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function toCommercialAccount(account: ImportedCommercialAccount): CommercialAccount {

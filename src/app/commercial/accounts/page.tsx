@@ -173,6 +173,12 @@ function numberOrNull(value: string | number | null | undefined) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function parseDateStr(value: any): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const reg = /^\d{4}-\d{2}-\d{2}$/;
+  return reg.test(value) ? value : null;
+}
+
 function isPersistedAccount(account: Pick<Account, "id"> | null | undefined) {
   return Boolean(account?.id && !account.id.startsWith("import-"));
 }
@@ -194,7 +200,8 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
 }
 
 function normalizeAccountKey(account: Pick<Account, "name" | "city">) {
-  return `${account.name} ${account.city ?? ""}`
+  const city = !account.city || account.city.toLowerCase() === "unknown" ? "" : account.city;
+  return `${account.name} ${city}`
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
 }
@@ -840,23 +847,23 @@ export default function CommercialPage() {
             return {
               user_id: userId,
               name: imported.name,
-              city: imported.city,
+              city: imported.city || "Unknown",
               pricing_model: imported.pricing_model,
               cleaner_name: imported.cleaner_name,
-              hours: typeof imported.hours === "number" ? imported.hours : Number(imported.hours) || null,
+              hours: numberOrNull(imported.hours),
               frequency: imported.frequency,
               revenue: imported.revenue,
               cost: imported.cost,
               payment_method: imported.payment_method,
-              contract_start: imported.contract_start || null,
-              contract_end: imported.contract_end || null,
-              last_qcc_date: imported.last_qcc_date || null,
-              last_contact_date: imported.last_contact_date || null,
+              contract_start: parseDateStr(imported.contract_start),
+              contract_end: parseDateStr(imported.contract_end),
+              last_qcc_date: parseDateStr(imported.last_qcc_date),
+              last_contact_date: parseDateStr(imported.last_contact_date),
               has_supplies: imported.has_supplies === true,
               has_keys: imported.has_keys === true,
               supplies_notes: imported.supplies_notes,
-              supply_delivery_date: imported.supply_delivery_date || null,
-              estimated_fill_date: imported.estimated_fill_date || null,
+              supply_delivery_date: parseDateStr(imported.supply_delivery_date),
+              estimated_fill_date: parseDateStr(imported.estimated_fill_date),
             };
           });
 
