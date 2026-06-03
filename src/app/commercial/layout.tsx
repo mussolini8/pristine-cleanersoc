@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation";
+import { requireAreaAccess } from "@/lib/server-access";
 
 export default async function CommercialLayout({ children }: { children: React.ReactNode }) {
-  void children;
-  redirect("/dashboard");
+  await requireAreaAccess("workspace");
+  return <>{children}</>;
 }
