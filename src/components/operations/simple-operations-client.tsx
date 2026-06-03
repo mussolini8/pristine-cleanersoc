@@ -34,7 +34,7 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { exportRows, exportWorkbook } from "@/lib/export/workbook";
+import { exportRows, exportWorkbook, exportCleanerGridReport } from "@/lib/export/workbook";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
   buildCommercialOccurrences,
@@ -439,8 +439,13 @@ function dateRangeLabel(start: string, end: string) {
   return `${displayDate(start)} - ${displayDate(end)}`;
 }
 
-function paymentLineTotal(row: Pick<ResidentialWeeklyPaymentLineRow, "payment_amount" | "residential_amount" | "commercial_amount">) {
-  return toNumber(row.payment_amount) + toNumber(row.residential_amount) + toNumber(row.commercial_amount);
+function paymentLineTotal(row: Pick<ResidentialWeeklyPaymentLineRow, "payment_amount" | "residential_amount" | "commercial_amount" | "payment_type">) {
+  const isOperations = (row as any).payment_type === "operations_overtime";
+  const isMixed = (row as any).payment_type === "mixed";
+  if (isOperations || isMixed) {
+    return toNumber(row.residential_amount) + toNumber(row.commercial_amount);
+  }
+  return toNumber(row.payment_amount);
 }
 
 function paymentSummaryStatus(summary: { rows: ResidentialWeeklyPaymentLineRow[]; payment?: ResidentialWeeklyPaymentRow }) {
@@ -557,8 +562,10 @@ function AppPageHeader({
     <section className="py-1">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className="flex items-center gap-2 text-sm font-medium text-primary"><Icon className="size-[18px]" /> Pristine Cleaners SOP</p>
-          <h1 className="mt-2 text-4xl font-semibold leading-tight tracking-normal text-foreground sm:text-[2.45rem]">{title}</h1>
+          <h1 className="mt-2 text-4xl font-semibold leading-tight tracking-normal text-foreground sm:text-[2.45rem] flex items-center gap-3">
+            <Icon className="size-8 text-primary shrink-0" />
+            <span>{title}</span>
+          </h1>
           <p className="mt-2 max-w-3xl text-base font-medium text-muted-foreground">{subtitle}</p>
         </div>
         {actions ? <div className="flex flex-wrap gap-2 sm:justify-end">{actions}</div> : null}
@@ -672,6 +679,7 @@ export function SimpleOperationsClient({
   const [commercialScheduleDraft, setCommercialScheduleDraft] = useState<CommercialScheduleDraft>(EMPTY_COMMERCIAL_SCHEDULE_DRAFT);
   const [paymentModalMode, setPaymentModalMode] = useState<PaymentModalMode | null>(null);
   const [commercialPanelOpen, setCommercialPanelOpen] = useState(false);
+  const [paymentsRegistryOpen, setPaymentsRegistryOpen] = useState(false);
   const [activePaymentSummaryKey, setActivePaymentSummaryKey] = useState<string | null>(null);
   const [savingPaymentKey, setSavingPaymentKey] = useState<string | null>(null);
   const [deletingPaymentRowId, setDeletingPaymentRowId] = useState<string | null>(null);
@@ -995,7 +1003,7 @@ export function SimpleOperationsClient({
       current.rows.push(row);
       const rowHasAmount = paymentLineTotal(row) > 0;
       if (rowHasAmount) {
-        current.residentialTotal = roundHours(current.residentialTotal + toNumber(row.residential_amount) + toNumber(row.payment_amount));
+        current.residentialTotal = roundHours(current.residentialTotal + (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : toNumber(row.payment_amount)));
         current.commercialTotal = roundHours(current.commercialTotal + toNumber(row.commercial_amount));
         current.paymentTotal = roundHours(current.paymentTotal + paymentLineTotal(row));
       }
@@ -2201,54 +2209,76 @@ export function SimpleOperationsClient({
   }
 
   async function exportWeeklyPayments() {
-    const residentialPaymentsTotal = weeklyPaymentSummaries.reduce((sum, summary) => {
-      return sum + (isMixedPaySummary(summary) ? summary.residentialTotal : summary.paymentTotal);
-    }, 0);
-    const mixedCommercialAddOn = weeklyPaymentSummaries.reduce((sum, summary) => {
-      return isMixedPaySummary(summary) ? sum + summary.commercialTotal : sum;
-    }, 0);
-    const grandTotal = residentialPaymentsTotal + mixedCommercialAddOn;
-    const paidTotal = weeklyPaymentSummaries
-      .filter((summary) => paymentSummaryStatus(summary) === "paid")
-      .reduce((sum, summary) => sum + summary.paymentTotal, 0);
-    const pendingTotal = grandTotal - paidTotal;
-    const summaryRows = [
-      { metric: "Week range", value: dateRangeLabel(weekRange.start, weekRange.end) },
-      { metric: "Payments total", value: residentialPaymentsTotal },
-      { metric: "Mixed commercial add-on", value: mixedCommercialAddOn },
-      { metric: "Grand total", value: grandTotal },
-      { metric: "Pending total", value: pendingTotal },
-      { metric: "Paid total", value: paidTotal },
-    ];
-    const paymentRows = weeklyPaymentSummaries.flatMap((summary) => {
-      const mixed = isMixedPaySummary(summary);
-      if (summary.rows.length === 0) {
-        return [{
-          Cleaner: summary.teamName,
-          Date: "",
-          City: "",
-          Payment: mixed ? "" : 0,
-          Residential: mixed ? 0 : "",
-          Commercial: mixed ? 0 : "",
-          Total: 0,
-          Status: summary.payment?.status ?? "pending",
-        }];
+    const anchor = parseDateKey(paymentWeekStart) ?? new Date();
+    const year = anchor.getFullYear();
+    const month = anchor.getMonth() + 1; // 1-12
+    const monthLabel = anchor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+    // Fetch all active payment rows belonging to the selected month/year
+    const monthRows = weeklyPaymentRows.filter((row) => {
+      const date = parseDateKey(row.work_date);
+      if (!date) return false;
+      return date.getFullYear() === year && (date.getMonth() + 1) === month;
+    });
+
+    const cleanersMap = new Map<string, { cleanings: number; amount: number }[]>();
+    
+    // Initialize weeks 1 to 5 for every active residential cleaner
+    const residentialStaff = staff.filter((person) => {
+      const isLead = ["owner", "operations manager"].includes(String(person.role ?? "").toLowerCase());
+      return staffIsActive(person) && !isLead;
+    });
+
+    for (const person of residentialStaff) {
+      cleanersMap.set(person.name, Array.from({ length: 5 }, () => ({ cleanings: 0, amount: 0 })));
+    }
+
+    // Include any other cleaners who have recorded payments in this month
+    for (const row of monthRows) {
+      if (!cleanersMap.has(row.cleaner_name)) {
+        cleanersMap.set(row.cleaner_name, Array.from({ length: 5 }, () => ({ cleanings: 0, amount: 0 })));
       }
-      return summary.rows.map((row) => ({
-        Cleaner: summary.teamName,
+    }
+
+    // Populate cleaner weeks data based on work dates
+    for (const row of monthRows) {
+      const date = parseDateKey(row.work_date);
+      if (!date) continue;
+      const day = date.getDate();
+      const weekIndex = Math.min(4, Math.floor((day - 1) / 7));
+      
+      const weeks = cleanersMap.get(row.cleaner_name);
+      if (weeks) {
+        weeks[weekIndex].cleanings += 1;
+        weeks[weekIndex].amount += paymentLineTotal(row);
+      }
+    }
+
+    // Format cleaner array for the exporter
+    const gridCleaners = Array.from(cleanersMap.entries()).map(([cleanerName, weeks]) => ({
+      cleanerName,
+      weeks,
+    })).sort((a, b) => a.cleanerName.localeCompare(b.cleanerName));
+
+    // Construct raw ledger rows for Tab 2
+    const rawLedgerRows = monthRows.map((row) => {
+      const summary = weeklyPaymentSummaries.find((s) => s.teamId === row.cleaner_id || s.teamName === row.cleaner_name);
+      const mixed = summary ? isMixedPaySummary(summary) : false;
+      return {
+        Cleaner: row.cleaner_name,
         Date: row.work_date,
-        City: row.city,
+        City: displayPaymentCity(row),
         Payment: mixed ? "" : toNumber(row.payment_amount),
         Residential: mixed ? toNumber(row.residential_amount) : "",
         Commercial: mixed ? toNumber(row.commercial_amount) : "",
         Total: paymentLineTotal(row),
-        Status: row.status ?? summary.payment?.status ?? "pending",
-      }));
+        Notes: row.notes ?? "",
+        Status: row.status ?? "pending",
+      };
     });
-    await exportWorkbook(`weekly-residential-payments-${weekRange.start}.xlsx`, [
-      { name: "Weekly Summary", rows: summaryRows },
-      { name: "Payments by Cleaner", rows: paymentRows },
-    ]);
+
+    const filename = `weekly-residential-payments-${monthLabel.replace(/\s+/g, "-")}.xlsx`;
+    await exportCleanerGridReport(filename, monthLabel, gridCleaners, rawLedgerRows);
   }
 
   async function exportCommercialHours() {
@@ -2370,14 +2400,21 @@ export function SimpleOperationsClient({
                   <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure</Button>
                   <Button variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
                 </>
+              ) : paymentsRegistryOpen ? (
+                <>
+                  <Button variant="outline" onClick={() => setPaymentsRegistryOpen(false)}><ChevronLeft className="size-4" /> Back to tracker</Button>
+                  <Button variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
+                </>
               ) : (
                 <>
                   <Button onClick={() => {
                     setCommercialPanelOpen(false);
-                    const first = weeklyPaymentSummaries.find((summary) => !isMixedPaySummary(summary));
+                    setPaymentsRegistryOpen(false);
+                    const first = weeklyPaymentSummaries.find((summary) => !isCarlosLopez(summary.teamName));
                     if (first) openPaymentModal(first, "residential");
                   }}><Plus className="size-4" /> Add residential payment</Button>
-                  <Button variant="outline" onClick={() => setCommercialPanelOpen(true)}><Clock className="size-4" /> Commercial hours</Button>
+                  <Button variant="outline" onClick={() => { setCommercialPanelOpen(true); setPaymentsRegistryOpen(false); }}><Clock className="size-4" /> Commercial hours</Button>
+                  <Button variant="outline" onClick={() => { setPaymentsRegistryOpen(true); setCommercialPanelOpen(false); }}><FileText className="size-4" /> Payments registry</Button>
                   <Button variant="outline" onClick={exportWeeklyPayments}><FileDown className="size-4" /> Export</Button>
                 </>
               )
@@ -2414,92 +2451,78 @@ export function SimpleOperationsClient({
           <MetricCard icon={Users} label="Active teams" value={activeTeams.length} note={`${formatHours(workedThisWeek)}h logged this week`} />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
-          <Card className={SOP_PANEL_CLASS}>
-            <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
-              <div>
-                <CardTitle>Today&apos;s operating queue</CardTitle>
-                <p className="mt-1 text-sm font-medium text-muted-foreground">Reminders that need a person, a date, or a close-out today.</p>
-              </div>
-              <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/tasks">Open reminders</Link></Button>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {taskStats.dueToday.length === 0 ? <div className={SOP_EMPTY_CLASS}>No reminders due today.</div> : null}
-              {taskStats.dueToday.slice(0, 6).map((task) => renderCompactTaskRow(task))}
-            </CardContent>
-          </Card>
-
-          <Card className={SOP_PANEL_CLASS}>
-            <CardHeader className="p-4 sm:p-5">
-              <CardTitle>Quick focus</CardTitle>
-              <p className="mt-1 text-sm font-medium text-muted-foreground">The few checks that protect payroll and daily follow-up.</p>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {focusItems.map((item) => (
-                <Link className="flex items-center justify-between rounded-xl border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20" href={item.href} key={item.label}>
-                  <div>
-                    <p className="font-semibold">{item.label}</p>
-                    <p className="text-xs font-medium text-muted-foreground">{item.tone === "warn" ? "Needs review before the day closes." : "No action needed right now."}</p>
-                  </div>
-                  <Badge className={statusBadgeClass(item.tone === "warn" ? "needs_review" : "active")} variant="outline">{item.value}</Badge>
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className={SOP_PANEL_CLASS}>
-            <CardHeader className="p-4 sm:p-5">
-              <CardTitle>Payments to close</CardTitle>
-              <p className="mt-1 text-sm font-medium text-muted-foreground">Residential cleaner payments that are still open for this period.</p>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {pendingSummaries.length === 0 ? <div className={SOP_EMPTY_CLASS}>No pending residential payments for the selected week.</div> : null}
-              {pendingSummaries.slice(0, 5).map((summary) => {
-                return (
-                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={summary.key}>
-                    <div>
-                      <p className="font-semibold">{summary.teamName}</p>
-                      <p className="text-xs font-medium text-muted-foreground">{summary.rows.length} payment rows</p>
-                    </div>
-                    <p className="font-semibold text-primary">{formatMoney(summary.paymentTotal)}</p>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          <Card className={SOP_PANEL_CLASS}>
-            <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
-              <div>
-                <CardTitle>Residential payments</CardTitle>
-                <p className="mt-1 text-sm font-medium text-muted-foreground">{dateRangeLabel(currentWeek.start, currentWeek.end)}</p>
-              </div>
-              <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/residential">Open tracker</Link></Button>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {pendingSummaries.length === 0 ? <div className={SOP_EMPTY_CLASS}>No residential payments need attention.</div> : null}
-              {pendingSummaries.slice(0, 5).map((team) => (
-                <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={team.key}>
-                  <div>
-                    <p className="font-semibold">{team.teamName}</p>
-                    <p className="text-xs font-medium text-muted-foreground">{team.rows.length} payment rows</p>
-                  </div>
-                  <p className="text-lg font-semibold text-primary">{formatMoney(team.paymentTotal)}</p>
+        <div className="grid gap-4 xl:grid-cols-[1.15fr_.85fr] items-start">
+          {/* LEFT COLUMN: Operations Queue & Residential Payments */}
+          <div className="space-y-4">
+            <Card className={SOP_PANEL_CLASS}>
+              <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
+                <div>
+                  <CardTitle>Today&apos;s operating queue</CardTitle>
+                  <p className="mt-1 text-sm font-medium text-muted-foreground">Reminders that need a person, a date, or a close-out today.</p>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
+                <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/tasks">Open reminders</Link></Button>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                {taskStats.dueToday.length === 0 ? <div className={SOP_EMPTY_CLASS}>No reminders due today.</div> : null}
+                {taskStats.dueToday.slice(0, 6).map((task) => renderCompactTaskRow(task))}
+              </CardContent>
+            </Card>
+
+            <Card className={SOP_PANEL_CLASS}>
+              <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
+                <div>
+                  <CardTitle>Residential payments</CardTitle>
+                  <p className="mt-1 text-sm font-medium text-muted-foreground">{dateRangeLabel(currentWeek.start, currentWeek.end)}</p>
+                </div>
+                <Button asChild className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm"><Link href="/residential">Open tracker</Link></Button>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                {pendingSummaries.length === 0 ? <div className={SOP_EMPTY_CLASS}>No residential payments need attention.</div> : null}
+                {pendingSummaries.slice(0, 5).map((team) => (
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-background/65 p-3" key={team.key}>
+                    <div>
+                      <p className="font-semibold">{team.teamName}</p>
+                      <p className="text-xs font-medium text-muted-foreground">{team.rows.length} payment rows</p>
+                    </div>
+                    <p className="text-lg font-semibold text-primary">{formatMoney(team.paymentTotal)}</p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* RIGHT COLUMN: Quick Focus & Activity */}
+          <div className="space-y-4">
+            <Card className={SOP_PANEL_CLASS}>
+              <CardHeader className="p-4 sm:p-5">
+                <CardTitle>Quick focus</CardTitle>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">The few checks that protect payroll and daily follow-up.</p>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                {focusItems.map((item) => (
+                  <Link className="flex items-center justify-between rounded-xl border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20" href={item.href} key={item.label}>
+                    <div>
+                      <p className="font-semibold">{item.label}</p>
+                      <p className="text-xs font-medium text-muted-foreground">{item.tone === "warn" ? "Needs review before the day closes." : "No action needed right now."}</p>
+                    </div>
+                    <Badge className={statusBadgeClass(item.tone === "warn" ? "needs_review" : "active")} variant="outline">{item.value}</Badge>
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+
+            {recentCompleted.length > 0 ? (
+              <Card className={SOP_PANEL_CLASS}>
+                <CardHeader className="p-4 sm:p-5">
+                  <CardTitle>Recently completed</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-2">
+                  {recentCompleted.map((task) => renderCompactTaskRow(task))}
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
         </div>
-        {recentCompleted.length > 0 ? (
-          <Card className={SOP_PANEL_CLASS}>
-            <CardHeader className="p-4 sm:p-5">
-              <CardTitle>Recently completed</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2 md:grid-cols-2">
-              {recentCompleted.map((task) => renderCompactTaskRow(task))}
-            </CardContent>
-          </Card>
-        ) : null}
       </div>
     );
   }
@@ -2746,7 +2769,11 @@ export function SimpleOperationsClient({
     void renderWorkLogs;
     return (
       <div className="space-y-4">
-        {commercialPanelOpen ? renderCommercialHoursPanel() : renderWeeklyPayments()}
+        {commercialPanelOpen 
+          ? renderCommercialHoursPanel() 
+          : paymentsRegistryOpen 
+            ? renderPaymentsRegistryPanel() 
+            : renderWeeklyPayments()}
       </div>
     );
   }
@@ -3007,6 +3034,224 @@ export function SimpleOperationsClient({
             {displayedSummaries.map((summary) => renderCleanerPaymentCard(summary))}
           </div>
         </div>
+        {renderPaymentModal(activePaymentSummary)}
+      </div>
+    );
+  }
+
+  function renderPaymentsRegistryPanel() {
+    const weekStartDate = parseDateKey(paymentWeekStart) ?? startOfWeek(new Date());
+    const periodStepDays = periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7;
+    const activePaymentSummary = activePaymentSummaryKey ? weeklyPaymentSummaries.find((summary) => summary.key === activePaymentSummaryKey) : null;
+    
+    const filteredRows = paymentRowsInWeek.filter((row) => {
+      const summary = weeklyPaymentSummaries.find((s) => s.teamId === row.cleaner_id || s.teamName === row.cleaner_name);
+      const mixed = summary ? isMixedPaySummary(summary) : false;
+      const carlos = isCarlosLopez(row.cleaner_name);
+      
+      if (paymentCleanerFilter !== "all" && row.cleaner_name.toLowerCase() !== paymentCleanerFilter.toLowerCase() && row.cleaner_id !== paymentCleanerFilter) return false;
+      if (paymentKindFilter === "residential" && (mixed || carlos)) return false;
+      if (paymentKindFilter === "mixed" && !mixed) return false;
+      if (paymentStatusFilter !== "all" && row.status !== paymentStatusFilter) return false;
+      if (paymentCityFilter !== "all" && displayPaymentCity(row) !== paymentCityFilter) return false;
+      
+      if (!paymentFilter.trim()) return true;
+      const needle = paymentFilter.trim().toLowerCase();
+      return [row.cleaner_name, displayPaymentCity(row), row.notes].filter(Boolean).join(" ").toLowerCase().includes(needle);
+    });
+
+    const regTotal = filteredRows.reduce((sum, r) => sum + paymentLineTotal(r), 0);
+    const regPaid = filteredRows.filter((r) => r.status === "paid").reduce((sum, r) => sum + paymentLineTotal(r), 0);
+    const regPending = filteredRows.filter((r) => r.status === "pending").reduce((sum, r) => sum + paymentLineTotal(r), 0);
+    const regVerified = filteredRows.filter((r) => r.status === "verified").reduce((sum, r) => sum + paymentLineTotal(r), 0);
+
+    const registryMetrics = [
+      { label: "Total payments", value: formatMoney(regTotal), Icon: WalletCards, tone: "neutral" },
+      { label: "Pending", value: formatMoney(regPending), Icon: Clock, tone: regPending ? "warn" : "good" },
+      { label: "Verified", value: formatMoney(regVerified), Icon: BadgeCheck, tone: "good" },
+      { label: "Paid", value: formatMoney(regPaid), Icon: CheckCircle2, tone: "good" },
+    ];
+
+    const cityFilterOptions = Array.from(new Set(paymentRowsInWeek.map(displayPaymentCity).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+
+    return (
+      <div className="space-y-5">
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3 shadow-sm">
+            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft /></Button>
+            <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
+            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight /></Button>
+            <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
+            <PeriodSegment value={periodMode} onChange={setPeriodMode} />
+          </div>
+        </section>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {registryMetrics.map(({ label, value, Icon, tone }) => (
+            <MetricCard key={label} icon={Icon} label={label} value={value} tone={tone as "neutral" | "good" | "warn"} />
+          ))}
+        </div>
+
+        <div className={cn(PAYMENT_PANEL_CLASS, "p-2.5")}>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2">
+            <input aria-label="Search cleaner or city" className={PAYMENT_FIELD_CLASS} placeholder="Search cleaner, city, or notes..." value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} />
+            <select className={PAYMENT_FIELD_CLASS} value={paymentCleanerFilter} onChange={(event) => setPaymentCleanerFilter(event.target.value)} aria-label="Cleaner filter">
+              <option value="all">All cleaner names</option>
+              {weeklyPaymentSummaries.map((summary) => <option key={summary.key} value={summary.key}>{summary.teamName}</option>)}
+            </select>
+            <select className={PAYMENT_FIELD_CLASS} value={paymentKindFilter} onChange={(event) => setPaymentKindFilter(event.target.value as PaymentKindFilter)} aria-label="Payment kind filter">
+              <option value="all">All types</option>
+              <option value="residential">Residential cleaners</option>
+              <option value="mixed">Mixed cleaners</option>
+            </select>
+            <select className={PAYMENT_FIELD_CLASS} value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)} aria-label="Payment status filter">
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="verified">Verified</option>
+              <option value="paid">Paid</option>
+            </select>
+            <select className={PAYMENT_FIELD_CLASS} value={paymentCityFilter} onChange={(event) => setPaymentCityFilter(event.target.value)} aria-label="City filter">
+              <option value="all">All cities</option>
+              {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
+              {cityFilterOptions.filter((city) => !ORANGE_COUNTY_CITIES.includes(city as (typeof ORANGE_COUNTY_CITIES)[number])).map((city) => <option key={city} value={city}>{city}</option>)}
+            </select>
+            <Button variant="outline" onClick={() => { setPaymentFilter(""); setPaymentCleanerFilter("all"); setPaymentKindFilter("all"); setPaymentStatusFilter("all"); setPaymentCityFilter("all"); }}><RotateCcw /> Clear</Button>
+          </div>
+        </div>
+
+        <Card className={SOP_PANEL_CLASS}>
+          <CardHeader className="flex-row items-center justify-between space-y-0 p-4 sm:p-5">
+            <div>
+              <CardTitle>Payments Ledger</CardTitle>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">Showing registered transactions for the selected period.</p>
+            </div>
+            <Badge variant="outline" className="h-7 text-xs font-semibold">{filteredRows.length} transactions</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className={cn(SOP_TABLE_WRAP_CLASS, "overflow-x-auto")}>
+              <table className="sop-table w-full min-w-[1080px] text-sm">
+                <thead>
+                  <tr className="border-b border-border/70 bg-muted/25 text-left text-xs font-semibold text-muted-foreground">
+                    <th className="px-4 py-3 w-[15%]">Cleaner</th>
+                    <th className="w-[10%]">Date</th>
+                    <th className="w-[15%]">City</th>
+                    <th className="w-[12%]">Type</th>
+                    <th className="text-right w-[10%]">Res. Amount</th>
+                    <th className="text-right w-[10%]">Com. Amount</th>
+                    <th className="text-right w-[10%]">Total</th>
+                    <th className="w-[10%]">Status</th>
+                    <th className="w-[18%]">Notes</th>
+                    <th className="text-right pr-4 w-[15%]">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRows.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-8 text-center font-bold text-muted-foreground" colSpan={10}>
+                        No transactions match the selected filters.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {filteredRows.map((row) => {
+                    const summary = weeklyPaymentSummaries.find((s) => s.teamId === row.cleaner_id || s.teamName === row.cleaner_name);
+                    const mixed = summary ? isMixedPaySummary(summary) : false;
+                    const carlos = isCarlosLopez(row.cleaner_name);
+                    const typeLabel = mixed ? "Res + Com" : carlos ? "Ops Mgr." : "Residential";
+                    const typeBadgeClass = mixed 
+                      ? "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-400" 
+                      : carlos 
+                        ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-400" 
+                        : "border-slate-400/30 bg-slate-400/10 text-slate-600 dark:text-slate-400";
+
+                    return (
+                      <tr className="border-b border-border/70 align-middle hover:bg-muted/10 transition-colors" key={row.id}>
+                        <td className="px-4 py-3 font-semibold text-foreground">{row.cleaner_name}</td>
+                        <td className="font-semibold text-foreground">{displayShortDate(row.work_date)}</td>
+                        <td>{displayPaymentCity(row)}</td>
+                        <td>
+                          <Badge className={cn("rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider", typeBadgeClass)} variant="outline">
+                            {typeLabel}
+                          </Badge>
+                        </td>
+                        <td className="text-right font-semibold tabular-nums text-foreground">{formatMoney(toNumber(row.residential_amount))}</td>
+                        <td className="text-right font-semibold tabular-nums text-foreground">
+                          {toNumber(row.commercial_amount) > 0 ? formatMoney(toNumber(row.commercial_amount)) : <span className="text-muted-foreground/30">—</span>}
+                        </td>
+                        <td className="text-right font-semibold tabular-nums text-foreground">{formatMoney(paymentLineTotal(row))}</td>
+                        <td>
+                          <Badge className={statusBadgeClass(row.status || "pending")} variant="outline">
+                            {statusLabel(row.status || "pending")}
+                          </Badge>
+                        </td>
+                        <td className="max-w-[200px] truncate text-xs text-muted-foreground font-medium" title={row.notes || ""}>
+                          {row.notes || <span className="text-muted-foreground/30">—</span>}
+                        </td>
+                        <td className="pr-4">
+                          <div className="flex justify-end gap-1 items-center">
+                            <button
+                              type="button"
+                              className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-accent hover:text-foreground"
+                              title="Edit"
+                              aria-label="Edit row"
+                              onClick={() => {
+                                const targetSummary = summary || weeklyPaymentSummaries.find((s) => isCarlosLopez(s.teamName) === carlos);
+                                if (targetSummary) {
+                                  openPaymentModal(targetSummary, mixed ? "juan" : "residential", row);
+                                }
+                              }}
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/30"
+                              title="Mark pending"
+                              aria-label="Mark pending"
+                              disabled={savingPaymentKey === row.id}
+                              onClick={() => updatePaymentRowStatus(row, "pending")}
+                            >
+                              <Clock className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-sky-50 hover:text-sky-600 dark:hover:bg-sky-950/30"
+                              title="Mark verified"
+                              aria-label="Mark verified"
+                              disabled={savingPaymentKey === row.id}
+                              onClick={() => updatePaymentRowStatus(row, "verified")}
+                            >
+                              <BadgeCheck className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/30"
+                              title="Mark paid"
+                              aria-label="Mark paid"
+                              disabled={savingPaymentKey === row.id}
+                              onClick={() => updatePaymentRowStatus(row, "paid")}
+                            >
+                              <CheckCircle2 className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
+                              title="Delete row"
+                              aria-label="Delete row"
+                              disabled={deletingPaymentRowId === row.id}
+                              onClick={() => deletePaymentRow(row)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
         {renderPaymentModal(activePaymentSummary)}
       </div>
     );

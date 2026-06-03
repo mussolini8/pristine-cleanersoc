@@ -96,7 +96,7 @@ export function DashboardShell({
       <div className="lg:pl-[16rem]">
         <header className="sticky top-0 z-20 border-b border-border/70 bg-background/85 backdrop-blur-xl">
           <div className="flex h-[3.75rem] items-center justify-between px-4 sm:px-6">
-          <div>
+          <div className="lg:hidden">
             <p className="text-[11px] font-semibold text-primary">Pristine Cleaners</p>
             <p className="text-sm font-semibold text-foreground">Operations SOP</p>
           </div>
