@@ -815,13 +815,75 @@ export default function CommercialPage() {
 
   useEffect(() => {
     async function loadAccounts() {
+      setLoading(true);
       try {
-        const { data, error } = await supabase.from("commercial_accounts").select("*").order("name");
-        if (!error) {
-          setAccounts(mergeImportedAccounts((data ?? []) as Account[]));
+        const { data: remoteData, error: readError } = await supabase
+          .from("commercial_accounts")
+          .select("*")
+          .order("name");
+
+        if (readError) throw readError;
+
+        const remoteAccounts = (remoteData ?? []) as Account[];
+
+        // Check if there are missing imported accounts
+        const remoteKeys = new Set(remoteAccounts.map(normalizeAccountKey));
+        const missingImports = importedCommercialAccounts.filter(
+          (imported) => !remoteKeys.has(normalizeAccountKey(imported))
+        );
+
+        if (missingImports.length > 0) {
+          const { data: { user } } = await supabase.auth.getUser();
+          const userId = user?.id;
+
+          const payloads = missingImports.map((imported) => {
+            return {
+              user_id: userId,
+              name: imported.name,
+              city: imported.city,
+              pricing_model: imported.pricing_model,
+              cleaner_name: imported.cleaner_name,
+              hours: typeof imported.hours === "number" ? imported.hours : Number(imported.hours) || null,
+              frequency: imported.frequency,
+              revenue: imported.revenue,
+              cost: imported.cost,
+              payment_method: imported.payment_method,
+              contract_start: imported.contract_start || null,
+              contract_end: imported.contract_end || null,
+              last_qcc_date: imported.last_qcc_date || null,
+              last_contact_date: imported.last_contact_date || null,
+              has_supplies: imported.has_supplies === true,
+              has_keys: imported.has_keys === true,
+              supplies_notes: imported.supplies_notes,
+              supply_delivery_date: imported.supply_delivery_date || null,
+              estimated_fill_date: imported.estimated_fill_date || null,
+            };
+          });
+
+          const { error: insertError } = await supabase
+            .from("commercial_accounts")
+            .insert(payloads);
+
+          if (insertError) {
+            console.error("Error seeding missing commercial accounts:", insertError);
+          } else {
+            // Re-fetch to get accounts with their database IDs
+            const { data: refreshedData, error: refreshError } = await supabase
+              .from("commercial_accounts")
+              .select("*")
+              .order("name");
+            if (!refreshError && refreshedData) {
+              setAccounts(mergeImportedAccounts((refreshedData ?? []) as Account[]));
+              setLoading(false);
+              return;
+            }
+          }
         }
+
+        setAccounts(mergeImportedAccounts(remoteAccounts));
         setLoading(false);
-      } catch {
+      } catch (err) {
+        console.error("Error loading accounts:", err);
         setAccounts(mergeImportedAccounts([]));
         setLoading(false);
       }
