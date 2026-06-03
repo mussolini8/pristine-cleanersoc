@@ -4363,11 +4363,13 @@ export function SimpleOperationsClient({
               </select></label>
               <label className={PAYMENT_LABEL_CLASS}>Role<input className={PAYMENT_FIELD_CLASS} value={staffDraft.role} onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value })} /></label>
               {staffDraft.teamScope !== "residential" ? <label className={PAYMENT_LABEL_CLASS}>Commercial hourly rate<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={staffDraft.hourlyRate} onChange={(event) => setStaffDraft({ ...staffDraft, hourlyRate: event.target.value })} /></label> : null}
-              <label className={PAYMENT_LABEL_CLASS}>Payment mode<select className={PAYMENT_FIELD_CLASS} value={staffDraft.paymentMode} disabled={isJuanRomero(staffDraft.name)} onChange={(event) => setStaffDraft({ ...staffDraft, paymentMode: event.target.value as PaymentMode })}>
-                <option value="residential_only">Residential only</option>
-                <option value="mixed">Mixed pay</option>
-              </select></label>
-              {isJuanRomero(staffDraft.name) ? <div className="self-end rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
+              {staffDraft.teamScope !== "commercial" ? (
+                <label className={PAYMENT_LABEL_CLASS}>Payment mode<select className={PAYMENT_FIELD_CLASS} value={staffDraft.paymentMode} disabled={isJuanRomero(staffDraft.name)} onChange={(event) => setStaffDraft({ ...staffDraft, paymentMode: event.target.value as PaymentMode })}>
+                  <option value="residential_only">Residential only</option>
+                  <option value="mixed">Mixed pay</option>
+                </select></label>
+              ) : null}
+              {staffDraft.teamScope !== "commercial" && isJuanRomero(staffDraft.name) ? <div className="self-end rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
             </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">

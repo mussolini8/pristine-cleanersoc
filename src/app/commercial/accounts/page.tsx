@@ -1276,7 +1276,9 @@ export default function CommercialPage() {
         .acc-row:hover .acc-cell { background:hsl(var(--accent)/.36); }
         table.main-table thead th:first-child,
         .acc-cell:first-child { position:sticky; left:0; z-index:2; box-shadow:1px 0 0 hsl(var(--border)/.55); }
-        table.main-table thead th:first-child { z-index:3; background:hsl(var(--muted)); }
+        table.main-table thead th:first-child { z-index:3; background:hsl(var(--muted)) !important; }
+        .acc-cell:first-child { background:hsl(var(--card)) !important; }
+        .acc-row:hover .acc-cell:first-child { background:hsl(var(--accent)) !important; }
         .account-cell-content { display:grid; grid-template-columns:28px minmax(0, 1fr); align-items:center; gap:10px; min-width:0; }
         .account-primary { display:grid; grid-template-columns:minmax(0, max-content) auto; align-items:center; justify-content:start; gap:7px; min-width:0; }
         .acc-name { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
