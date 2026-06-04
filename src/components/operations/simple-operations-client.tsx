@@ -680,6 +680,8 @@ export function SimpleOperationsClient({
   const [paymentRowDrafts, setPaymentRowDrafts] = useState<Record<string, PaymentRowDraft>>({});
   const [expandedCleaners, setExpandedCleaners] = useState<Record<string, boolean>>({});
   const [activeDropdownRowId, setActiveDropdownRowId] = useState<string | null>(null);
+  const [isExtraHours, setIsExtraHours] = useState(false);
+  const [extraHoursValue, setExtraHoursValue] = useState("");
   const [commercialHoursDraft, setCommercialHoursDraft] = useState<CommercialHoursDraft>(EMPTY_COMMERCIAL_HOURS_DRAFT);
   const [commercialScheduleDraft, setCommercialScheduleDraft] = useState<CommercialScheduleDraft>(EMPTY_COMMERCIAL_SCHEDULE_DRAFT);
   const [paymentModalMode, setPaymentModalMode] = useState<PaymentModalMode | null>(null);
@@ -1974,31 +1976,53 @@ export function SimpleOperationsClient({
 
   function editCommercialHours(entry: CommercialHoursEntryRow) {
     setPaymentModalMode("commercial_hours");
+    const match = entry.notes?.match(/\[Extra:\s*([\d.]+)h\]/);
+    let regularHoursStr = "";
     if (entry.id.startsWith("scheduled-")) {
+      const totalHrs = toNumber(entry.scheduled_hours);
+      if (match) {
+        setIsExtraHours(true);
+        setExtraHoursValue(match[1]);
+        regularHoursStr = String(Math.max(0, totalHrs - toNumber(match[1])));
+      } else {
+        setIsExtraHours(false);
+        setExtraHoursValue("");
+        regularHoursStr = String(totalHrs);
+      }
       setCommercialHoursDraft({
         accountId: entry.account_id ?? "",
         teamId: "",
         teamName: entry.team_name ?? "",
         workDate: entry.work_date,
-        hours: String(toNumber(entry.scheduled_hours)),
+        hours: regularHoursStr,
         status: "completed",
         verified: false,
-        notes: entry.notes ?? "",
+        notes: entry.notes ? entry.notes.replace(/\[Extra:\s*([\d.]+)h\]/, "").trim() : "",
         manualEntry: false,
       });
       return;
     }
     const team = activeCommercialTeams.find((person) => person.name === entry.team_name);
+    const totalHrs = toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours);
+    if (match) {
+      setIsExtraHours(true);
+      setExtraHoursValue(match[1]);
+      regularHoursStr = String(Math.max(0, totalHrs - toNumber(match[1])));
+    } else {
+      setIsExtraHours(false);
+      setExtraHoursValue("");
+      regularHoursStr = String(totalHrs);
+    }
     setCommercialHoursDraft({
       id: entry.id,
       accountId: entry.account_id ?? "",
       teamId: entry.team_id ?? team?.id ?? "",
       teamName: entry.team_name ?? "",
       workDate: entry.work_date,
-      hours: String(toNumber(entry.verified_hours) || toNumber(entry.completed_hours) || toNumber(entry.scheduled_hours)),
+      hours: regularHoursStr,
       status: (entry.status as CommercialHoursStatus) || "completed",
       verified: Boolean(entry.verified),
-      notes: entry.notes ?? "",
+      notes: entry.notes ? entry.notes.replace(/\[Extra:\s*([\d.]+)h\]/, "").trim() : "",
       manualEntry: entry.manual_entry !== false,
     });
   }
@@ -2009,13 +2033,15 @@ export function SimpleOperationsClient({
     const account = commercialAccounts.find((item) => item.id === commercialHoursDraft.accountId);
     const team = activeCommercialTeams.find((item) => item.id === commercialHoursDraft.teamId);
     const teamName = team?.name ?? commercialHoursDraft.teamName.trim();
-    const hours = toNumber(commercialHoursDraft.hours);
+    const regularHours = toNumber(commercialHoursDraft.hours);
+    const extraHours = isExtraHours ? toNumber(extraHoursValue) : 0;
+    const totalHours = regularHours + extraHours;
     const verified = commercialHoursDraft.verified || commercialHoursDraft.status === "verified" || commercialHoursDraft.status === "paid";
     const validation = validateInput(commercialHoursEntrySchema, {
       commercialAccountId: commercialHoursDraft.accountId,
       teamName,
       workDate: commercialHoursDraft.workDate,
-      hours,
+      hours: totalHours,
       status: commercialHoursDraft.status,
       source: commercialHoursDraft.manualEntry ? "manual" : "scheduled",
       verified,
@@ -2030,6 +2056,8 @@ export function SimpleOperationsClient({
     const now = new Date().toISOString();
     setSavingPaymentKey("commercial-hours");
     try {
+      const extraSuffix = isExtraHours && extraHoursValue ? ` [Extra: ${extraHoursValue}h]` : "";
+      const finalNotes = (commercialHoursDraft.notes.trim() + extraSuffix).trim();
       const payload = {
         user_id: userId,
         account_id: account.id,
@@ -2038,12 +2066,12 @@ export function SimpleOperationsClient({
         team_name: teamName,
         work_date: commercialHoursDraft.workDate,
         scheduled_day: WEEKDAY_NAMES[(parseDateKey(commercialHoursDraft.workDate) ?? new Date()).getDay()],
-        scheduled_hours: hours,
-        completed_hours: hours,
-        verified_hours: verified ? hours : 0,
+        scheduled_hours: totalHours,
+        completed_hours: totalHours,
+        verified_hours: verified ? totalHours : 0,
         status: commercialHoursDraft.status,
         verified,
-        notes: commercialHoursDraft.notes.trim() || null,
+        notes: finalNotes || null,
         manual_entry: commercialHoursDraft.manualEntry,
         updated_at: now,
       };
@@ -2060,11 +2088,44 @@ export function SimpleOperationsClient({
         actorId: userId,
       });
       setCommercialHoursDraft({ ...EMPTY_COMMERCIAL_HOURS_DRAFT, workDate: commercialHoursDraft.workDate });
+      setIsExtraHours(false);
+      setExtraHoursValue("");
       setPaymentModalMode(null);
       setMessage({ tone: "success", text: "Commercial hours saved." });
       await loadData();
     } catch (error) {
       setMessage({ tone: "error", text: `Commercial hours could not be saved: ${errorMessage(error)}` });
+    } finally {
+      setSavingPaymentKey(null);
+    }
+  }
+
+  async function deleteCommercialHours() {
+    if (!userId || !commercialHoursDraft.id) return;
+    if (!window.confirm("Are you sure you want to delete this commercial hours entry?")) return;
+    setSavingPaymentKey("commercial-hours");
+    try {
+      const { error } = await supabase
+        .from("commercial_hours_entries")
+        .delete()
+        .eq("id", commercialHoursDraft.id);
+      if (error) throw new Error(error.message);
+      await writePayrollAudit(supabase, {
+        entityType: "commercial_hours_entries",
+        entityId: commercialHoursDraft.id,
+        action: "commercial_hours_deleted",
+        before: commercialHoursEntries.find((entry) => entry.id === commercialHoursDraft.id) || null,
+        after: null,
+        actorId: userId,
+      });
+      setCommercialHoursDraft({ ...EMPTY_COMMERCIAL_HOURS_DRAFT, workDate: commercialHoursDraft.workDate });
+      setIsExtraHours(false);
+      setExtraHoursValue("");
+      setPaymentModalMode(null);
+      setMessage({ tone: "success", text: "Commercial hours deleted." });
+      await loadData();
+    } catch (err) {
+      setMessage({ tone: "error", text: `Commercial hours could not be deleted: ${errorMessage(err)}` });
     } finally {
       setSavingPaymentKey(null);
     }
@@ -3392,20 +3453,20 @@ export function SimpleOperationsClient({
           {/* Table */}
           {isExpanded && (
             <div className="overflow-x-auto">
-              <table className={cn("sop-table w-full table-fixed border-separate border-spacing-0 text-[13px]", mixed ? "min-w-[480px]" : "min-w-[300px]")}>
+              <table className={cn("sop-table w-full table-fixed border-separate border-spacing-0 text-[13px]", mixed ? "min-w-[380px]" : "min-w-[280px]")}>
                 <thead>
-                  <tr className="text-left">
-                    <th className="w-[22%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</th>
-                    <th className={cn("border-b border-border/60 bg-muted/30 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground", mixed ? "w-[18%]" : "w-[28%]")}>City</th>
+                  <tr className="text-left h-8">
+                    <th className="w-[13%] border-b border-border/60 bg-muted/30 px-1.5 py-1.5 text-[9px] font-bold uppercase tracking-wider text-muted-foreground h-8 leading-none">Date</th>
+                    <th className={cn("border-b border-border/60 bg-muted/30 px-1.5 py-1.5 text-[9px] font-bold uppercase tracking-wider text-muted-foreground h-8 leading-none", mixed ? "w-[17%]" : "w-[32%]")}>City</th>
                     {mixed ? (
                       <>
-                        <th className="w-[15%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Res.</th>
-                        <th className="w-[15%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Com.</th>
+                        <th className="w-[14%] border-b border-border/60 bg-muted/30 px-1.5 py-1.5 text-right text-[9px] font-bold uppercase tracking-wider text-muted-foreground h-8 leading-none">Res.</th>
+                        <th className="w-[14%] border-b border-border/60 bg-muted/30 px-1.5 py-1.5 text-right text-[9px] font-bold uppercase tracking-wider text-muted-foreground h-8 leading-none">Com.</th>
                       </>
                     ) : (
-                      <th className="w-[22%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payment</th>
+                      <th className="w-[15%] border-b border-border/60 bg-muted/30 px-1.5 py-1.5 text-right text-[9px] font-bold uppercase tracking-wider text-muted-foreground h-8 leading-none">Payment</th>
                     )}
-                    <th className="w-[16%] border-b border-border/60 bg-muted/30 px-2 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Actions</th>
+                    <th className={cn("border-b border-border/60 bg-muted/30 px-1.5 py-1.5 text-right text-[9px] font-bold uppercase tracking-wider text-muted-foreground h-8 leading-none", mixed ? "w-[42%]" : "w-[38%]")}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3418,116 +3479,24 @@ export function SimpleOperationsClient({
                   ) : null}
                   {validJobRows.map((row) => (
                     <tr className={cn("group align-middle transition-colors hover:brightness-[0.97] dark:hover:brightness-110", rowStatusAccent(row.status))} key={row.id}>
-                      <td className="border-b border-border/50 px-3 py-2.5 font-semibold text-foreground">{displayShortDate(row.work_date)}</td>
-                      <td className="border-b border-border/50 px-3 py-2.5">
+                      <td className="border-b border-border/50 px-1.5 py-1.5 font-semibold text-foreground">{displayShortDate(row.work_date)}</td>
+                      <td className="border-b border-border/50 px-1.5 py-1.5">
                         <span className="block truncate font-medium text-foreground/90" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
                       </td>
-                      <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                      <td className="border-b border-border/50 px-1.5 py-1.5 text-right font-semibold tabular-nums text-foreground">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
                       {mixed ? (
-                        <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                        <td className="border-b border-border/50 px-1.5 py-1.5 text-right font-semibold tabular-nums text-amber-600 dark:text-amber-400">
                           {toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : <span className="text-muted-foreground/40">—</span>}
                         </td>
                       ) : null}
-                      <td className="relative border-b border-border/50 px-1.5 py-2 text-right">
-                        <div className="flex items-center justify-end">
-                          <button
-                            type="button"
-                            className={cn(
-                              "grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-accent hover:text-foreground",
-                              activeDropdownRowId === row.id && "bg-accent text-foreground"
-                            )}
-                            title="Actions"
-                            aria-label="Row actions"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveDropdownRowId(activeDropdownRowId === row.id ? null : row.id);
-                            }}
-                          >
-                            <MoreVertical className="size-4" />
-                          </button>
+                      <td className="border-b border-border/50 px-1 py-1">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-accent hover:text-foreground" title="Edit" aria-label="Edit row" onClick={() => mixed ? openPaymentModal(summary, "juan", row) : openPaymentModal(summary, "residential", row)}><Pencil className="size-3.5" /></button>
+                          <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/30" title="Pending" aria-label="Mark pending" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "pending")}><Clock className="size-3.5" /></button>
+                          <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-sky-50 hover:text-sky-600 dark:hover:bg-sky-950/30" title="Verify" aria-label="Mark verified" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "verified")}><BadgeCheck className="size-3.5" /></button>
+                          <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/30" title="Paid" aria-label="Mark paid" disabled={savingPaymentKey === row.id} onClick={() => updatePaymentRowStatus(row, "paid")}><CheckCircle2 className="size-3.5" /></button>
+                          <button type="button" className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30" title="Delete" aria-label="Delete row" disabled={deletingPaymentRowId === row.id} onClick={() => deletePaymentRow(row)}><Trash2 className="size-3.5" /></button>
                         </div>
-                        {activeDropdownRowId === row.id && (
-                          <>
-                            <div
-                              className="fixed inset-0 z-40 cursor-default"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveDropdownRowId(null);
-                              }}
-                            />
-                            <div className="absolute right-2 top-9 z-50 min-w-[130px] rounded-xl border border-border bg-popover p-1.5 shadow-xl animate-in fade-in-50 slide-in-from-top-1 text-left">
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-foreground hover:bg-accent transition-colors"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveDropdownRowId(null);
-                                  if (mixed) {
-                                    openPaymentModal(summary, "juan", row);
-                                  } else {
-                                    openPaymentModal(summary, "residential", row);
-                                  }
-                                }}
-                              >
-                                <Pencil className="size-3.5 text-muted-foreground/80" />
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-950/20 transition-colors"
-                                disabled={savingPaymentKey === row.id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveDropdownRowId(null);
-                                  updatePaymentRowStatus(row, "pending");
-                                }}
-                              >
-                                <Clock className="size-3.5 text-orange-500/80" />
-                                Pending
-                              </button>
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/20 transition-colors"
-                                disabled={savingPaymentKey === row.id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveDropdownRowId(null);
-                                  updatePaymentRowStatus(row, "verified");
-                                }}
-                              >
-                                <BadgeCheck className="size-3.5 text-sky-500/80" />
-                                Verify
-                              </button>
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/20 transition-colors"
-                                disabled={savingPaymentKey === row.id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveDropdownRowId(null);
-                                  updatePaymentRowStatus(row, "paid");
-                                }}
-                              >
-                                <CheckCircle2 className="size-3.5 text-emerald-500/80" />
-                                Paid
-                              </button>
-                              <div className="my-1 border-t border-border/50" />
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/20 transition-colors"
-                                disabled={deletingPaymentRowId === row.id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveDropdownRowId(null);
-                                  deletePaymentRow(row);
-                                }}
-                              >
-                                <Trash2 className="size-3.5 text-rose-500/80" />
-                                Delete
-                              </button>
-                            </div>
-                          </>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -3776,7 +3745,21 @@ export function SimpleOperationsClient({
         </select></label>
         {!commercialHoursDraft.teamId ? <label className={PAYMENT_LABEL_CLASS}>Manual name<input className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
         <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
-        <label className={PAYMENT_LABEL_CLASS}>Hours<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" step="any" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
+        <div className="flex flex-col gap-2 justify-end">
+          <label className={PAYMENT_LABEL_CLASS}>Hours<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" step="any" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
+          <label className="flex h-9 items-center gap-1.5 rounded-xl border border-input bg-background px-3 text-xs font-semibold select-none cursor-pointer">
+            <input type="checkbox" checked={isExtraHours} onChange={(event) => {
+              setIsExtraHours(event.target.checked);
+              if (!event.target.checked) setExtraHoursValue("");
+            }} />
+            <span>Hora extra</span>
+          </label>
+        </div>
+        {isExtraHours && (
+          <label className={PAYMENT_LABEL_CLASS}>Horas extras necesarias
+            <input required className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" step="any" type="number" value={extraHoursValue} onChange={(event) => setExtraHoursValue(event.target.value)} placeholder="0" />
+          </label>
+        )}
         <label className={PAYMENT_LABEL_CLASS}>Source<select className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.manualEntry ? "manual" : "scheduled"} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, manualEntry: event.target.value === "manual" })}>
           <option value="manual">Manual</option>
           <option value="scheduled">Scheduled</option>
@@ -3794,6 +3777,17 @@ export function SimpleOperationsClient({
         <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-2 xl:col-span-3")}>Notes<input className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.notes} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, notes: event.target.value })} /></label>
         {lucia ? <div className="self-end rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">Lucia Portillo · Manual hours</div> : null}
         <div className="flex justify-end gap-2 border-t border-border/70 pt-4 md:col-span-2 xl:col-span-4">
+          {commercialHoursDraft.id && (
+            <Button
+              className="rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-800 dark:text-rose-400 mr-auto"
+              type="button"
+              variant="outline"
+              disabled={savingPaymentKey === "commercial-hours"}
+              onClick={deleteCommercialHours}
+            >
+              <Trash2 className="size-4 mr-1" /> Delete
+            </Button>
+          )}
           <Button className="rounded-xl" type="button" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancel</Button>
           <Button className="rounded-xl" disabled={savingPaymentKey === "commercial-hours"} type="submit"><Save className="size-[18px]" /> {commercialHoursDraft.id ? "Update hours" : "Save hours"}</Button>
         </div>
