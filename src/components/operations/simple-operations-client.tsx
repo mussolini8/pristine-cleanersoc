@@ -3764,9 +3764,8 @@ export function SimpleOperationsClient({
               <table className="sop-table w-full border-separate border-spacing-0 text-sm">
                 <colgroup>
                   <col style={{ width: "12%" }} />
-                  <col style={{ width: "28%" }} />
-                  <col style={{ width: "18%" }} />
-                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "36%" }} />
+                  <col style={{ width: "22%" }} />
                   <col style={{ width: "12%" }} />
                   <col style={{ width: "10%" }} />
                   <col style={{ width: "8%" }} />
@@ -3777,13 +3776,12 @@ export function SimpleOperationsClient({
                     <th className="border-b border-border/70 px-4 py-3">Commercial Account</th>
                     <th className="border-b border-border/70 px-4 py-3">Team</th>
                     <th className="border-b border-border/70 px-4 py-3 text-right">Hours</th>
-                    <th className="border-b border-border/70 px-4 py-3 text-right">Total Amount</th>
                     <th className="border-b border-border/70 px-4 py-3">Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCommercialRows.length === 0 ? <tr><td className="px-4 py-10 text-center font-medium text-muted-foreground" colSpan={7}>{emptyCommercialText}</td></tr> : null}
+                  {filteredCommercialRows.length === 0 ? <tr><td className="px-4 py-10 text-center font-medium text-muted-foreground" colSpan={6}>{emptyCommercialText}</td></tr> : null}
                   {filteredCommercialRows.map((entry) => {
                     const isLucia = String(entry.team_name ?? "").toLowerCase() === "lucia portillo";
                     const sch = toNumber(entry.scheduled_hours);
@@ -3811,9 +3809,6 @@ export function SimpleOperationsClient({
                               sch: {formatHours(sch)} | comp: {formatHours(comp)}
                             </div>
                           )}
-                        </td>
-                        <td className="border-b border-border/60 px-4 py-3 text-right font-semibold text-foreground">
-                          {formatMoney(getCommercialEntryAmount(entry))}
                         </td>
                         <td className="border-b border-border/60 px-4 py-3 align-middle">
                           <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">
@@ -3844,9 +3839,6 @@ export function SimpleOperationsClient({
                       <div className="text-[10px] text-muted-foreground font-medium">
                         Verified: {commercialTotals.verifiedCount}
                       </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-right font-bold text-emerald-900 dark:text-emerald-300 text-sm">
-                      {formatMoney(commercialTotals.amount)}
                     </td>
                     <td colSpan={2} className="px-4 py-3.5 align-middle">
                       {commercialTotals.needsReview > 0 ? (

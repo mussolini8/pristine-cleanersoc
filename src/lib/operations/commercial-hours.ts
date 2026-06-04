@@ -74,13 +74,13 @@ export function commercialScheduleSummary(rules: CommercialScheduleRuleRow[]) {
 }
 
 function storedEntryKey(entry: Pick<CommercialHoursEntryRow, "account_id" | "account_name" | "team_name" | "work_date">) {
-  const accKey = entry.account_id || String(entry.account_name ?? "").trim().toLowerCase();
-  return `${accKey}:${entry.team_name ?? ""}:${entry.work_date}`;
+  const accKey = entry.account_id || normalizedName(entry.account_name);
+  return `${accKey}:${normalizedName(entry.team_name)}:${entry.work_date}`;
 }
 
 function generatedEntryKey(accountId: string, cleanerName: string | null | undefined, workDate: string, accountName?: string) {
-  const accKey = accountId || String(accountName ?? "").trim().toLowerCase();
-  return `${accKey}:${cleanerName ?? ""}:${workDate}`;
+  const accKey = accountId || normalizedName(accountName);
+  return `${accKey}:${normalizedName(cleanerName)}:${workDate}`;
 }
 
 export function buildCommercialOccurrences(input: {
@@ -130,7 +130,18 @@ export function buildCommercialOccurrences(input: {
     }
   }
 
-  const storedKeys = new Set(syncedStored.map(storedEntryKey));
+  // Populate storedKeys set with both UUID-based and name-based keys for maximum robustness
+  const storedKeys = new Set<string>();
+  for (const entry of syncedStored) {
+    const cleanerKey = normalizedName(entry.team_name);
+    if (entry.account_id) {
+      storedKeys.add(`${entry.account_id}:${cleanerKey}:${entry.work_date}`);
+    }
+    const nameKey = normalizedName(entry.account_name);
+    storedKeys.add(`${nameKey}:${cleanerKey}:${entry.work_date}`);
+  }
+
+  const generatedKeys = new Set<string>();
   const generated: CommercialHoursEntryRow[] = [];
   const dates = eachDateInRange(input.period.start, cutoff);
 
@@ -151,7 +162,21 @@ export function buildCommercialOccurrences(input: {
         if (!commercialRuleMatchesDate(rule, key)) continue;
 
         const cleanerName = rule.assigned_cleaner_name ?? account.cleaner_name;
-        if (storedKeys.has(generatedEntryKey(account.id, cleanerName, key, account.name))) continue;
+        const cleanerKey = normalizedName(cleanerName);
+        const keyWithId = `${account.id}:${cleanerKey}:${key}`;
+        const keyWithName = `${normalizedName(account.name)}:${cleanerKey}:${key}`;
+
+        if (
+          storedKeys.has(keyWithId) ||
+          storedKeys.has(keyWithName) ||
+          generatedKeys.has(keyWithId) ||
+          generatedKeys.has(keyWithName)
+        ) {
+          continue;
+        }
+
+        generatedKeys.add(keyWithId);
+        generatedKeys.add(keyWithName);
 
         const scheduledHours = toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours);
         generated.push({
