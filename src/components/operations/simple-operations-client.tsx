@@ -2452,12 +2452,7 @@ export function SimpleOperationsClient({
     const meta = headers[view];
     const Icon = meta.icon;
     return (
-      <AppPageHeader
-        icon={Icon}
-        title={meta.title}
-        subtitle={meta.sub}
-        actions={
-          <>
+      <div className="flex items-center gap-2 flex-wrap">
             {view === "tasks" ? (
               <>
                 <Button variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays /> {importingMonthlySop ? "Generating..." : "Generate Monthly SOP"}</Button>
@@ -2492,9 +2487,7 @@ export function SimpleOperationsClient({
               )
             ) : null}
             {view === "staff" ? <Button onClick={() => openStaffDraft()}><Plus /> Add cleaner</Button> : null}
-          </>
-        }
-      />
+          </div>
     );
   }
 
