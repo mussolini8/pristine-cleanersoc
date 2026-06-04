@@ -27,7 +27,8 @@ function isJuanRomero(value: string | null | undefined) {
 }
 
 export function commercialFrequencyLabel(value: string | null | undefined) {
-  if (value === "every_15_days" || value === "biweekly" || value === "every_2_weeks") return "Every 15 days";
+  if (value === "biweekly" || value === "every_2_weeks") return "Every 2 weeks";
+  if (value === "every_15_days") return "Every 15 days";
   if (value === "monthly") return "Monthly";
   if (value === "custom") return "Custom";
   return "Weekly";
@@ -35,7 +36,8 @@ export function commercialFrequencyLabel(value: string | null | undefined) {
 
 export function commercialRuleFrequency(rule: Pick<CommercialScheduleRuleRow, "frequency_type" | "frequency_interval">) {
   if (rule.frequency_type === "monthly" || rule.frequency_type === "custom") return rule.frequency_type;
-  if (rule.frequency_type === "every_15_days" || rule.frequency_type === "biweekly" || rule.frequency_interval === 15 || rule.frequency_interval === 2) return "every_15_days";
+  if (rule.frequency_type === "biweekly" || rule.frequency_interval === 2) return "biweekly";
+  if (rule.frequency_type === "every_15_days" || rule.frequency_interval === 15) return "every_15_days";
   return "weekly";
 }
 
@@ -47,8 +49,19 @@ export function commercialRuleMatchesDate(rule: CommercialScheduleRuleRow, dateK
   if (!anchor) return true;
   const days = Math.floor((date.getTime() - anchor.getTime()) / 86400000);
   if (days < 0) return false;
+  if (frequency === "biweekly") {
+    const diffWeeks = Math.floor(days / 7);
+    return diffWeeks % 2 === 0;
+  }
   if (frequency === "every_15_days") return days % 15 === 0;
   if (frequency === "monthly") return date.getDate() === anchor.getDate() || date.getDay() === Number(rule.day_of_week);
+  
+  // Handle other potential interval frequencies (e.g. custom rule with interval > 1)
+  const interval = Number(rule.frequency_interval);
+  if (Number.isFinite(interval) && interval > 1) {
+    const diffWeeks = Math.floor(days / 7);
+    return diffWeeks % interval === 0;
+  }
   return true;
 }
 
@@ -61,11 +74,13 @@ export function commercialScheduleSummary(rules: CommercialScheduleRuleRow[]) {
 }
 
 function storedEntryKey(entry: Pick<CommercialHoursEntryRow, "account_id" | "account_name" | "team_name" | "work_date">) {
-  return `${entry.account_id ?? entry.account_name}:${entry.team_name ?? ""}:${entry.work_date}`;
+  const accKey = entry.account_id || String(entry.account_name ?? "").trim().toLowerCase();
+  return `${accKey}:${entry.team_name ?? ""}:${entry.work_date}`;
 }
 
-function generatedEntryKey(accountId: string, cleanerName: string | null | undefined, workDate: string) {
-  return `${accountId}:${cleanerName ?? ""}:${workDate}`;
+function generatedEntryKey(accountId: string, cleanerName: string | null | undefined, workDate: string, accountName?: string) {
+  const accKey = accountId || String(accountName ?? "").trim().toLowerCase();
+  return `${accKey}:${cleanerName ?? ""}:${workDate}`;
 }
 
 export function buildCommercialOccurrences(input: {
@@ -81,7 +96,41 @@ export function buildCommercialOccurrences(input: {
   const stored = input.storedEntries.filter((entry) =>
     isDateWithinPeriod(entry.work_date, input.period.start, cutoff) && !isJuanRomero(entry.team_name),
   );
-  const storedKeys = new Set(stored.map(storedEntryKey));
+
+  const syncedStored: CommercialHoursEntryRow[] = [];
+  for (const entry of stored) {
+    const isModifiable = entry.manual_entry === false && entry.status !== "paid" && entry.status !== "approved" && !entry.verified;
+    if (isModifiable) {
+      const date = parseDateOnly(entry.work_date);
+      const dayOfWeek = date ? date.getDay() : -1;
+      const rule = input.scheduleRules.find(
+        (r) => r.commercial_account_id === entry.account_id && r.active !== false && Number(r.day_of_week) === dayOfWeek
+      );
+      if (!rule) {
+        // Schedule rule has been removed/deactivated, discard this entry
+        continue;
+      }
+
+      // Sync cleaner and hours with the active schedule rule
+      const account = input.accounts.find((a) => a.id === entry.account_id);
+      const ruleCleaner = rule.assigned_cleaner_name ?? account?.cleaner_name ?? null;
+      const ruleHours = toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours);
+
+      const updatedEntry = {
+        ...entry,
+        team_name: ruleCleaner,
+        scheduled_hours: ruleHours,
+      };
+      if (toNumber(entry.completed_hours) === 0 || entry.completed_hours === entry.scheduled_hours) {
+        updatedEntry.completed_hours = ruleHours;
+      }
+      syncedStored.push(updatedEntry);
+    } else {
+      syncedStored.push(entry);
+    }
+  }
+
+  const storedKeys = new Set(syncedStored.map(storedEntryKey));
   const generated: CommercialHoursEntryRow[] = [];
   const dates = eachDateInRange(input.period.start, cutoff);
 
@@ -102,7 +151,7 @@ export function buildCommercialOccurrences(input: {
         if (!commercialRuleMatchesDate(rule, key)) continue;
 
         const cleanerName = rule.assigned_cleaner_name ?? account.cleaner_name;
-        if (storedKeys.has(generatedEntryKey(account.id, cleanerName, key))) continue;
+        if (storedKeys.has(generatedEntryKey(account.id, cleanerName, key, account.name))) continue;
 
         const scheduledHours = toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours);
         generated.push({
@@ -125,7 +174,7 @@ export function buildCommercialOccurrences(input: {
     }
   }
 
-  return [...stored, ...generated].sort((a, b) => `${a.work_date}${a.account_name}`.localeCompare(`${b.work_date}${b.account_name}`));
+  return [...syncedStored, ...generated].sort((a, b) => `${a.work_date}${a.account_name}`.localeCompare(`${b.work_date}${b.account_name}`));
 }
 
 export function getPayableCommercialHours(entry: Pick<CommercialHoursEntryRow, "status" | "verified" | "verified_hours" | "completed_hours" | "scheduled_hours">) {

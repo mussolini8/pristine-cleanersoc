@@ -2092,6 +2092,12 @@ export function SimpleOperationsClient({
     const now = new Date().toISOString();
     setSavingPaymentKey("commercial-schedule");
     try {
+      const { error: deactivateError } = await supabase
+        .from("commercial_account_schedule_rules")
+        .update({ active: false, updated_at: now })
+        .eq("commercial_account_id", account.id);
+      if (deactivateError) throw new Error(deactivateError.message);
+
       const rows = dayPayloads.map((item) => ({
         user_id: userId,
         commercial_account_id: account.id,
