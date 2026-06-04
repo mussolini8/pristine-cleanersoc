@@ -2177,7 +2177,7 @@ export function SimpleOperationsClient({
         effective_from: commercialScheduleDraft.effectiveFrom,
         effective_until: commercialScheduleDraft.effectiveUntil || null,
         frequency_type: commercialScheduleDraft.frequency,
-        frequency_interval: commercialScheduleDraft.frequency === "every_15_days" ? 15 : 1,
+        frequency_interval: commercialScheduleDraft.frequency === "every_15_days" ? 15 : commercialScheduleDraft.frequency === "every_3_weeks" ? 3 : 1,
         anchor_date: commercialScheduleDraft.effectiveFrom,
         notes: commercialScheduleDraft.notes.trim() || null,
         created_at: now,
@@ -3754,6 +3754,7 @@ export function SimpleOperationsClient({
                 <label className={PAYMENT_LABEL_CLASS}>Frequency<select className={PAYMENT_FIELD_CLASS} value={commercialScheduleDraft.frequency} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, frequency: event.target.value as CommercialScheduleDraft["frequency"] })}>
                   <option value="weekly">Weekly</option>
                   <option value="every_15_days">Every 15 days</option>
+                  <option value="every_3_weeks">Every 3 weeks</option>
                   <option value="monthly">Monthly</option>
                   <option value="custom">Custom</option>
                 </select></label>

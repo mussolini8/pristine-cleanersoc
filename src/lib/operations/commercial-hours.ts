@@ -29,6 +29,7 @@ function isJuanRomero(value: string | null | undefined) {
 export function commercialFrequencyLabel(value: string | null | undefined) {
   if (value === "biweekly" || value === "every_2_weeks") return "Every 2 weeks";
   if (value === "every_15_days") return "Every 15 days";
+  if (value === "every_3_weeks") return "Every 3 weeks";
   if (value === "monthly") return "Monthly";
   if (value === "custom") return "Custom";
   return "Weekly";
@@ -38,6 +39,7 @@ export function commercialRuleFrequency(rule: Pick<CommercialScheduleRuleRow, "f
   if (rule.frequency_type === "monthly" || rule.frequency_type === "custom") return rule.frequency_type;
   if (rule.frequency_type === "biweekly" || rule.frequency_interval === 2) return "biweekly";
   if (rule.frequency_type === "every_15_days" || rule.frequency_interval === 15) return "every_15_days";
+  if (rule.frequency_type === "every_3_weeks" || rule.frequency_interval === 3) return "every_3_weeks";
   return "weekly";
 }
 
@@ -54,6 +56,10 @@ export function commercialRuleMatchesDate(rule: CommercialScheduleRuleRow, dateK
     return diffWeeks % 2 === 0;
   }
   if (frequency === "every_15_days") return days % 15 === 0;
+  if (frequency === "every_3_weeks") {
+    const diffWeeks = Math.floor(days / 7);
+    return diffWeeks % 3 === 0;
+  }
   if (frequency === "monthly") return date.getDate() === anchor.getDate() || date.getDay() === Number(rule.day_of_week);
   
   // Handle other potential interval frequencies (e.g. custom rule with interval > 1)
