@@ -1119,18 +1119,29 @@ export default function CommercialPage() {
           font-size:.78rem; font-weight:700; cursor:pointer; transition: transform 0.2s; }
         .add-account-btn:hover { transform:translateY(-1px); }
 
+        .account-studio-wrapper {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          background: rgba(15, 23, 42, 0.45);
+          backdrop-filter: blur(4px);
+          display: grid;
+          place-items: center;
+          padding: 20px;
+        }
         .account-studio { border:1px solid hsl(var(--border)); background:hsl(var(--card));
-          border-radius:8px; overflow:hidden; box-shadow:0 20px 60px -42px hsl(222 47% 11%); }
+          border-radius:12px; overflow:hidden; box-shadow:0 20px 60px -15px rgba(0,0,0,0.3);
+          width:100%; max-width:1024px; max-height:90vh; display:flex; flex-direction:column; }
         .studio-hero { display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
           padding:18px 20px; border-bottom:1px solid hsl(var(--border));
-          background:linear-gradient(135deg, hsl(var(--primary)/.12), hsl(215 90% 58%/.08)); }
+          background:linear-gradient(135deg, hsl(var(--primary)/.12), hsl(215 90% 58%/.08)); flex-shrink:0; }
         .studio-kicker { display:inline-flex; align-items:center; gap:6px; color:hsl(var(--primary));
           font-size:.72rem; font-weight:900; text-transform:uppercase; letter-spacing:.11em; }
         .studio-title { margin-top:6px; font-size:1.2rem; font-weight:900; color:hsl(var(--foreground)); }
         .studio-copy { margin-top:3px; max-width:620px; font-size:.82rem; font-weight:500; color:hsl(var(--muted-foreground)); }
         .studio-close { display:grid; place-items:center; width:32px; height:32px; border-radius:8px;
           border:1px solid hsl(var(--border)); background:hsl(var(--background)); color:hsl(var(--muted-foreground)); cursor:pointer; }
-        .studio-grid { display:grid; grid-template-columns:minmax(0, 1fr) 280px; gap:0; }
+        .studio-grid { display:grid; grid-template-columns:minmax(0, 1fr) 280px; gap:0; overflow-y:auto; flex:1; }
         @media (max-width:940px) { .studio-grid { grid-template-columns:1fr; } }
         .studio-fields { padding:20px; display:flex; flex-direction:column; gap:14px; }
         .studio-section-title { display:flex; align-items:center; gap:7px; font-size:.75rem; font-weight:900;
@@ -1339,17 +1350,26 @@ export default function CommercialPage() {
         </div>
 
         {showAccountStudio ? (
-          <AccountStudio
-            mode={accountFormMode}
-            editingAccount={editingAccount}
-            draft={newAccount}
-            error={formError}
-            notice={formNotice}
-            saving={savingNew}
-            onChange={setNewAccount}
-            onClose={closeAccountStudio}
-            onSubmit={handleAccountSubmit}
-          />
+          <div
+            className="account-studio-wrapper"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                closeAccountStudio();
+              }
+            }}
+          >
+            <AccountStudio
+              mode={accountFormMode}
+              editingAccount={editingAccount}
+              draft={newAccount}
+              error={formError}
+              notice={formNotice}
+              saving={savingNew}
+              onChange={setNewAccount}
+              onClose={closeAccountStudio}
+              onSubmit={handleAccountSubmit}
+            />
+          </div>
         ) : null}
 
         <div className="stat-bar">
