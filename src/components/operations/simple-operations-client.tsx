@@ -2685,8 +2685,8 @@ export function SimpleOperationsClient({
                 <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status)}</Badge>
                 <div className="flex gap-1">
                   <Button className="h-10 rounded-xl px-2.5 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-[18px]" /> Mark completed</Button>
-                  <Button className="size-10" size="icon" variant="outline" aria-label="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-[18px]" /></Button>
-                  <Button className="size-10 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-[18px]" /></Button>
+                  <Button className="size-10" size="icon" variant="outline" aria-label="Edit task" title="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-[18px]" /></Button>
+                  <Button className="size-10 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete task" title="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-[18px]" /></Button>
                 </div>
               </div>
             );
@@ -2904,9 +2904,9 @@ export function SimpleOperationsClient({
                       <td><Badge className={statusBadgeClass(account.active === false ? "inactive" : "active")} variant="outline">{statusLabel(account.active === false ? "inactive" : "active")}</Badge></td>
                       <td className="pr-4">
                         <div className="flex justify-end gap-2">
-                          <Button size="icon" variant="outline" aria-label="Edit account" onClick={() => openAccountDraft(account)}><Edit3 className="size-[18px]" /></Button>
-                          <Button size="icon" variant="outline" aria-label="Toggle account active" onClick={() => toggleAccount(account)}>{account.active === false ? <CheckCircle2 className="size-[18px]" /> : <PauseCircle className="size-[18px]" />}</Button>
-                          <Button size="icon" variant="outline" aria-label="Delete account" onClick={() => deleteAccount(account)}><Trash2 className="size-[18px]" /></Button>
+                          <Button size="icon" variant="outline" aria-label="Edit account" title="Edit account" onClick={() => openAccountDraft(account)}><Edit3 className="size-[18px]" /></Button>
+                          <Button size="icon" variant="outline" aria-label="Toggle account active" title={account.active === false ? "Activate account" : "Pause account"} onClick={() => toggleAccount(account)}>{account.active === false ? <CheckCircle2 className="size-[18px]" /> : <PauseCircle className="size-[18px]" />}</Button>
+                          <Button size="icon" variant="outline" aria-label="Delete account" title="Delete account" onClick={() => deleteAccount(account)}><Trash2 className="size-[18px]" /></Button>
                         </div>
                       </td>
                     </tr>
@@ -4050,9 +4050,9 @@ export function SimpleOperationsClient({
                         </td>
                         <td className="border-b border-border/60 px-4 py-3">
                           <div className="flex justify-end gap-1.5">
-                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-3.5" /></Button>
-                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Mark verified" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-3.5" /></Button>
-                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-3.5" /></Button>
+                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Edit commercial hours" title="Edit commercial hours" onClick={() => editCommercialHours(entry)}><Pencil className="size-3.5" /></Button>
+                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Mark verified" title="Verify hours" onClick={() => updateCommercialHoursStatus(entry, "verified")}><BadgeCheck className="size-3.5" /></Button>
+                            <Button className="w-8 h-8 rounded-lg border border-border p-0 text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center" size="icon" variant="outline" aria-label="Mark paid" title="Mark paid" onClick={() => updateCommercialHoursStatus(entry, "paid")}><CheckCircle2 className="size-3.5" /></Button>
                           </div>
                         </td>
                       </tr>
