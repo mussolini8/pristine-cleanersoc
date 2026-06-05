@@ -528,18 +528,22 @@ function AppMetricCard({
 }) {
   return (
     <Card className={cn(
-      "rounded-2xl border-border/70 shadow-[0_18px_54px_-48px_hsl(215_40%_20%)]",
-      tone === "warn" ? "border-amber-200 bg-amber-50/55 dark:border-amber-900 dark:bg-amber-950/15" : "",
-      tone === "good" ? "border-emerald-200 bg-emerald-50/45 dark:border-emerald-900 dark:bg-emerald-950/15" : "",
+      "rounded-2xl border-border/60 shadow-[0_1px_3px_hsl(215_30%_15%/.04),_0_6px_24px_-10px_hsl(215_30%_15%/.08)] transition-shadow duration-200 hover:shadow-[0_4px_20px_-6px_hsl(215_30%_15%/.12)]",
+      tone === "warn" ? "border-amber-200/70 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/15" : "",
+      tone === "good" ? "border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/15" : "",
     )}>
-      <CardContent className="flex h-[118px] items-center justify-between gap-4 px-5 py-4">
+      <CardContent className="flex h-[108px] items-center justify-between gap-4 px-6 py-4">
         <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <p className="text-sm font-medium leading-tight text-muted-foreground">{label}</p>
-          <p className="mt-3 text-[2rem] font-semibold leading-none tracking-normal text-foreground">{value}</p>
-          {note ? <p className="mt-2 line-clamp-2 text-sm font-medium leading-snug text-muted-foreground">{note}</p> : null}
+          <p className="text-[0.68rem] font-700 uppercase tracking-[0.07em] leading-none text-muted-foreground">{label}</p>
+          <p className="mt-2.5 text-[1.9rem] font-700 leading-none tracking-tight text-foreground" style={{ letterSpacing: "-0.025em", fontWeight: 700 }}>{value}</p>
+          {note ? <p className="mt-1.5 line-clamp-2 text-[0.7rem] font-500 leading-snug text-muted-foreground">{note}</p> : null}
         </div>
-        <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-border/70 bg-background/80 text-primary">
-          <Icon className="size-5" />
+        <div className={cn(
+          "grid size-9 shrink-0 place-items-center rounded-xl border bg-card text-primary transition-colors",
+          tone === "warn" ? "border-amber-200 text-amber-700 dark:border-amber-900" : "border-border/60",
+          tone === "good" ? "border-emerald-200 text-emerald-700 dark:border-emerald-900" : "",
+        )}>
+          <Icon className="size-[18px]" />
         </div>
       </CardContent>
     </Card>
@@ -562,14 +566,14 @@ function AppPageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <section className="py-1">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <section className="py-0.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="mt-2 text-4xl font-semibold leading-tight tracking-normal text-foreground sm:text-[2.45rem] flex items-center gap-3">
-            <Icon className="size-8 text-primary shrink-0" />
+          <h1 className="mt-1 text-[2rem] font-semibold leading-tight tracking-[-0.02em] text-foreground flex items-center gap-2.5">
+            <Icon className="size-6 text-primary shrink-0" />
             <span>{title}</span>
           </h1>
-          <p className="mt-2 max-w-3xl text-base font-medium text-muted-foreground">{subtitle}</p>
+          <p className="mt-1 max-w-3xl text-[0.82rem] font-medium text-muted-foreground leading-relaxed">{subtitle}</p>
         </div>
         {actions ? <div className="flex flex-wrap gap-2 sm:justify-end">{actions}</div> : null}
       </div>
