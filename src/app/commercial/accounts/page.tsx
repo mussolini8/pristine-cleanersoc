@@ -473,36 +473,64 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
       return;
     }
 
-    const payload = rules.flatMap((rule) => {
-      const selectedDays = rule.selected_days?.length ? rule.selected_days : [Number(rule.day_of_week)];
-      return selectedDays.map((day, dayIndex) => ({
-        ...(rule.id && dayIndex === 0 ? { id: rule.id } : {}),
-        commercial_account_id: account.id,
-        day_of_week: day,
-        paid_hours: numberOrNull(rule.paid_hours) ?? 0,
-        start_time: dateOrNull(rule.start_time ?? null),
-        end_time: dateOrNull(rule.end_time ?? null),
-        assigned_cleaner_name: textOrNull(rule.assigned_cleaner_name ?? null),
-        frequency_type: rule.frequency_type ?? "weekly",
-        frequency_interval: numberOrNull(rule.frequency_interval) ?? (rule.frequency_type === "biweekly" ? 2 : 1),
-        anchor_date: dateOrNull(rule.anchor_date ?? null),
-        effective_start_date: dateOrNull(rule.effective_start_date ?? null),
-        effective_end_date: dateOrNull(rule.effective_end_date ?? null),
-        active: rule.active !== false,
-        notes: textOrNull(rule.notes ?? null),
-        updated_at: new Date().toISOString(),
-      }));
+    const baseFields = (day: number, rule: ScheduleRule) => ({
+      commercial_account_id: account.id,
+      day_of_week: day,
+      paid_hours: numberOrNull(rule.paid_hours) ?? 0,
+      start_time: dateOrNull(rule.start_time ?? null),
+      end_time: dateOrNull(rule.end_time ?? null),
+      assigned_cleaner_name: textOrNull(rule.assigned_cleaner_name ?? null),
+      frequency_type: rule.frequency_type ?? "weekly",
+      frequency_interval: numberOrNull(rule.frequency_interval) ?? (rule.frequency_type === "biweekly" ? 2 : 1),
+      anchor_date: dateOrNull(rule.anchor_date ?? null),
+      effective_start_date: dateOrNull(rule.effective_start_date ?? null),
+      effective_end_date: dateOrNull(rule.effective_end_date ?? null),
+      active: rule.active !== false,
+      notes: textOrNull(rule.notes ?? null),
+      updated_at: new Date().toISOString(),
     });
+
+    const newRows: ReturnType<typeof baseFields>[] = [];
+    const existingRows: (ReturnType<typeof baseFields> & { id: string })[] = [];
+
+    for (const rule of rules) {
+      const selectedDays = rule.selected_days?.length ? rule.selected_days : [Number(rule.day_of_week)];
+      selectedDays.forEach((day, dayIndex) => {
+        const fields = baseFields(day, rule);
+        if (rule.id && dayIndex === 0) {
+          existingRows.push({ id: rule.id, ...fields });
+        } else {
+          newRows.push(fields);
+        }
+      });
+    }
 
     await supabase
       .from("commercial_account_schedule_rules")
       .update({ active: false, updated_at: new Date().toISOString() })
       .eq("commercial_account_id", account.id);
 
-    const { data, error } = await supabase
+    let error: { message: string } | null = null;
+
+    if (existingRows.length > 0) {
+      const { error: upsertError } = await supabase
+        .from("commercial_account_schedule_rules")
+        .upsert(existingRows, { onConflict: "id" });
+      if (upsertError) error = upsertError;
+    }
+
+    if (!error && newRows.length > 0) {
+      const { error: insertError } = await supabase
+        .from("commercial_account_schedule_rules")
+        .insert(newRows);
+      if (insertError) error = insertError;
+    }
+
+    const { data } = await supabase
       .from("commercial_account_schedule_rules")
-      .upsert(payload, { onConflict: "id" })
       .select("*")
+      .eq("commercial_account_id", account.id)
+      .eq("active", true)
       .order("day_of_week");
 
     setSavingRules(false);
