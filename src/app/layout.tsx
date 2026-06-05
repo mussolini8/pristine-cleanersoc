@@ -16,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html data-scroll-behavior="smooth" lang="en" suppressHydrationWarning>
+    <html data-scroll-behavior="smooth" lang="en-US" suppressHydrationWarning>
       <body>
         <ThemeProvider>{children}</ThemeProvider>
       </body>
