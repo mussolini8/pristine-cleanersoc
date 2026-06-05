@@ -680,6 +680,8 @@ export function SimpleOperationsClient({
   const [paymentRowDrafts, setPaymentRowDrafts] = useState<Record<string, PaymentRowDraft>>({});
   const [expandedCleaners, setExpandedCleaners] = useState<Record<string, boolean>>({});
   const [activeDropdownRowId, setActiveDropdownRowId] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number; row: any; summary: any; mixed: boolean; isCleaner: boolean } | null>(null);
   const [isExtraHours, setIsExtraHours] = useState(false);
   const [extraHoursValue, setExtraHoursValue] = useState("");
   const [commercialHoursDraft, setCommercialHoursDraft] = useState<CommercialHoursDraft>(EMPTY_COMMERCIAL_HOURS_DRAFT);
@@ -2435,6 +2437,60 @@ export function SimpleOperationsClient({
       {selectedTask ? renderTaskDetail() : null}
       {accountDraft ? renderAccountModal() : null}
       {staffDraft ? renderStaffModal() : null}
+      {dropdownPos && activeDropdownRowId && (
+        <>
+          <div
+            className="fixed inset-0 z-40 cursor-default"
+            onClick={() => { setActiveDropdownRowId(null); setDropdownPos(null); }}
+          />
+          <div
+            className="fixed z-50 min-w-[140px] rounded-xl border border-border bg-popover p-1.5 shadow-xl animate-in fade-in-50 slide-in-from-top-1 text-left"
+            style={{ top: dropdownPos.top, right: dropdownPos.right }}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-foreground hover:bg-accent transition-colors"
+              onClick={() => {
+                const { row, summary, mixed } = dropdownPos;
+                setActiveDropdownRowId(null);
+                setDropdownPos(null);
+                if (summary) openPaymentModal(summary, mixed ? "juan" : "residential", row);
+              }}
+            >
+              <Pencil className="size-3.5 text-muted-foreground/80" /> Edit
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-950/20 transition-colors"
+              onClick={() => { setActiveDropdownRowId(null); setDropdownPos(null); updatePaymentRowStatus(dropdownPos.row, "pending"); }}
+            >
+              <Clock className="size-3.5 text-orange-500/80" /> Pending
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/20 transition-colors"
+              onClick={() => { setActiveDropdownRowId(null); setDropdownPos(null); updatePaymentRowStatus(dropdownPos.row, "verified"); }}
+            >
+              <BadgeCheck className="size-3.5 text-sky-500/80" /> Verify
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/20 transition-colors"
+              onClick={() => { setActiveDropdownRowId(null); setDropdownPos(null); updatePaymentRowStatus(dropdownPos.row, "paid"); }}
+            >
+              <CheckCircle2 className="size-3.5 text-emerald-500/80" /> Paid
+            </button>
+            <div className="my-1 border-t border-border/50" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/20 transition-colors"
+              onClick={() => { setActiveDropdownRowId(null); setDropdownPos(null); deletePaymentRow(dropdownPos.row); }}
+            >
+              <Trash2 className="size-3.5 text-rose-500/80" /> Delete
+            </button>
+          </div>
+        </>
+      )}
     </DashboardShell>
   );
 
@@ -3251,7 +3307,7 @@ export function SimpleOperationsClient({
                         <td className="max-w-[200px] truncate text-xs text-muted-foreground font-medium" title={row.notes || ""}>
                           {row.notes || <span className="text-muted-foreground/30">—</span>}
                         </td>
-                        <td className="relative pr-4">
+                        <td className="pr-4">
                           <div className="flex items-center justify-end">
                             <button
                               type="button"
@@ -3263,93 +3319,19 @@ export function SimpleOperationsClient({
                               aria-label="Row actions"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setActiveDropdownRowId(activeDropdownRowId === row.id ? null : row.id);
+                                if (activeDropdownRowId === row.id) {
+                                  setActiveDropdownRowId(null);
+                                  setDropdownPos(null);
+                                } else {
+                                  const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                                  setDropdownPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right, row, summary: summary || weeklyPaymentSummaries.find((s) => isCarlosLopez(s.teamName) === carlos) || null, mixed: false, isCleaner: false });
+                                  setActiveDropdownRowId(row.id);
+                                }
                               }}
                             >
                               <MoreVertical className="size-4" />
                             </button>
                           </div>
-                          {activeDropdownRowId === row.id && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40 cursor-default"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveDropdownRowId(null);
-                                }}
-                              />
-                              <div className="absolute right-4 top-9 z-50 min-w-[130px] rounded-xl border border-border bg-popover p-1.5 shadow-xl animate-in fade-in-50 slide-in-from-top-1 text-left">
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-foreground hover:bg-accent transition-colors"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveDropdownRowId(null);
-                                    const targetSummary = summary || weeklyPaymentSummaries.find((s) => isCarlosLopez(s.teamName) === carlos);
-                                    if (targetSummary) {
-                                      openPaymentModal(targetSummary, mixed ? "juan" : "residential", row);
-                                    }
-                                  }}
-                                >
-                                  <Pencil className="size-3.5 text-muted-foreground/80" />
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-950/20 transition-colors"
-                                  disabled={savingPaymentKey === row.id}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveDropdownRowId(null);
-                                    updatePaymentRowStatus(row, "pending");
-                                  }}
-                                >
-                                  <Clock className="size-3.5 text-orange-500/80" />
-                                  Pending
-                                </button>
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/20 transition-colors"
-                                  disabled={savingPaymentKey === row.id}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveDropdownRowId(null);
-                                    updatePaymentRowStatus(row, "verified");
-                                  }}
-                                >
-                                  <BadgeCheck className="size-3.5 text-sky-500/80" />
-                                  Verify
-                                </button>
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/20 transition-colors"
-                                  disabled={savingPaymentKey === row.id}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveDropdownRowId(null);
-                                    updatePaymentRowStatus(row, "paid");
-                                  }}
-                                >
-                                  <CheckCircle2 className="size-3.5 text-emerald-500/80" />
-                                  Paid
-                                </button>
-                                <div className="my-1 border-t border-border/50" />
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/20 transition-colors"
-                                  disabled={deletingPaymentRowId === row.id}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveDropdownRowId(null);
-                                    deletePaymentRow(row);
-                                  }}
-                                >
-                                  <Trash2 className="size-3.5 text-rose-500/80" />
-                                  Delete
-                                </button>
-                              </div>
-                            </>
-                          )}
                         </td>
                       </tr>
                     );
@@ -3505,7 +3487,7 @@ export function SimpleOperationsClient({
                         {toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : <span className="text-muted-foreground/40">—</span>}
                       </td>
                     ) : null}
-                    <td className="relative border-b border-border/50 px-1.5 py-2 text-right">
+                    <td className="border-b border-border/50 px-1.5 py-2 text-right">
                       <div className="flex items-center justify-end">
                         <button
                           type="button"
@@ -3517,94 +3499,19 @@ export function SimpleOperationsClient({
                           aria-label="Row actions"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setActiveDropdownRowId(activeDropdownRowId === row.id ? null : row.id);
+                            if (activeDropdownRowId === row.id) {
+                              setActiveDropdownRowId(null);
+                              setDropdownPos(null);
+                            } else {
+                              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                              setDropdownPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right, row, summary, mixed: !!mixed, isCleaner: true });
+                              setActiveDropdownRowId(row.id);
+                            }
                           }}
                         >
                           <MoreVertical className="size-4" />
                         </button>
                       </div>
-                      {activeDropdownRowId === row.id && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40 cursor-default"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveDropdownRowId(null);
-                            }}
-                          />
-                          <div className="absolute right-2 top-9 z-50 min-w-[130px] rounded-xl border border-border bg-popover p-1.5 shadow-xl animate-in fade-in-50 slide-in-from-top-1 text-left">
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-foreground hover:bg-accent transition-colors"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveDropdownRowId(null);
-                                if (mixed) {
-                                  openPaymentModal(summary, "juan", row);
-                                } else {
-                                  openPaymentModal(summary, "residential", row);
-                                }
-                              }}
-                            >
-                              <Pencil className="size-3.5 text-muted-foreground/80" />
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-950/20 transition-colors"
-                              disabled={savingPaymentKey === row.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveDropdownRowId(null);
-                                updatePaymentRowStatus(row, "pending");
-                              }}
-                            >
-                              <Clock className="size-3.5 text-orange-500/80" />
-                              Pending
-                            </button>
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/20 transition-colors"
-                              disabled={savingPaymentKey === row.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveDropdownRowId(null);
-                                updatePaymentRowStatus(row, "verified");
-                              }}
-                            >
-                              <BadgeCheck className="size-3.5 text-sky-500/80" />
-                              Verify
-                            </button>
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/20 transition-colors"
-                              disabled={savingPaymentKey === row.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveDropdownRowId(null);
-                                updatePaymentRowStatus(row, "paid");
-                              }}
-                            >
-                              <CheckCircle2 className="size-3.5 text-emerald-500/80" />
-                              Paid
-                            </button>
-                            <div className="my-1 border-t border-border/50" />
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/20 transition-colors"
-                              disabled={deletingPaymentRowId === row.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveDropdownRowId(null);
-                                deletePaymentRow(row);
-                              }}
-                            >
-                              <Trash2 className="size-3.5 text-rose-500/80" />
-                              Delete
-                            </button>
-                          </div>
-                        </>
-                      )}
                     </td>
                   </tr>
                 ))}
