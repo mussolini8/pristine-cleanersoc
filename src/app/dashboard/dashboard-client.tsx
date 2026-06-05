@@ -7,7 +7,7 @@ import { getResidentialServices } from "@/data/service-types";
 import {
   Plus, X, Edit2, Check, AlertTriangle, Clock, CheckCircle2,
   Circle, ArrowRight, Bell, Repeat2, GripVertical, CalendarDays, Filter,
-  ChevronDown, CalendarRange, RotateCcw,
+  ChevronDown, CalendarRange, RotateCcw, Zap, ListChecks, ClipboardList,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -1525,9 +1525,47 @@ export default function DashboardPage() {
         .dash-sub { font-size:0.88rem; color:hsl(var(--muted-foreground)); margin-top:6px; font-weight:500; }
 
         /* ── KPI bar ── */
-        .kpi-bar { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; }
-        .kpi { min-width:0; padding:15px 16px; border-radius:8px;
-          background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.82); box-shadow:0 16px 44px -42px hsl(215 40% 20%); }
+        .kpi-bar { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:12px; }
+        .kpi {
+          position:relative; min-width:0; padding:18px 20px 16px;
+          border-radius:14px; overflow:hidden;
+          background:hsl(var(--card)/.98);
+          border:1px solid hsl(var(--border)/.7);
+          box-shadow:0 4px 24px -8px hsl(215 40% 20%/.08), 0 1px 3px hsl(215 40% 20%/.06);
+          transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+          cursor:default;
+        }
+        .kpi:hover {
+          transform:translateY(-2px);
+          box-shadow:0 12px 36px -10px hsl(215 40% 20%/.14), 0 4px 8px hsl(215 40% 20%/.06);
+          border-color:hsl(var(--border));
+        }
+        .kpi-glow {
+          position:absolute; inset:0; opacity:.06;
+          pointer-events:none;
+        }
+        .kpi-icon-wrap {
+          width:38px; height:38px; border-radius:10px;
+          display:flex; align-items:center; justify-content:center;
+          margin-bottom:14px; flex-shrink:0;
+          transition:transform .2s ease;
+        }
+        .kpi:hover .kpi-icon-wrap { transform:scale(1.08); }
+        .kpi-content { display:flex; flex-direction:column; gap:2px; }
+        .kpi-label {
+          font-size:0.67rem; font-weight:700; text-transform:uppercase;
+          letter-spacing:.07em; color:hsl(var(--muted-foreground));
+          line-height:1;
+        }
+        .kpi-val {
+          font-size:1.9rem; font-weight:800; line-height:1.1;
+          color:hsl(var(--foreground)); letter-spacing:-.02em;
+          margin-top:2px;
+        }
+        .kpi-sub {
+          font-size:0.7rem; font-weight:600; margin-top:4px;
+          color:hsl(var(--muted-foreground)); line-height:1.2;
+        }
         .service-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:12px; }
         @media (max-width:960px) { .service-grid { grid-template-columns:1fr; } }
         .service-card { padding:14px 16px; border-radius:12px; background:hsl(var(--card)/.95); border:1px solid hsl(var(--border)/.82); box-shadow:0 18px 50px -46px hsl(215 40% 20%); }
@@ -1605,12 +1643,9 @@ export default function DashboardPage() {
           .schedule-section.two-col { grid-template-columns:1fr; }
         }
         @media (max-width:520px) { .schedule-date-grid { grid-template-columns:1fr; } }
-        .kpi.urgent { box-shadow:inset 3px 0 0 #ef4444, 0 16px 44px -42px hsl(215 40% 20%); }
-        .kpi.today  { box-shadow:inset 3px 0 0 #f97316, 0 16px 44px -42px hsl(215 40% 20%); }
-        .kpi.done   { box-shadow:inset 3px 0 0 hsl(var(--primary)), 0 16px 44px -42px hsl(215 40% 20%); }
-        .kpi-label { font-size:0.68rem; font-weight:700; text-transform:uppercase;
-          letter-spacing:.06em; color:hsl(var(--muted-foreground)); }
-        .kpi-val { font-size:1.65rem; font-weight:800; margin-top:4px; color:hsl(var(--foreground)); }
+        @media (max-width:1080px) { .kpi-bar { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
+        @media (max-width:760px) { .kpi-bar { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+        @media (max-width:480px) { .kpi-bar { grid-template-columns:1fr; } }
 
         /* ── Filter bar ── */
         .filter-bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; border:1px solid hsl(var(--border)/.82); border-radius:8px; background:hsl(var(--card)/.72); padding:7px; }
@@ -1638,8 +1673,7 @@ export default function DashboardPage() {
         .calendar-more { font-size: 0.65rem; color: hsl(var(--primary)); font-weight: 700; cursor: pointer; text-align: center; margin-top: 4px; }
         
         @media (max-width:800px) { .board { grid-template-columns:1fr; } .calendar-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        @media (max-width:1080px) { .kpi-bar { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
-        @media (max-width:640px) { .kpi-bar { grid-template-columns:1fr; } .calendar-grid { grid-template-columns: 1fr; } }
+        @media (max-width:640px) { .calendar-grid { grid-template-columns: 1fr; } }
 
         .column { background:hsl(var(--card)/.68); border:1px solid hsl(var(--border)/.72); border-radius:8px; padding:12px; min-height:360px; transition:border-color .16s ease, background .16s ease, box-shadow .16s ease; box-shadow:0 18px 55px -50px hsl(215 40% 20%); }
         .column.drop-active { border-color:hsl(var(--primary)/.45); background:hsl(var(--primary)/.06); box-shadow:inset 0 0 0 1px hsl(var(--primary)/.16); }
@@ -1756,25 +1790,69 @@ export default function DashboardPage() {
 
         {/* KPI */}
         <div className="kpi-bar">
-          <div className="kpi urgent">
-            <div className="kpi-label">Urgent</div>
-            <div className="kpi-val">{urgentCount}</div>
-          </div>
-          <div className="kpi today">
-            <div className="kpi-label">Due Today</div>
-            <div className="kpi-val">{todayCount}</div>
-          </div>
+          {/* Urgent */}
           <div className="kpi">
-            <div className="kpi-label">Active Operations</div>
-            <div className="kpi-val">{tasks.length}</div>
+            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, #ef4444, transparent 70%)" }} />
+            <div className="kpi-icon-wrap" style={{ background: "hsl(0 84% 60%/.12)", color: "#ef4444" }}>
+              <Zap size={18} />
+            </div>
+            <div className="kpi-content">
+              <div className="kpi-label">Urgent</div>
+              <div className="kpi-val" style={{ color: urgentCount > 0 ? "#ef4444" : undefined }}>{urgentCount}</div>
+              <div className="kpi-sub">Needs same-day attention</div>
+            </div>
           </div>
-          <div className="kpi done">
-            <div className="kpi-label">Completed</div>
-            <div className="kpi-val">{doneCount}</div>
-          </div>
+
+          {/* Due today */}
           <div className="kpi">
-            <div className="kpi-label">Monthly SOP</div>
-            <div className="kpi-val">{activeSopCount}</div>
+            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, #f97316, transparent 70%)" }} />
+            <div className="kpi-icon-wrap" style={{ background: "hsl(25 95% 55%/.12)", color: "#f97316" }}>
+              <Clock size={18} />
+            </div>
+            <div className="kpi-content">
+              <div className="kpi-label">Due Today</div>
+              <div className="kpi-val" style={{ color: todayCount > 0 ? "#f97316" : undefined }}>{todayCount}</div>
+              <div className="kpi-sub">Pending past due date</div>
+            </div>
+          </div>
+
+          {/* Active operations */}
+          <div className="kpi">
+            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, hsl(var(--primary)), transparent 70%)" }} />
+            <div className="kpi-icon-wrap" style={{ background: "hsl(var(--primary)/.12)", color: "hsl(var(--primary))" }}>
+              <ListChecks size={18} />
+            </div>
+            <div className="kpi-content">
+              <div className="kpi-label">Active Operations</div>
+              <div className="kpi-val">{tasks.length}</div>
+              <div className="kpi-sub">Open residential tasks</div>
+            </div>
+          </div>
+
+          {/* Completed */}
+          <div className="kpi">
+            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, #22c55e, transparent 70%)" }} />
+            <div className="kpi-icon-wrap" style={{ background: "hsl(142 70% 45%/.12)", color: "#16a34a" }}>
+              <CheckCircle2 size={18} />
+            </div>
+            <div className="kpi-content">
+              <div className="kpi-label">Completed</div>
+              <div className="kpi-val" style={{ color: doneCount > 0 ? "#16a34a" : undefined }}>{doneCount}</div>
+              <div className="kpi-sub">Finished this cycle</div>
+            </div>
+          </div>
+
+          {/* Monthly SOP */}
+          <div className="kpi">
+            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, #6366f1, transparent 70%)" }} />
+            <div className="kpi-icon-wrap" style={{ background: "hsl(239 84% 67%/.12)", color: "#6366f1" }}>
+              <ClipboardList size={18} />
+            </div>
+            <div className="kpi-content">
+              <div className="kpi-label">Monthly SOP</div>
+              <div className="kpi-val" style={{ color: "#6366f1" }}>{activeSopCount}</div>
+              <div className="kpi-sub">Active SOP templates</div>
+            </div>
           </div>
         </div>
 
