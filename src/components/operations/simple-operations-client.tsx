@@ -526,33 +526,141 @@ function AppMetricCard({
   note?: string;
   tone?: "neutral" | "good" | "warn";
 }) {
+  const iconBg =
+    tone === "warn"
+      ? "rgba(245,158,11,0.12)"
+      : tone === "good"
+      ? "rgba(16,185,129,0.12)"
+      : "hsl(var(--primary)/.10)";
+  const iconColor =
+    tone === "warn" ? "#d97706" : tone === "good" ? "#059669" : "hsl(var(--primary))";
+  const glowColor =
+    tone === "warn"
+      ? "rgba(245,158,11,0.18)"
+      : tone === "good"
+      ? "rgba(16,185,129,0.18)"
+      : "hsl(var(--primary)/.14)";
+  const valColor =
+    tone === "warn"
+      ? "#b45309"
+      : tone === "good"
+      ? "#047857"
+      : "hsl(var(--foreground))";
+
   return (
-    <Card className={cn(
-      "rounded-2xl border-border/60 shadow-[0_1px_3px_hsl(215_30%_15%/.04),_0_6px_24px_-10px_hsl(215_30%_15%/.08)] transition-shadow duration-200 hover:shadow-[0_4px_20px_-6px_hsl(215_30%_15%/.12)]",
-      tone === "warn" ? "border-amber-200/70 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/15" : "",
-      tone === "good" ? "border-emerald-200/70 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/15" : "",
-    )}>
-      <CardContent className="flex h-[108px] items-center justify-between gap-4 px-6 py-4">
-        <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <p className="text-[0.68rem] font-700 uppercase tracking-[0.07em] leading-none text-muted-foreground">{label}</p>
-          <p className="mt-2.5 text-[1.9rem] font-700 leading-none tracking-tight text-foreground" style={{ letterSpacing: "-0.025em", fontWeight: 700 }}>{value}</p>
-          {note ? <p className="mt-1.5 line-clamp-2 text-[0.7rem] font-500 leading-snug text-muted-foreground">{note}</p> : null}
-        </div>
-        <div className={cn(
-          "grid size-9 shrink-0 place-items-center rounded-xl border bg-card text-primary transition-colors",
-          tone === "warn" ? "border-amber-200 text-amber-700 dark:border-amber-900" : "border-border/60",
-          tone === "good" ? "border-emerald-200 text-emerald-700 dark:border-emerald-900" : "",
-        )}>
-          <Icon className="size-[18px]" />
-        </div>
-      </CardContent>
-    </Card>
+    <div
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "16px",
+        padding: "18px 22px 16px",
+        borderRadius: "16px",
+        border: "1px solid",
+        borderColor:
+          tone === "warn"
+            ? "rgba(217,119,6,0.22)"
+            : tone === "good"
+            ? "rgba(16,185,129,0.22)"
+            : "hsl(var(--border)/.7)",
+        background: "hsl(var(--card))",
+        boxShadow:
+          "0 1px 3px hsl(215 30% 15%/.04), 0 6px 24px -10px hsl(215 30% 15%/.08)",
+        overflow: "hidden",
+        transition: "transform 0.2s ease, box-shadow 0.2s ease",
+        cursor: "default",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)";
+        (e.currentTarget as HTMLElement).style.boxShadow =
+          "0 8px 32px -10px hsl(215 30% 15%/.14), 0 2px 8px hsl(215 30% 15%/.06)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLElement).style.transform = "";
+        (e.currentTarget as HTMLElement).style.boxShadow =
+          "0 1px 3px hsl(215 30% 15%/.04), 0 6px 24px -10px hsl(215 30% 15%/.08)";
+      }}
+    >
+      {/* Radial glow accent */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          width: "120px",
+          height: "120px",
+          borderRadius: "50%",
+          background: `radial-gradient(ellipse at top right, ${glowColor}, transparent 70%)`,
+          pointerEvents: "none",
+        }}
+      />
+      {/* Left: label + number + note */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.67rem",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.07em",
+            color: "hsl(var(--muted-foreground))",
+            lineHeight: 1,
+          }}
+        >
+          {label}
+        </p>
+        <p
+          style={{
+            margin: "6px 0 0",
+            fontSize: "2.1rem",
+            fontWeight: 800,
+            lineHeight: 1,
+            letterSpacing: "-0.025em",
+            color: valColor,
+          }}
+        >
+          {value}
+        </p>
+        {note ? (
+          <p
+            style={{
+              margin: "5px 0 0",
+              fontSize: "0.7rem",
+              fontWeight: 500,
+              lineHeight: 1.3,
+              color: "hsl(var(--muted-foreground))",
+            }}
+          >
+            {note}
+          </p>
+        ) : null}
+      </div>
+      {/* Right: Icon box */}
+      <div
+        style={{
+          width: "44px",
+          height: "44px",
+          borderRadius: "12px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: iconBg,
+          color: iconColor,
+          flexShrink: 0,
+        }}
+      >
+        <Icon size={20} />
+      </div>
+    </div>
   );
 }
 
 function MetricCard(props: ComponentProps<typeof AppMetricCard>) {
   return <AppMetricCard {...props} />;
 }
+
 
 function AppPageHeader({
   title,
