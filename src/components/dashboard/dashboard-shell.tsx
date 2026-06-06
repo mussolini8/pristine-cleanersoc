@@ -75,10 +75,10 @@ export function DashboardShell({
           {visibleNavItems.map((item) => (
             <Link
               className={cn(
-                "group flex min-h-10 items-center gap-3 rounded-xl py-2 text-sm font-semibold transition-all duration-150",
+                "group flex min-h-10 items-center gap-3 py-2 text-sm font-semibold transition-all duration-150",
                 (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`)))
-                  ? "bg-primary/[0.06] text-primary border-l-2 border-primary pl-2.5 pr-3 rounded-r-xl rounded-l-none font-semibold hover:bg-primary/[0.09]"
-                  : "pl-3 pr-3 text-muted-foreground hover:bg-accent/55 hover:text-accent-foreground"
+                  ? "bg-primary/5 text-primary border-l-2 border-primary pl-2.5 pr-3 rounded-r-xl rounded-l-none font-semibold hover:bg-primary/10"
+                  : "rounded-xl pl-3 pr-3 text-muted-foreground hover:bg-accent/55 hover:text-accent-foreground"
               )}
               href={item.href}
               key={item.href}
