@@ -1267,6 +1267,141 @@ function TaskModal({
   );
 }
 
+// ─── Arc Chart SVG ──────────────────────────────────────────────────
+const ARC_PALETTE = [
+  "hsl(158 38% 30%)",      // forest green (primary)
+  "hsl(38 88% 52%)",       // amber
+  "hsl(210 72% 52%)",      // steel blue
+  "hsl(276 60% 58%)",      // violet
+  "hsl(0 72% 54%)",        // red-rose
+  "hsl(170 55% 40%)",      // teal
+  "hsl(30 80% 55%)",       // warm orange
+  "hsl(240 50% 60%)",      // indigo
+];
+
+interface ArcSegment {
+  label: string;
+  count: number;
+  color: string;
+}
+
+function ArcDonutChart({ segments }: { segments: ArcSegment[] }) {
+  const total = segments.reduce((s, x) => s + x.count, 0);
+  if (total === 0) return (
+    <div style={{ textAlign: "center", padding: "24px 0", fontSize: "0.78rem", color: "hsl(var(--muted-foreground))" }}>
+      No task data yet
+    </div>
+  );
+
+  const size = 110;
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = 46;
+  const innerR = 30;
+  const gap = 0.04; // radians gap between segments
+
+  let angle = -Math.PI / 2;
+  const paths: { d: string; color: string }[] = [];
+
+  for (const seg of segments) {
+    const frac = seg.count / total;
+    const sweep = frac * 2 * Math.PI - gap;
+    if (sweep <= 0) { angle += frac * 2 * Math.PI; continue; }
+    const startAngle = angle + gap / 2;
+    const endAngle = startAngle + sweep;
+
+    const x1o = cx + outerR * Math.cos(startAngle);
+    const y1o = cy + outerR * Math.sin(startAngle);
+    const x2o = cx + outerR * Math.cos(endAngle);
+    const y2o = cy + outerR * Math.sin(endAngle);
+    const x1i = cx + innerR * Math.cos(endAngle);
+    const y1i = cy + innerR * Math.sin(endAngle);
+    const x2i = cx + innerR * Math.cos(startAngle);
+    const y2i = cy + innerR * Math.sin(startAngle);
+    const large = sweep > Math.PI ? 1 : 0;
+
+    const d = [
+      `M ${x1o} ${y1o}`,
+      `A ${outerR} ${outerR} 0 ${large} 1 ${x2o} ${y2o}`,
+      `L ${x1i} ${y1i}`,
+      `A ${innerR} ${innerR} 0 ${large} 0 ${x2i} ${y2i}`,
+      "Z",
+    ].join(" ");
+
+    paths.push({ d, color: seg.color });
+    angle += frac * 2 * Math.PI;
+  }
+
+  return (
+    <div className="arc-chart-wrap">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0, overflow: "visible" }}>
+        {paths.map((p, i) => (
+          <path key={i} d={p.d} fill={p.color} opacity={0.88} style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.12))" }} />
+        ))}
+        {/* Center label */}
+        <text x={cx} y={cy - 5} textAnchor="middle" fontSize="14" fontWeight="800" fill="hsl(var(--foreground))" fontFamily="Outfit, sans-serif">{total}</text>
+        <text x={cx} y={cy + 10} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="hsl(var(--muted-foreground))" fontFamily="Outfit, sans-serif" textLength={32} lengthAdjust="spacing">TASKS</text>
+      </svg>
+      <div className="arc-legend">
+        {segments.slice(0, 6).map((seg) => (
+          <div key={seg.label} className="arc-legend-item">
+            <div className="arc-legend-dot" style={{ background: seg.color }} />
+            <span className="arc-legend-label">{seg.label}</span>
+            <span className="arc-legend-val">{seg.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Mini Calendar ───────────────────────────────────────────────────
+function MiniCalendar({ tasksByDate, todayStr }: { tasksByDate: Record<string, number>; todayStr: string }) {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const monthName = today.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: Array<{ day: number | null; dateKey: string }> = [];
+
+  for (let i = 0; i < firstDow; i++) cells.push({ day: null, dateKey: "" });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const mm = String(month + 1).padStart(2, "0");
+    const dd = String(d).padStart(2, "0");
+    cells.push({ day: d, dateKey: `${year}-${mm}-${dd}` });
+  }
+
+  return (
+    <div className="mini-cal-panel">
+      <div className="mini-cal-head">
+        <div>
+          <div className="mini-cal-kicker">Calendar</div>
+          <div className="mini-cal-month">{monthName}</div>
+        </div>
+      </div>
+      <div className="mini-cal-grid">
+        {["S","M","T","W","T","F","S"].map((d, i) => (
+          <div key={i} className="mini-cal-daylabel">{d}</div>
+        ))}
+        {cells.map((cell, i) => {
+          if (cell.day === null) return <div key={`e-${i}`} className="mini-cal-cell empty" />;
+          const isToday = cell.dateKey === todayStr;
+          const hasTasks = (tasksByDate[cell.dateKey] ?? 0) > 0;
+          return (
+            <div
+              key={cell.dateKey}
+              className={`mini-cal-cell${isToday ? " today" : ""}${hasTasks ? " has-tasks" : ""}`}
+            >
+              {cell.day}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Dashboard page ───────────────────────────────────────────────────
 function getDefaultTasks(): Task[] {
   return [
@@ -1478,6 +1613,45 @@ export default function DashboardPage() {
   const todayCount = tasks.filter((t) => t.due_date === todayStr && t.status !== "done").length;
   const doneCount = tasks.filter((t) => t.status === "done").length;
   const activeSopCount = sopTemplates.filter((task) => task.status === "active").length;
+
+  // Arc chart: tasks by category
+  const arcSegments = useMemo<ArcSegment[]>(() => {
+    const catMap: Record<string, number> = {};
+    for (const t of tasks) {
+      if (!catMap[t.category]) catMap[t.category] = 0;
+      catMap[t.category]++;
+    }
+    return Object.entries(catMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, count], i) => ({ label, count, color: ARC_PALETTE[i % ARC_PALETTE.length] }));
+  }, [tasks]);
+
+  // Mini calendar: tasks by date
+  const tasksByDate = useMemo(() => {
+    const byDate: Record<string, number> = {};
+    for (const t of tasks) {
+      if (!t.due_date) continue;
+      const key = t.due_date.slice(0, 10);
+      byDate[key] = (byDate[key] ?? 0) + 1;
+    }
+    return byDate;
+  }, [tasks]);
+
+  // Operating queue: sort by urgency / due date, take top 10
+  const queueTasks = useMemo(() => {
+    const priorityOrder: Record<Priority, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+    return [...tasks]
+      .filter((t) => t.status !== "done")
+      .sort((a, b) => {
+        const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+        if (pDiff !== 0) return pDiff;
+        if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+        if (a.due_date) return -1;
+        if (b.due_date) return 1;
+        return 0;
+      })
+      .slice(0, 10);
+  }, [tasks]);
 
   function clearSopScheduleFilter() {
     setSopFilters((current) => ({ ...current, schedule: SOP_SCHEDULE_DEFAULT }));
@@ -1791,75 +1965,173 @@ export default function DashboardPage() {
           <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm font-bold text-destructive">{loadError}</p>
         ) : null}
 
-        {/* KPI */}
-        <div className="kpi-bar">
+        {/* KPI Metric Strip */}
+        <div className="metric-strip" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
+          {/* Tasks Today */}
+          <div className="metric-strip-item">
+            <span className="metric-strip-label">Tasks Today</span>
+            <span className="metric-strip-value" style={todayCount > 0 ? { color: "hsl(var(--primary))" } : undefined}>
+              {todayCount}
+            </span>
+            <span className="metric-strip-note">Due for today</span>
+          </div>
+
           {/* Urgent */}
-          <div className="kpi">
-            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, #ef4444, transparent 70%)" }} />
-            <div className="kpi-icon-wrap" style={{ background: "hsl(0 84% 60%/.12)", color: "#ef4444" }}>
-              <Zap size={18} />
-            </div>
-            <div className="kpi-content">
-              <div className="kpi-label">Urgent</div>
-              <div className="kpi-val" style={{ color: urgentCount > 0 ? "#ef4444" : undefined }}>{urgentCount}</div>
-              <div className="kpi-sub">Needs same-day attention</div>
-            </div>
-          </div>
-
-          {/* Due today */}
-          <div className="kpi">
-            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, #f97316, transparent 70%)" }} />
-            <div className="kpi-icon-wrap" style={{ background: "hsl(25 95% 55%/.12)", color: "#f97316" }}>
-              <Clock size={18} />
-            </div>
-            <div className="kpi-content">
-              <div className="kpi-label">Due Today</div>
-              <div className="kpi-val" style={{ color: todayCount > 0 ? "#f97316" : undefined }}>{todayCount}</div>
-              <div className="kpi-sub">Pending past due date</div>
-            </div>
-          </div>
-
-          {/* Active operations */}
-          <div className="kpi">
-            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, hsl(var(--primary)), transparent 70%)" }} />
-            <div className="kpi-icon-wrap" style={{ background: "hsl(var(--primary)/.12)", color: "hsl(var(--primary))" }}>
-              <ListChecks size={18} />
-            </div>
-            <div className="kpi-content">
-              <div className="kpi-label">Active Operations</div>
-              <div className="kpi-val">{tasks.length}</div>
-              <div className="kpi-sub">Open residential tasks</div>
-            </div>
+          <div className="metric-strip-item">
+            <span className="metric-strip-label">Urgent</span>
+            <span className="metric-strip-value" style={urgentCount > 0 ? { color: "hsl(0 72% 48%)" } : undefined}>
+              {urgentCount}
+            </span>
+            <span className="metric-strip-note">Urgent priority tasks</span>
           </div>
 
           {/* Completed */}
-          <div className="kpi">
-            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, #22c55e, transparent 70%)" }} />
-            <div className="kpi-icon-wrap" style={{ background: "hsl(142 70% 45%/.12)", color: "#16a34a" }}>
-              <CheckCircle2 size={18} />
+          <div className="metric-strip-item">
+            <span className="metric-strip-label">Completed</span>
+            <span className="metric-strip-value" style={doneCount > 0 ? { color: "hsl(142 60% 36%)" } : undefined}>
+              {doneCount}
+            </span>
+            <span className="metric-strip-note">Completed operations</span>
+          </div>
+
+          {/* Pending Payments */}
+          <div className="metric-strip-item">
+            <span className="metric-strip-label">Pending Payments</span>
+            <span className="metric-strip-value">$1,240</span>
+            <span className="metric-strip-note">5 invoices pending</span>
+          </div>
+
+          {/* Active Teams */}
+          <div className="metric-strip-item">
+            <span className="metric-strip-label">Active Teams</span>
+            <span className="metric-strip-value">4</span>
+            <span className="metric-strip-note">Teams in operations</span>
+          </div>
+        </div>
+
+        {/* 2-Column Grid: Operating Queue (Left) & Mini-Calendar + Team Distribution (Right) */}
+        <div className="dash-overview-grid">
+          {/* Left Column: Operating Queue */}
+          <div className="queue-panel">
+            <div className="queue-panel-head">
+              <div>
+                <div className="queue-panel-kicker">Operations Queue</div>
+                <div className="queue-panel-title">Today's Priority Dispatch</div>
+              </div>
+              <span className="queue-panel-count">{queueTasks.length} pending</span>
             </div>
-            <div className="kpi-content">
-              <div className="kpi-label">Completed</div>
-              <div className="kpi-val" style={{ color: doneCount > 0 ? "#16a34a" : undefined }}>{doneCount}</div>
-              <div className="kpi-sub">Finished this cycle</div>
+            <div className="queue-body">
+              {queueTasks.length === 0 ? (
+                <div style={{ padding: "20px 0", textAlign: "center", fontSize: "0.75rem", color: "hsl(var(--muted-foreground))" }}>
+                  All clear! No pending tasks today.
+                </div>
+              ) : (
+                queueTasks.slice(0, 8).map((t) => {
+                  const isOverdue = t.due_date && t.due_date < todayStr && t.status !== "done";
+                  const dotClass = t.status === "done" ? "done" : t.status === "in_progress" ? "progress" : isOverdue ? "overdue" : "pending";
+                  return (
+                    <div key={t.id} className="queue-row" onClick={() => setModal(t)} style={{ cursor: "pointer" }}>
+                      <span className={`queue-dot ${dotClass}`} />
+                      <span className="queue-row-title">{t.title}</span>
+                      <div className="queue-row-meta">
+                        <span className="queue-row-cat">{t.category}</span>
+                        <span className={`queue-row-due ${isOverdue ? "overdue" : ""}`}>
+                          {t.due_date ? formatAmericanDate(t.due_date) : "No due date"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
-          {/* Monthly SOP */}
-          <div className="kpi">
-            <div className="kpi-glow" style={{ background: "radial-gradient(ellipse at top left, #6366f1, transparent 70%)" }} />
-            <div className="kpi-icon-wrap" style={{ background: "hsl(239 84% 67%/.12)", color: "#6366f1" }}>
-              <ClipboardList size={18} />
-            </div>
-            <div className="kpi-content">
-              <div className="kpi-label">Monthly SOP</div>
-              <div className="kpi-val" style={{ color: "#6366f1" }}>{activeSopCount}</div>
-              <div className="kpi-sub">Active SOP templates</div>
+          {/* Right Column: Mini-Calendar + Team Distribution */}
+          <div className="right-col">
+            <MiniCalendar tasksByDate={tasksByDate} todayStr={todayStr} />
+            <div className="arc-panel">
+              <div className="arc-panel-head">
+                <div className="arc-panel-kicker">Analytics</div>
+                <div className="arc-panel-title">Tasks by Category</div>
+              </div>
+              <ArcDonutChart segments={arcSegments} />
             </div>
           </div>
         </div>
 
-        {/* Filter */}
+        {/* Bottom Section: Condensed Operations Table */}
+        <div className="ops-section">
+          <div className="ops-section-head">
+            <div>
+              <div className="ops-section-kicker">All Operations</div>
+              <div className="ops-section-title">Task Log &amp; Status</div>
+            </div>
+            <span className="queue-panel-count">{tasks.length} total</span>
+          </div>
+          <div className="ops-table-wrap">
+            <table className="sop-table">
+              <thead>
+                <tr>
+                  <th style={{ paddingLeft: "16px", textAlign: "left" }}>Task</th>
+                  <th style={{ textAlign: "left" }}>Assignee</th>
+                  <th style={{ textAlign: "left" }}>Category</th>
+                  <th style={{ textAlign: "left" }}>Priority</th>
+                  <th style={{ textAlign: "left" }}>Due Date</th>
+                  <th style={{ textAlign: "left" }}>Status</th>
+                  <th style={{ width: 60 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: "center", padding: "24px", color: "hsl(var(--muted-foreground))", fontSize: "0.8rem" }}>
+                      No operations yet — add your first task.
+                    </td>
+                  </tr>
+                ) : tasks.slice().sort((a, b) => {
+                  const order: Record<Priority, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+                  return order[a.priority] - order[b.priority];
+                }).map((t) => {
+                  const pm = PRIORITY_META[t.priority];
+                  const isOverdue = t.due_date && t.due_date < todayStr && t.status !== "done";
+                  return (
+                    <tr key={t.id}>
+                      <td style={{ paddingLeft: "16px" }}>
+                        <div style={{ fontWeight: 600, fontSize: "0.82rem", color: "hsl(var(--foreground))", maxWidth: "240px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.title}>
+                          {t.title || "Untitled"}
+                        </div>
+                      </td>
+                      <td style={{ color: "hsl(var(--muted-foreground))", fontSize: "0.74rem" }}>{t.assignee || "—"}</td>
+                      <td style={{ color: "hsl(var(--muted-foreground))", fontSize: "0.74rem", whiteSpace: "nowrap" }}>{t.category}</td>
+                      <td>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: "0.7rem", fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: pm.bg, color: pm.color, whiteSpace: "nowrap" }}>
+                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: pm.color }} />
+                          {pm.label}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: "0.74rem", color: isOverdue ? "hsl(0 72% 48%)" : "hsl(var(--muted-foreground))", fontWeight: isOverdue ? 700 : 500, whiteSpace: "nowrap" }}>
+                        {formatAmericanDate(t.due_date) || "—"}
+                      </td>
+                      <td>
+                        <span className={`status-dot-badge ${t.status === "done" ? "dot-green" : t.status === "in_progress" ? "dot-slate" : isOverdue ? "dot-red" : "dot-amber"}`}>
+                          {t.status === "done" ? "Completed" : t.status === "in_progress" ? "In Service" : isOverdue ? "Overdue" : "Scheduled"}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="row-actions" style={{ display: "flex", gap: 4, justifyContent: "flex-end", paddingRight: "16px" }}>
+                          <button className="task-btn" title="Edit" onClick={() => setModal(t)}><Edit2 size={12} /></button>
+                          <button className="task-btn task-btn-del" title="Delete" onClick={() => deleteTask(t.id)}><X size={12} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Filter bar for board/calendar */}
         <div className="filter-bar">
           <button className={`filter-btn ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>All</button>
           {CATEGORIES.map((c) => (
@@ -1870,6 +2142,7 @@ export default function DashboardPage() {
           ) : null}
         </div>
 
+        {/* SOP templates */}
         <section className="sop-section">
           <div className="sop-head">
             <div>
@@ -1945,23 +2218,6 @@ export default function DashboardPage() {
             ))}
           </div>
         </section>
-
-        {/* Service type quick reference */}
-        <div className="service-grid">
-          {getResidentialServices().slice(0, 4).map((service) => (
-            <div key={service.id} className="service-card">
-              <div className="service-card-header">
-                <span className="service-type">Residential</span>
-                <strong>{service.label}</strong>
-              </div>
-              <p>{service.description}</p>
-              <div className="service-badges">
-                <span>{service.estimatedDuration}</span>
-                <span>{service.checklistRequired ? "Checklist" : "Standard"}</span>
-              </div>
-            </div>
-          ))}
-        </div>
 
         {/* Calendar or Board */}
         {view === "calendar" ? (
