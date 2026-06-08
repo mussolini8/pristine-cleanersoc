@@ -410,8 +410,10 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
   const [loadingRules, setLoadingRules] = useState(true);
   const [savingRules, setSavingRules] = useState(false);
   const [rulesMessage, setRulesMessage] = useState<string | null>(null);
+  const [deletedRuleIds, setDeletedRuleIds] = useState<string[]>([]);
 
   useEffect(() => {
+    setDeletedRuleIds([]);
     let mounted = true;
     async function loadRules() {
       setLoadingRules(true);
@@ -449,6 +451,14 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
       if (patch.frequency_type === "custom" && !next.frequency_interval) next.frequency_interval = 3;
       return next;
     }));
+  }
+
+  function deleteRule(index: number) {
+    const rule = rules[index];
+    if (rule.id) {
+      setDeletedRuleIds((prev) => [...prev, rule.id!]);
+    }
+    setRules((current) => current.filter((_, ruleIndex) => ruleIndex !== index));
   }
 
   async function saveRules() {
@@ -505,6 +515,18 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
       });
     }
 
+    if (deletedRuleIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from("commercial_account_schedule_rules")
+        .delete()
+        .in("id", deletedRuleIds);
+      if (deleteError) {
+        setSavingRules(false);
+        setRulesMessage(deleteError.message);
+        return;
+      }
+    }
+
     await supabase
       .from("commercial_account_schedule_rules")
       .update({ active: false, updated_at: new Date().toISOString() })
@@ -539,6 +561,7 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
       return;
     }
 
+    setDeletedRuleIds([]);
     setRules(((data ?? []) as ScheduleRule[]).map((rule) => ({ ...rule, selected_days: [Number(rule.day_of_week)] })));
     setRulesMessage("Schedule pay rules saved. Existing approved, paid, and locked payroll stays untouched.");
   }
@@ -555,7 +578,20 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
           const needsAnchor = interval > 1;
           return (
             <div className="schedule-rule-card" key={rule.id ?? index}>
-              <div className="schedule-rule-summary"><strong>{scheduleRuleSummary(rule)}</strong><span>{needsAnchor ? "Anchor date required for this cadence" : "Payroll-ready cadence"}</span></div>
+              <div className="schedule-rule-summary">
+                <strong>{scheduleRuleSummary(rule)}</strong>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span>{needsAnchor ? "Anchor date required for this cadence" : "Payroll-ready cadence"}</span>
+                  <button
+                    className="action-btn delete-btn"
+                    type="button"
+                    onClick={() => deleteRule(index)}
+                    aria-label="Delete schedule rule"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
               <div className="form-grid four">
                 <div className="studio-field day-chip-field"><span>Cleaning days</span><div className="day-chip-list">{DAY_OPTIONS.map(([value, label]) => { const day = Number(value); const active = selectedDays.includes(day); return <button className={active ? "day-chip active" : "day-chip"} key={value} type="button" onClick={() => updateRule(index, { day_of_week: day, selected_days: active ? selectedDays.filter((item) => item !== day) : [...selectedDays, day].sort((a, b) => a - b) })}>{label}</button>; })}</div></div>
                 <label className="studio-field"><span>Paid hours</span><input min="0" step="any" type="number" value={rule.paid_hours ?? ""} onChange={(event) => updateRule(index, { paid_hours: event.target.value })} /></label>
@@ -580,7 +616,7 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
       </div>
       <div className="schedule-actions">
         <button className="add-rule-btn" type="button" onClick={() => setRules((current) => [...current, emptyScheduleRule(account.id)])}>Add schedule rule</button>
-        <button className="studio-save compact" disabled={savingRules || loadingRules || rules.length === 0} type="button" onClick={saveRules}>{savingRules ? "Saving rules..." : "Save schedule rules"}</button>
+        <button className="studio-save compact" disabled={savingRules || loadingRules} type="button" onClick={saveRules}>{savingRules ? "Saving rules..." : "Save schedule rules"}</button>
       </div>
       {rules.length === 0 && !loadingRules ? <p className="schedule-note">Schedule rules are required for exact payroll. Add one rule per paid cleaning day.</p> : null}
       {rulesMessage ? <p className="studio-error">{rulesMessage}</p> : null}
