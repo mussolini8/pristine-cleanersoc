@@ -119,13 +119,20 @@ function formatValue(value: string | null | undefined) {
   return value && value.trim() ? value : "Not set";
 }
 
+function getBaseUrl() {
+  const url = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (url) return url;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+
 function taskUrl(taskId: string) {
-  const baseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const baseUrl = getBaseUrl();
   return `${baseUrl.replace(/\/$/, "")}/dashboard?task=${encodeURIComponent(taskId)}`;
 }
 
 function seoTaskUrl(taskId: string) {
-  const baseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const baseUrl = getBaseUrl();
   return `${baseUrl.replace(/\/$/, "")}/seo/tasks/${encodeURIComponent(taskId)}`;
 }
 
@@ -187,7 +194,7 @@ export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_
   const missing = [
     !process.env.GMAIL_USER ? "GMAIL_USER" : null,
     !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
-    !process.env.APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL ? "APP_BASE_URL or NEXT_PUBLIC_APP_URL" : null,
+    !process.env.APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL && !process.env.VERCEL_URL ? "APP_BASE_URL or NEXT_PUBLIC_APP_URL" : null,
     requiredRecipientEnv && !process.env[requiredRecipientEnv] ? requiredRecipientEnv : null,
   ].filter((item): item is string => Boolean(item));
 
@@ -199,7 +206,7 @@ export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_
       gmailPasswordConfigured: Boolean(process.env.GMAIL_APP_PASSWORD),
       ownerGmailUserConfigured: Boolean(process.env.OWNER_GMAIL_USER),
       ownerGmailPasswordConfigured: Boolean(process.env.OWNER_GMAIL_APP_PASSWORD),
-      appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL),
+      appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL),
       operationsManagerEmailConfigured: Boolean(process.env.OPERATIONS_MANAGER_EMAIL),
       ownerEmailConfigured: Boolean(process.env.OWNER_EMAIL),
       seoUserEmailConfigured: Boolean(process.env.SEO_USER_EMAIL),
@@ -471,7 +478,7 @@ async function sendEmail({ to, recipientEnvName, subject, html, text, useOwnerSe
   const missing = [
     !gmailUser ? (useOwnerSender ? "OWNER_GMAIL_USER" : "GMAIL_USER") : null,
     !gmailAppPassword ? (useOwnerSender ? "OWNER_GMAIL_APP_PASSWORD" : "GMAIL_APP_PASSWORD") : null,
-    !process.env.APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL ? "APP_BASE_URL or NEXT_PUBLIC_APP_URL" : null,
+    !process.env.APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL && !process.env.VERCEL_URL ? "APP_BASE_URL or NEXT_PUBLIC_APP_URL" : null,
     !to && recipientEnvName ? recipientEnvName : null,
   ].filter((item): item is string => Boolean(item));
 

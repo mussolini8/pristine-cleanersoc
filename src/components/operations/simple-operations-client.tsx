@@ -3038,7 +3038,7 @@ export function SimpleOperationsClient({
                   <th>Total hours / 2 weeks</th>
                   <th>Total hours / month</th>
                   <th>Assigned team</th>
-                  <th>Status</th>
+                  <th className="text-center">Status</th>
                   <th className="text-right pr-4">Actions</th>
                 </tr>
               </thead>
@@ -3062,7 +3062,7 @@ export function SimpleOperationsClient({
                       <td>{formatHours(totals.biweekly)}</td>
                       <td>{formatHours(totals.monthly)}</td>
                       <td>{account.assigned_team_name ?? "Unassigned"}</td>
-                      <td><Badge className={statusBadgeClass(account.active === false ? "inactive" : "active")} variant="outline">{statusLabel(account.active === false ? "inactive" : "active")}</Badge></td>
+                      <td className="align-middle text-center"><div className="flex justify-center"><Badge className={statusBadgeClass(account.active === false ? "inactive" : "active")} variant="outline">{statusLabel(account.active === false ? "inactive" : "active")}</Badge></div></td>
                       <td className="pr-4">
                         <div className="flex justify-end gap-2">
                           <Button size="icon" variant="outline" aria-label="Edit account" title="Edit account" onClick={() => openAccountDraft(account)}><Edit3 className="size-[18px]" /></Button>
@@ -3153,7 +3153,7 @@ export function SimpleOperationsClient({
                     <th>Account</th>
                     <th>Team</th>
                     <th>Hours</th>
-                    <th>Status</th>
+                    <th className="text-center">Status</th>
                     <th>Notes</th>
                   </tr>
                 </thead>
@@ -3165,7 +3165,7 @@ export function SimpleOperationsClient({
                       <td className="font-semibold">{log.account_name}</td>
                       <td>{log.team_name}</td>
                       <td>{formatHours(toNumber(log.hours_worked))}</td>
-                      <td><Badge className={statusBadgeClass(log.status ?? "pending")} variant="outline">{statusLabel(log.status ?? "pending")}</Badge></td>
+                      <td className="align-middle text-center"><div className="flex justify-center"><Badge className={statusBadgeClass(log.status ?? "pending")} variant="outline">{statusLabel(log.status ?? "pending")}</Badge></div></td>
                       <td className="max-w-64 truncate text-muted-foreground">{log.notes}</td>
                     </tr>
                   ))}
@@ -3372,7 +3372,7 @@ export function SimpleOperationsClient({
                     <th className="text-right w-[10%]">Res. Amount</th>
                     <th className="text-right w-[10%]">Com. Amount</th>
                     <th className="text-right w-[10%]">Total</th>
-                    <th className="w-[9%]">Status</th>
+                    <th className="text-center w-[9%]">Status</th>
                     <th className="w-[15%]">Notes</th>
                     <th className="text-right pr-4 w-[5%]">Actions</th>
                   </tr>
@@ -3411,10 +3411,12 @@ export function SimpleOperationsClient({
                           {toNumber(row.commercial_amount) > 0 ? formatMoney(toNumber(row.commercial_amount)) : <span className="text-muted-foreground/30">—</span>}
                         </td>
                         <td className="text-right font-semibold tabular-nums text-foreground">{formatMoney(paymentLineTotal(row))}</td>
-                        <td>
-                          <Badge className={statusBadgeClass(row.status || "pending")} variant="outline">
-                            {statusLabel(row.status || "pending")}
-                          </Badge>
+                        <td className="align-middle text-center">
+                          <div className="flex justify-center">
+                            <Badge className={statusBadgeClass(row.status || "pending")} variant="outline">
+                              {statusLabel(row.status || "pending")}
+                            </Badge>
+                          </div>
                         </td>
                         <td className="max-w-[200px] truncate text-xs text-muted-foreground font-medium" title={row.notes || ""}>
                           {row.notes || <span className="text-muted-foreground/30">—</span>}
@@ -4021,7 +4023,7 @@ export function SimpleOperationsClient({
                     <th className="border-b border-border/70 px-4 py-3">Commercial Account</th>
                     <th className="border-b border-border/70 px-4 py-3">Team</th>
                     <th className="border-b border-border/70 px-4 py-3 text-right">Hours</th>
-                    <th className="border-b border-border/70 px-4 py-3">Status</th>
+                    <th className="border-b border-border/70 px-4 py-3 text-center">Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -4055,10 +4057,12 @@ export function SimpleOperationsClient({
                             </div>
                           )}
                         </td>
-                        <td className="border-b border-border/60 px-4 py-3 align-middle">
-                          <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">
-                            {statusLabel(entry.status ?? "scheduled")}
-                          </Badge>
+                        <td className="border-b border-border/60 px-4 py-3 align-middle text-center">
+                          <div className="flex justify-center">
+                            <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">
+                              {statusLabel(entry.status ?? "scheduled")}
+                            </Badge>
+                          </div>
                         </td>
                         <td className="border-b border-border/60 px-4 py-3">
                           <div className="flex justify-end gap-1.5">
