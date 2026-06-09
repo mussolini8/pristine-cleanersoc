@@ -36,6 +36,9 @@ export type EnvStatus = {
   gmailPassword: boolean;
   ownerEmail: boolean;
   operationsManagerEmail: boolean;
+  ownerGmailUser?: boolean;
+  ownerGmailPassword?: boolean;
+  seoUserEmail?: boolean;
 };
 
 export type OperationTaskRow = {

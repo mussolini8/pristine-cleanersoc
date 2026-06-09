@@ -98,6 +98,8 @@ type EnvStatus = {
   ownerEmail: boolean;
   operationsManagerEmail: boolean;
   seoUserEmail: boolean;
+  ownerGmailUser?: boolean;
+  ownerGmailPassword?: boolean;
 };
 
 type OperationTaskRow = {
@@ -2419,6 +2421,8 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
       { label: "APP_BASE_URL", configured: Boolean(envStatus?.appBaseUrl) },
       { label: "GMAIL_USER", configured: Boolean(envStatus?.gmailUser) },
       { label: "GMAIL_APP_PASSWORD", configured: Boolean(envStatus?.gmailPassword) },
+      { label: "OWNER_GMAIL_USER", configured: Boolean(envStatus?.ownerGmailUser) },
+      { label: "OWNER_GMAIL_APP_PASSWORD", configured: Boolean(envStatus?.ownerGmailPassword) },
       { label: "OWNER_EMAIL", configured: Boolean(envStatus?.ownerEmail) },
       { label: "OPERATIONS_MANAGER_EMAIL", configured: Boolean(envStatus?.operationsManagerEmail) },
       { label: "SEO_USER_EMAIL", configured: Boolean(envStatus?.seoUserEmail) },

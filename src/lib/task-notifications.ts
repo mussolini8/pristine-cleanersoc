@@ -93,6 +93,7 @@ type SendEmailInput = {
   text: string;
   event: string;
   recipientType: string;
+  useOwnerSender?: boolean;
 };
 
 const textColor = "#111827";
@@ -196,6 +197,8 @@ export function getEmailConfigStatus(requiredRecipientEnv?: "OPERATIONS_MANAGER_
     safeStatus: {
       gmailUserConfigured: Boolean(process.env.GMAIL_USER),
       gmailPasswordConfigured: Boolean(process.env.GMAIL_APP_PASSWORD),
+      ownerGmailUserConfigured: Boolean(process.env.OWNER_GMAIL_USER),
+      ownerGmailPasswordConfigured: Boolean(process.env.OWNER_GMAIL_APP_PASSWORD),
       appBaseUrlConfigured: Boolean(process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL),
       operationsManagerEmailConfigured: Boolean(process.env.OPERATIONS_MANAGER_EMAIL),
       ownerEmailConfigured: Boolean(process.env.OWNER_EMAIL),
@@ -209,6 +212,8 @@ function sanitizeMailerMessage(message: string) {
   for (const secret of [
     process.env.GMAIL_APP_PASSWORD,
     process.env.GMAIL_USER,
+    process.env.OWNER_GMAIL_APP_PASSWORD,
+    process.env.OWNER_GMAIL_USER,
     process.env.OPERATIONS_MANAGER_EMAIL,
     process.env.OWNER_EMAIL,
     process.env.SEO_USER_EMAIL,
@@ -454,10 +459,18 @@ export async function sendSmtpDiagnosticEmail(portOverride: 465 | 587, to?: stri
 
 
 
-async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmailInput): Promise<EmailSendResult> {
+async function sendEmail({ to, recipientEnvName, subject, html, text, useOwnerSender }: SendEmailInput): Promise<EmailSendResult> {
+  const gmailUser = (useOwnerSender && process.env.OWNER_GMAIL_USER)
+    ? process.env.OWNER_GMAIL_USER
+    : process.env.GMAIL_USER;
+
+  const gmailAppPassword = (useOwnerSender && process.env.OWNER_GMAIL_APP_PASSWORD)
+    ? process.env.OWNER_GMAIL_APP_PASSWORD
+    : process.env.GMAIL_APP_PASSWORD;
+
   const missing = [
-    !process.env.GMAIL_USER ? "GMAIL_USER" : null,
-    !process.env.GMAIL_APP_PASSWORD ? "GMAIL_APP_PASSWORD" : null,
+    !gmailUser ? (useOwnerSender ? "OWNER_GMAIL_USER" : "GMAIL_USER") : null,
+    !gmailAppPassword ? (useOwnerSender ? "OWNER_GMAIL_APP_PASSWORD" : "GMAIL_APP_PASSWORD") : null,
     !process.env.APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL ? "APP_BASE_URL or NEXT_PUBLIC_APP_URL" : null,
     !to && recipientEnvName ? recipientEnvName : null,
   ].filter((item): item is string => Boolean(item));
@@ -501,8 +514,8 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
       servername: smtpHostname,
     },
     auth: {
-      user: process.env.GMAIL_USER!,
-      pass: process.env.GMAIL_APP_PASSWORD!,
+      user: gmailUser!,
+      pass: gmailAppPassword!,
     },
   };
 
@@ -511,7 +524,7 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
 
   try {
     const info = await transporter.sendMail({
-      from: `"Pristine Operations" <${process.env.GMAIL_USER}>`,
+      from: `"Pristine Operations" <${gmailUser}>`,
       to,
       subject,
       html,
@@ -529,7 +542,9 @@ async function sendEmail({ to, recipientEnvName, subject, html, text }: SendEmai
     }
     if (err?.code === "EAUTH" || err?.responseCode === 535) {
       console.error(`Activity log: SMTP auth failed via ${transportLabel}\ncode: ${details.code}\nmessage: ${details.message}`);
-      return { ok: false, sent: false, reason: "SMTP authentication failed — check GMAIL_USER and GMAIL_APP_PASSWORD", code: err.code, transport: transportLabel };
+      const expectedUser = useOwnerSender ? "OWNER_GMAIL_USER" : "GMAIL_USER";
+      const expectedPass = useOwnerSender ? "OWNER_GMAIL_APP_PASSWORD" : "GMAIL_APP_PASSWORD";
+      return { ok: false, sent: false, reason: `SMTP authentication failed — check ${expectedUser} and ${expectedPass}`, code: err.code, transport: transportLabel };
     }
     console.error(`Activity log: SMTP unavailable via ${transportLabel}\ncode: ${details.code}\nmessage: ${details.message}`);
     return { ok: false, sent: false, reason: `SMTP unavailable: ${details.message}`, code: err?.code, transport: transportLabel };
@@ -579,6 +594,7 @@ export async function sendTaskAssignedEmail(task: TaskNotificationPayload, assig
     text,
     event: "task_assigned",
     recipientType: "assignee",
+    useOwnerSender: true,
   });
 }
 
@@ -667,6 +683,7 @@ export async function sendSeoTaskAssignedEmail(task: TaskNotificationPayload, as
     text,
     event: "seo_task_assigned",
     recipientType: "seo_assignee",
+    useOwnerSender: true,
   });
 }
 

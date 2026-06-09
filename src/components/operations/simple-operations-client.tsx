@@ -4337,6 +4337,8 @@ export function SimpleOperationsClient({
       { label: "Operations Manager email", configured: Boolean(envStatus?.operationsManagerEmail), env: "OPERATIONS_MANAGER_EMAIL" },
       { label: "Gmail user", configured: Boolean(envStatus?.gmailUser), env: "GMAIL_USER" },
       { label: "Gmail app password", configured: Boolean(envStatus?.gmailPassword), env: "GMAIL_APP_PASSWORD" },
+      { label: "Owner Gmail user", configured: Boolean(envStatus?.ownerGmailUser), env: "OWNER_GMAIL_USER" },
+      { label: "Owner Gmail app password", configured: Boolean(envStatus?.ownerGmailPassword), env: "OWNER_GMAIL_APP_PASSWORD" },
       { label: "App base URL", configured: Boolean(envStatus?.appBaseUrl), env: "APP_BASE_URL" },
     ];
     return (
