@@ -18,6 +18,7 @@ type ExistingMonthlySopTask = {
   recurrence?: string | null;
   status: string | null;
   metadata: Record<string, unknown> | null;
+  sop_source_key?: string | null;
 };
 
 type TemplateRow = {
@@ -270,6 +271,7 @@ export async function POST(request: NextRequest) {
       recurrence: "monthly",
       custom_interval_days: null,
       metadata,
+      sop_source_key: templateId ? `sop:${templateId}:${instance.dueDate}` : null,
       created_by: user.id,
       updated_at: now,
     };
@@ -288,6 +290,7 @@ export async function POST(request: NextRequest) {
       existing.assignee === MONTHLY_SOP_IMPORT.assignedTo &&
       existing.recurrence === "monthly" &&
       existing.status === status &&
+      existing.sop_source_key === (templateId ? `sop:${templateId}:${instance.dueDate}` : null) &&
       existingMetadata.source_document_name === metadata.source_document_name &&
       existingMetadata.source_section === metadata.source_section &&
       existingMetadata.sop_week === metadata.sop_week &&
