@@ -362,11 +362,14 @@ export async function probeSmtpTcp(portOverride: 465 | 587): Promise<SmtpProbeRe
   });
 }
 
-export async function verifyGmailSmtp(portOverride: 465 | 587): Promise<SmtpProbeResult> {
+export async function verifyGmailSmtp(portOverride: 465 | 587, user?: string, password?: string): Promise<SmtpProbeResult> {
   const config = getSmtpTransportConfig(portOverride);
   const startedAt = Date.now();
 
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+  const gmailUser = user || process.env.GMAIL_USER;
+  const gmailPassword = password || process.env.GMAIL_APP_PASSWORD;
+
+  if (!gmailUser || !gmailPassword) {
     return {
       ok: false,
       stage: "verify",
@@ -380,7 +383,7 @@ export async function verifyGmailSmtp(portOverride: 465 | 587): Promise<SmtpProb
     };
   }
 
-  const transporter = createGmailTransport(config, process.env.GMAIL_USER, process.env.GMAIL_APP_PASSWORD);
+  const transporter = createGmailTransport(config, gmailUser, gmailPassword);
 
   try {
     await withSmtpTimeout(transporter.verify(), 25000);
@@ -549,8 +552,9 @@ async function sendEmail({ to, recipientEnvName, subject, html, text, useOwnerSe
     }
     if (err?.code === "EAUTH" || err?.responseCode === 535) {
       console.error(`Activity log: SMTP auth failed via ${transportLabel}\ncode: ${details.code}\nmessage: ${details.message}`);
-      const expectedUser = useOwnerSender ? "OWNER_GMAIL_USER" : "GMAIL_USER";
-      const expectedPass = useOwnerSender ? "OWNER_GMAIL_APP_PASSWORD" : "GMAIL_APP_PASSWORD";
+      const hasOwnerConfig = Boolean(useOwnerSender && process.env.OWNER_GMAIL_USER && process.env.OWNER_GMAIL_APP_PASSWORD);
+      const expectedUser = hasOwnerConfig ? "OWNER_GMAIL_USER" : "GMAIL_USER";
+      const expectedPass = hasOwnerConfig ? "OWNER_GMAIL_APP_PASSWORD" : "GMAIL_APP_PASSWORD";
       return { ok: false, sent: false, reason: `SMTP authentication failed — check ${expectedUser} and ${expectedPass}`, code: err.code, transport: transportLabel };
     }
     console.error(`Activity log: SMTP unavailable via ${transportLabel}\ncode: ${details.code}\nmessage: ${details.message}`);
