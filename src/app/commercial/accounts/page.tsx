@@ -601,12 +601,12 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
               <div className="form-grid four">
                 <label className="studio-field"><span>Start time</span><input type="time" value={rule.start_time ?? ""} onChange={(event) => updateRule(index, { start_time: event.target.value || null })} /></label>
                 <label className="studio-field"><span>End time</span><input type="time" value={rule.end_time ?? ""} onChange={(event) => updateRule(index, { end_time: event.target.value || null })} /></label>
-                <label className="studio-field"><span>Anchor date</span><input type="date" value={rule.anchor_date ?? ""} onChange={(event) => updateRule(index, { anchor_date: event.target.value || null })} /></label>
+                <label className="studio-field"><span>Anchor date</span><input type="date" lang="en-US" value={rule.anchor_date ?? ""} onChange={(event) => updateRule(index, { anchor_date: event.target.value || null })} /></label>
                 <label className="studio-field"><span>Cleaner override</span><select value={rule.assigned_cleaner_name ?? ""} onChange={(event) => updateRule(index, { assigned_cleaner_name: event.target.value || null })}>{CLEANERS.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner || "Use account cleaner"}</option>)}</select></label>
               </div>
               <div className="form-grid three">
-                <label className="studio-field"><span>Effective start</span><input type="date" value={rule.effective_start_date ?? ""} onChange={(event) => updateRule(index, { effective_start_date: event.target.value || null })} /></label>
-                <label className="studio-field"><span>Effective end</span><input type="date" value={rule.effective_end_date ?? ""} onChange={(event) => updateRule(index, { effective_end_date: event.target.value || null })} /></label>
+                <label className="studio-field"><span>Effective start</span><input type="date" lang="en-US" value={rule.effective_start_date ?? ""} onChange={(event) => updateRule(index, { effective_start_date: event.target.value || null })} /></label>
+                <label className="studio-field"><span>Effective end</span><input type="date" lang="en-US" value={rule.effective_end_date ?? ""} onChange={(event) => updateRule(index, { effective_end_date: event.target.value || null })} /></label>
                 <label className="studio-field"><span>Status</span><select value={rule.active === false ? "inactive" : "active"} onChange={(event) => updateRule(index, { active: event.target.value === "active" })}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
               </div>
               {needsAnchor && !rule.anchor_date ? <p className="schedule-warning">Intervals over one week need an anchor date so payroll knows which cycle applies.</p> : null}
@@ -712,11 +712,11 @@ function AccountStudio({
           <div className="form-grid four">
             <label className="studio-field">
               <span>Last QC Check</span>
-              <input type="date" value={draft.last_qcc_date ?? ""} onChange={(e) => onChange({ ...draft, last_qcc_date: e.target.value || null })} />
+              <input type="date" lang="en-US" value={draft.last_qcc_date ?? ""} onChange={(e) => onChange({ ...draft, last_qcc_date: e.target.value || null })} />
             </label>
             <label className="studio-field">
               <span>Delivery date</span>
-              <input type="date" value={draft.supply_delivery_date ?? ""} onChange={(e) => onChange({ ...draft, supply_delivery_date: e.target.value || null })} />
+              <input type="date" lang="en-US" value={draft.supply_delivery_date ?? ""} onChange={(e) => onChange({ ...draft, supply_delivery_date: e.target.value || null })} />
             </label>
             <label className="studio-field">
               <span>Est. fill date</span>
@@ -724,18 +724,18 @@ function AccountStudio({
             </label>
             <label className="studio-field">
               <span>Last Contact</span>
-              <input type="date" value={draft.last_contact_date ?? ""} onChange={(e) => onChange({ ...draft, last_contact_date: e.target.value || null })} />
+              <input type="date" lang="en-US" value={draft.last_contact_date ?? ""} onChange={(e) => onChange({ ...draft, last_contact_date: e.target.value || null })} />
             </label>
           </div>
 
           <div className="form-grid two">
             <label className="studio-field">
               <span>Contract start</span>
-              <input type="date" value={draft.contract_start ?? ""} onChange={(e) => onChange({ ...draft, contract_start: e.target.value || null })} />
+              <input type="date" lang="en-US" value={draft.contract_start ?? ""} onChange={(e) => onChange({ ...draft, contract_start: e.target.value || null })} />
             </label>
             <label className="studio-field">
               <span>Contract end</span>
-              <input type="date" value={draft.contract_end ?? ""} onChange={(e) => onChange({ ...draft, contract_end: e.target.value || null })} />
+              <input type="date" lang="en-US" value={draft.contract_end ?? ""} onChange={(e) => onChange({ ...draft, contract_end: e.target.value || null })} />
             </label>
           </div>
 

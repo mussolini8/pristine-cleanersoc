@@ -1834,6 +1834,42 @@ export function SimpleOperationsClient({
     }
   }
 
+  async function deleteStaff(person: StaffMemberRow) {
+    if (!userId || savingStaff) return;
+    if (!window.confirm(`Are you sure you want to delete the cleaner "${person.name}"?`)) return;
+
+    setSavingStaff(true);
+    const now = new Date().toISOString();
+    try {
+      const { error } = await supabase
+        .from("staff_members")
+        .update({
+          deleted_at: now,
+          active: false,
+          updated_at: now,
+        })
+        .eq("id", person.id);
+
+      if (error) throw new Error(error.message);
+
+      await writePayrollAudit(supabase, {
+        entityType: "staff_members",
+        entityId: person.id,
+        action: "staff_deleted",
+        before: person,
+        after: { ...person, deleted_at: now, active: false },
+        actorId: userId,
+      });
+
+      setMessage({ tone: "success", text: "Cleaner deleted successfully." });
+      await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Cleaner could not be deleted: ${errorMessage(error)}` });
+    } finally {
+      setSavingStaff(false);
+    }
+  }
+
   function paymentDraftForSummary(summary: (typeof weeklyPaymentSummaries)[number]) {
     return paymentRowDrafts[summary.key] ?? {
       ...EMPTY_PAYMENT_ROW_DRAFT,
@@ -2970,7 +3006,7 @@ export function SimpleOperationsClient({
           </div>
           <div className="grid min-w-0 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(170px,1fr))]">
             <input className={cn(PAYMENT_FIELD_CLASS, "bg-background")} placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
-            {taskViewMode === "day" ? <input className={PAYMENT_FIELD_CLASS} type="date" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
+            {taskViewMode === "day" ? <input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
             <select className={cn(PAYMENT_FIELD_CLASS, "bg-background")} value={taskSourceFilter} onChange={(event) => setTaskSourceFilter(event.target.value as "all" | "monthly_sop")} aria-label="Task source filter">
               <option value="all">All sources</option>
               <option value="monthly_sop">Monthly SOP</option>
@@ -3165,7 +3201,7 @@ export function SimpleOperationsClient({
                 <option value="">Select team</option>
                 {activeResidentialTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
               </select></label>
-              <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={workLogDraft.workDate} onChange={(event) => setWorkLogDraft((current) => ({ ...current, workDate: event.target.value }))} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={workLogDraft.workDate} onChange={(event) => setWorkLogDraft((current) => ({ ...current, workDate: event.target.value }))} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Hours worked<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" value={workLogDraft.hoursWorked} onChange={(event) => setWorkLogDraft((current) => ({ ...current, hoursWorked: event.target.value }))} /></label>
               <div className="flex items-end"><Button className="h-10 w-full rounded-xl" type="submit" disabled={savingWorkLog}><Save className="size-[18px]" /> {savingWorkLog ? "Saving..." : "Save"}</Button></div>
               <label className={cn(PAYMENT_LABEL_CLASS, "md:col-span-4")}>Notes<input className={PAYMENT_FIELD_CLASS} value={workLogDraft.notes} onChange={(event) => setWorkLogDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
@@ -3831,8 +3867,8 @@ export function SimpleOperationsClient({
                   <option value="monthly">Monthly</option>
                   <option value="custom">Custom</option>
                 </select></label>
-                <label className={PAYMENT_LABEL_CLASS}>Effective from<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialScheduleDraft.effectiveFrom} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveFrom: event.target.value })} /></label>
-                <label className={PAYMENT_LABEL_CLASS}>Effective until<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialScheduleDraft.effectiveUntil} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveUntil: event.target.value })} /></label>
+                <label className={PAYMENT_LABEL_CLASS}>Effective from<input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={commercialScheduleDraft.effectiveFrom} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveFrom: event.target.value })} /></label>
+                <label className={PAYMENT_LABEL_CLASS}>Effective until<input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={commercialScheduleDraft.effectiveUntil} onChange={(event) => setCommercialScheduleDraft({ ...commercialScheduleDraft, effectiveUntil: event.target.value })} /></label>
               </div>
               <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                 {WEEKDAY_NAMES.map((day, index) => {
@@ -3879,7 +3915,7 @@ export function SimpleOperationsClient({
             <label className={PAYMENT_LABEL_CLASS}>Cleaner
               <input disabled className={cn(PAYMENT_FIELD_CLASS, "bg-muted/50 font-semibold cursor-not-allowed text-muted-foreground")} value={summary.teamName} readOnly />
             </label>
-            <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
+            <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={draft.workDate} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, workDate: event.target.value })} /></label>
             <label className={PAYMENT_LABEL_CLASS}>City<select className={PAYMENT_FIELD_CLASS} value={draft.city} onChange={(event) => setPaymentDraftForSummary(summary, { ...draft, city: event.target.value, customCity: event.target.value === OUTSIDE_OC_CITY ? draft.customCity : "" })}>
               <option value="">Select city</option>
               {carlos ? <option value="Operations">Operations</option> : null}
@@ -3925,7 +3961,7 @@ export function SimpleOperationsClient({
           {commercialTeamChoices.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
         </select></label>
         {!commercialHoursDraft.teamId ? <label className={PAYMENT_LABEL_CLASS}>Manual name<input className={PAYMENT_FIELD_CLASS} value={commercialHoursDraft.teamName} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, teamName: event.target.value })} /></label> : null}
-        <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
+        <label className={PAYMENT_LABEL_CLASS}>Date<input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={commercialHoursDraft.workDate} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, workDate: event.target.value })} /></label>
         <div className="flex flex-col gap-2 justify-end">
           <label className={PAYMENT_LABEL_CLASS}>Hours<input className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" step="any" type="number" value={commercialHoursDraft.hours} onChange={(event) => setCommercialHoursDraft({ ...commercialHoursDraft, hours: event.target.value })} /></label>
           <label className="flex h-9 items-center gap-1.5 rounded-xl border border-input bg-background px-3 text-xs font-semibold select-none cursor-pointer">
@@ -3994,8 +4030,8 @@ export function SimpleOperationsClient({
               {commercialDateMenuOpen ? (
                 <div className="absolute right-0 z-20 mt-2 w-[290px] rounded-xl border border-border/70 bg-card p-3 shadow-xl">
                   <div className="grid gap-3">
-                    <label className={PAYMENT_LABEL_CLASS}>From<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialCustomStart} onChange={(event) => setCommercialCustomStart(event.target.value)} /></label>
-                    <label className={PAYMENT_LABEL_CLASS}>To<input className={PAYMENT_FIELD_CLASS} type="date" value={commercialCustomEnd} onChange={(event) => setCommercialCustomEnd(event.target.value)} /></label>
+                    <label className={PAYMENT_LABEL_CLASS}>From<input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={commercialCustomStart} onChange={(event) => setCommercialCustomStart(event.target.value)} /></label>
+                    <label className={PAYMENT_LABEL_CLASS}>To<input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={commercialCustomEnd} onChange={(event) => setCommercialCustomEnd(event.target.value)} /></label>
                     <div className="flex justify-end gap-2">
                       <Button className="rounded-xl" variant="outline" size="sm" type="button" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); }}>Clear</Button>
                       <Button className="rounded-xl" size="sm" type="button" onClick={() => setCommercialDateMenuOpen(false)}>Apply</Button>
@@ -4194,8 +4230,16 @@ export function SimpleOperationsClient({
                 <Badge variant="outline">{displayStaffRole(person)}</Badge>
                 <Badge variant="outline">{staffScopeLabel(staffScope(person))}</Badge>
               </div>
-              <div className="mt-3 flex justify-end">
+              <div className="mt-3 flex justify-end gap-2">
                 <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(person)}><Edit3 className="size-[18px]" /> Edit</Button>
+                <Button 
+                  className="rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-800 dark:text-rose-400 h-9 px-3 text-[12px] font-semibold flex items-center gap-1"
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => deleteStaff(person)}
+                >
+                  <Trash2 className="size-[15px]" /> Delete
+                </Button>
               </div>
             </article>
           ))}
@@ -4331,6 +4375,14 @@ export function SimpleOperationsClient({
                   </div>
                   <div className="mt-auto flex gap-2 pt-4">
                     <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(team)}><Edit3 className="size-[18px]" /> Edit</Button>
+                    <Button 
+                      className="rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-800 dark:text-rose-400 h-9 px-3 text-[12px] font-semibold flex items-center gap-1"
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => deleteStaff(team)}
+                    >
+                      <Trash2 className="size-[15px]" /> Delete
+                    </Button>
                   </div>
                 </article>
               );
@@ -4474,7 +4526,7 @@ export function SimpleOperationsClient({
               <label className={PAYMENT_LABEL_CLASS}>Assigned to<select className={PAYMENT_FIELD_CLASS} value={taskDraft.assignee} onChange={(event) => setTaskDraft({ ...taskDraft, assignee: event.target.value as ResidentialAssignee })}>
                 {RESIDENTIAL_ASSIGNEES.map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
               </select></label>
-              <label className={PAYMENT_LABEL_CLASS}>Due date<input className={PAYMENT_FIELD_CLASS} type="date" value={taskDraft.dueDate} onChange={(event) => setTaskDraft({ ...taskDraft, dueDate: event.target.value })} /></label>
+              <label className={PAYMENT_LABEL_CLASS}>Due date<input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={taskDraft.dueDate} onChange={(event) => setTaskDraft({ ...taskDraft, dueDate: event.target.value })} /></label>
               <label className={PAYMENT_LABEL_CLASS}>Priority<select className={PAYMENT_FIELD_CLASS} value={taskDraft.priority} onChange={(event) => setTaskDraft({ ...taskDraft, priority: event.target.value as TaskDraft["priority"] })}>
                 <option value="low">Low</option>
                 <option value="normal">Normal</option>
