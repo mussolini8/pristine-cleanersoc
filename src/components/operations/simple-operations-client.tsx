@@ -1858,6 +1858,25 @@ export function SimpleOperationsClient({
 
       if (error) throw new Error(error.message);
 
+      // Soft-delete pending payment rows, work logs, and weekly payments for this staff member
+      await Promise.all([
+        supabase
+          .from("residential_weekly_payment_rows")
+          .update({ deleted_at: now })
+          .eq("cleaner_id", person.id)
+          .eq("status", "pending"),
+        supabase
+          .from("residential_work_logs")
+          .update({ deleted_at: now })
+          .eq("team_id", person.id)
+          .eq("status", "pending"),
+        supabase
+          .from("residential_weekly_payments")
+          .update({ deleted_at: now })
+          .eq("team_id", person.id)
+          .eq("status", "pending"),
+      ]);
+
       await writePayrollAudit(supabase, {
         entityType: "staff_members",
         entityId: person.id,
