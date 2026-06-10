@@ -880,7 +880,66 @@ export function SimpleOperationsClient({
       setCommercialAccounts(isMissingSchemaTableError(commercialAccountResult.error) ? [] : (commercialAccountResult.data ?? []) as unknown as CommercialAccountRow[]);
       setCommercialScheduleRules(isMissingSchemaTableError(commercialScheduleResult.error) ? [] : (commercialScheduleResult.data ?? []) as unknown as CommercialScheduleRuleRow[]);
       setCommercialHoursEntries(isMissingSchemaTableError(commercialHoursResult.error) ? [] : (commercialHoursResult.data ?? []) as unknown as CommercialHoursEntryRow[]);
-      setStaff((staffResult.data ?? []) as unknown as StaffMemberRow[]);
+      
+      const currentStaff = (staffResult.data ?? []) as unknown as StaffMemberRow[];
+      const existingStaffNames = new Set(
+        currentStaff.map((s) => s.name.trim().toLowerCase())
+      );
+
+      const seedCleaners = [
+        "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
+        "Mirna Contreras", "Esperanza Youseff", "Esperanza Yoseff", "Ana Morales",
+        "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin"
+      ];
+
+      const staffToInsert = [];
+      const nowString = new Date().toISOString();
+      for (const name of seedCleaners) {
+        const normalized = name.trim().toLowerCase();
+        if (!existingStaffNames.has(normalized)) {
+          const isMixed = ["juan romero", "lorena benitez", "esperanza youseff", "esperanza yoseff"].includes(normalized);
+          const emailName = name.toLowerCase().replace(/[^a-z0-9]+/g, ".");
+          staffToInsert.push({
+            user_id: user.id,
+            name: name,
+            email: `${emailName}@pristine.local`,
+            role: isMixed ? "Mixed Route Cleaner" : "Commercial Cleaner",
+            display_role: isMixed ? "Mixed Route Cleaner" : "Commercial Cleaner",
+            team_scope: isMixed ? "mixed" : "commercial",
+            payment_mode: isMixed ? "mixed" : "residential_only",
+            commercial_payroll_eligible: !isMixed,
+            status: "Active",
+            active: true,
+            created_at: nowString,
+            updated_at: nowString,
+          });
+        }
+      }
+
+      if (staffToInsert.length > 0) {
+        const { error: staffInsertError } = await supabase
+          .from("staff_members")
+          .insert(staffToInsert);
+        if (staffInsertError) {
+          console.error("Error auto-seeding staff members in operations client:", staffInsertError);
+        } else {
+          console.log(`Auto-seeded ${staffToInsert.length} staff members.`);
+          // Re-fetch staff members to update state in real-time
+          const { data: refetchedStaff } = await supabase
+            .from("staff_members")
+            .select("*")
+            .is("deleted_at", null)
+            .order("name")
+            .limit(700);
+          if (refetchedStaff) {
+            setStaff(refetchedStaff as unknown as StaffMemberRow[]);
+          } else {
+            setStaff(currentStaff);
+          }
+        }
+      } else {
+        setStaff(currentStaff);
+      }
     } catch (error) {
       setMessage({ tone: "error", text: `Operations data could not load: ${errorMessage(error)}` });
     } finally {

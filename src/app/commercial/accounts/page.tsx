@@ -898,10 +898,62 @@ export default function CommercialPage() {
 
         const remoteAccounts = (remoteData ?? []) as Account[];
 
-        if (remoteAccounts.length === 0 && importedCommercialAccounts.length > 0) {
-          const { data: { user } } = await supabase.auth.getUser();
-          const userId = user?.id;
+        // Ensure all commercial cleaners exist in the staff_members table
+        const { data: { user } } = await supabase.auth.getUser();
+        const userId = user?.id;
 
+        if (userId) {
+          const { data: staffData } = await supabase
+            .from("staff_members")
+            .select("name")
+            .eq("user_id", userId);
+
+          const existingStaffNames = new Set(
+            (staffData ?? []).map((s) => s.name.trim().toLowerCase())
+          );
+
+          const seedCleaners = [
+            "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
+            "Mirna Contreras", "Esperanza Youseff", "Esperanza Yoseff", "Ana Morales",
+            "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin"
+          ];
+
+          const staffToInsert = [];
+          for (const name of seedCleaners) {
+            const normalized = name.trim().toLowerCase();
+            if (!existingStaffNames.has(normalized)) {
+              const isMixed = ["juan romero", "lorena benitez", "esperanza youseff", "esperanza yoseff"].includes(normalized);
+              const emailName = name.toLowerCase().replace(/[^a-z0-9]+/g, ".");
+              staffToInsert.push({
+                user_id: userId,
+                name: name,
+                email: `${emailName}@pristine.local`,
+                role: isMixed ? "Mixed Route Cleaner" : "Commercial Cleaner",
+                display_role: isMixed ? "Mixed Route Cleaner" : "Commercial Cleaner",
+                team_scope: isMixed ? "mixed" : "commercial",
+                payment_mode: isMixed ? "mixed" : "residential_only",
+                commercial_payroll_eligible: !isMixed,
+                status: "Active",
+                active: true,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              });
+            }
+          }
+
+          if (staffToInsert.length > 0) {
+            const { error: staffInsertError } = await supabase
+              .from("staff_members")
+              .insert(staffToInsert);
+            if (staffInsertError) {
+              console.error("Error auto-seeding staff members:", staffInsertError);
+            } else {
+              console.log(`Auto-seeded ${staffToInsert.length} staff members.`);
+            }
+          }
+        }
+
+        if (remoteAccounts.length === 0 && importedCommercialAccounts.length > 0) {
           const payloads = importedCommercialAccounts.map((imported) => {
             return {
               user_id: userId,
