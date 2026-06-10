@@ -882,8 +882,14 @@ export function SimpleOperationsClient({
       setCommercialHoursEntries(isMissingSchemaTableError(commercialHoursResult.error) ? [] : (commercialHoursResult.data ?? []) as unknown as CommercialHoursEntryRow[]);
       
       const currentStaff = (staffResult.data ?? []) as unknown as StaffMemberRow[];
+      
+      const { data: allStaffData } = await supabase
+        .from("staff_members")
+        .select("name")
+        .eq("user_id", user.id);
+
       const existingStaffNames = new Set(
-        currentStaff.map((s) => s.name.trim().toLowerCase())
+        (allStaffData ?? []).map((s) => s.name.trim().toLowerCase())
       );
 
       const seedCleaners = [
