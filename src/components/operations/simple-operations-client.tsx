@@ -3542,28 +3542,26 @@ export function SimpleOperationsClient({
                           {row.notes || <span className="text-muted-foreground/30">—</span>}
                         </td>
                         <td className="pr-4">
-                          <div className="flex items-center justify-end">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              className={cn(
-                                "grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-accent hover:text-foreground",
-                                activeDropdownRowId === row.id && "bg-accent text-foreground"
-                              )}
-                              title="Actions"
-                              aria-label="Row actions"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (activeDropdownRowId === row.id) {
-                                  setActiveDropdownRowId(null);
-                                  setDropdownPos(null);
-                                } else {
-                                  const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                                  setDropdownPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right, row, summary: summary || weeklyPaymentSummaries.find((s) => isCarlosLopez(s.teamName) === carlos) || null, mixed: false, isCleaner: false });
-                                  setActiveDropdownRowId(row.id);
-                                }
+                              className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-accent hover:text-foreground"
+                              title="Edit transaction"
+                              onClick={() => {
+                                if (summary) openPaymentModal(summary, mixed ? "juan" : "residential", row);
                               }}
                             >
-                              <MoreVertical className="size-4" />
+                              <Pencil className="size-4 text-blue-500/80" />
+                            </button>
+                            <button
+                              type="button"
+                              className="grid size-7 place-items-center rounded-lg text-muted-foreground/50 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/20 dark:hover:text-rose-400"
+                              title="Delete transaction"
+                              onClick={() => {
+                                deletePaymentRow(row);
+                              }}
+                            >
+                              <Trash2 className="size-4 text-rose-500/80" />
                             </button>
                           </div>
                         </td>
