@@ -3781,9 +3781,20 @@ export function SimpleOperationsClient({
 
           {/* MIXED COMBINED TOTAL */}
           {mixed && hasRows ? (
-            <div className="mx-4 mb-3 mt-1 flex items-center justify-between gap-3 rounded-xl border border-amber-200/60 bg-amber-50/60 px-3 py-2 dark:border-amber-800/40 dark:bg-amber-950/20">
-              <span className="text-[12px] font-semibold text-amber-900 dark:text-amber-300">{summary.teamName} combined</span>
-              <strong className="text-[13px] font-bold tabular-nums text-amber-900 dark:text-amber-200">{formatMoney(summary.paymentTotal)}</strong>
+            <div className="mx-4 mb-3 mt-1 grid gap-2 rounded-xl border border-amber-200/60 bg-amber-50/60 p-3 dark:border-amber-800/40 dark:bg-amber-950/20">
+              <div className="flex items-center justify-between text-xs font-medium text-amber-800 dark:text-amber-300">
+                <span>Residential total:</span>
+                <span className="font-semibold tabular-nums">{formatMoney(summary.residentialTotal)}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-medium text-amber-800 dark:text-amber-300">
+                <span>Commercial total:</span>
+                <span className="font-semibold tabular-nums">{formatMoney(summary.commercialTotal)}</span>
+              </div>
+              <div className="my-0.5 border-t border-amber-200/40 dark:border-amber-800/30" />
+              <div className="flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
+                <span>{summary.teamName} combined:</span>
+                <span className="text-sm tabular-nums">{formatMoney(summary.paymentTotal)}</span>
+              </div>
             </div>
           ) : null}
 
