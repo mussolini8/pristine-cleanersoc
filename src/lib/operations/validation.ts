@@ -45,6 +45,8 @@ export const staffMemberSchema = z.object({
   hourlyRate: z.number().finite().min(0).nullable().optional(),
   paymentMode: z.enum(PAYMENT_MODES),
   active: z.boolean(),
+  interviewed: z.boolean().nullable().optional(),
+  notes: z.string().trim().nullable().optional(),
 });
 
 export const residentialPaymentRowSchema = z.object({

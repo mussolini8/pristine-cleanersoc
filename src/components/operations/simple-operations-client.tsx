@@ -185,6 +185,8 @@ const EMPTY_STAFF_DRAFT: StaffDraft = {
   hourlyRate: "",
   paymentMode: "residential_only",
   active: true,
+  interviewed: false,
+  notes: "",
 };
 
 const EMPTY_PAYMENT_ROW_DRAFT: PaymentRowDraft = {
@@ -786,6 +788,7 @@ export function SimpleOperationsClient({
   const [savingWorkLog, setSavingWorkLog] = useState(false);
   const [staffDraft, setStaffDraft] = useState<StaffDraft | null>(null);
   const [savingStaff, setSavingStaff] = useState(false);
+  const [updatingStaffId, setUpdatingStaffId] = useState<string | null>(null);
   const [periodMode, setPeriodMode] = useState<PeriodMode>("week");
   const periodAnchor = todayKey();
   const [paymentWeekStart, setPaymentWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
@@ -1766,6 +1769,8 @@ export function SimpleOperationsClient({
       hourlyRate: String(person.hourly_rate ?? ""),
       paymentMode: normalizePaymentMode(person.payment_mode, person.name),
       active: staffIsActive(person),
+      interviewed: Boolean(person.interviewed),
+      notes: person.notes ?? "",
     });
   }
 
@@ -1797,6 +1802,8 @@ export function SimpleOperationsClient({
       hourlyRate: staffDraft.hourlyRate ? Number(staffDraft.hourlyRate) : null,
       paymentMode: staffDraft.paymentMode,
       active: staffDraft.active,
+      interviewed: staffDraft.interviewed,
+      notes: staffDraft.notes || null,
     });
     if (!validation.ok) {
       setMessage({ tone: "error", text: `Cleaner could not be saved: ${validation.message}` });
@@ -1814,6 +1821,8 @@ export function SimpleOperationsClient({
       active: isActiveStatus ? staffDraft.active : false,
       status,
       commercial_payroll_eligible: isActiveStatus && (teamScope === "commercial" || teamScope === "mixed") && !isJuanRomero(staffDraft.name),
+      interviewed: staffDraft.interviewed,
+      notes: staffDraft.notes.trim() || null,
       updated_at: now,
     };
     setSavingStaff(true);
@@ -1892,6 +1901,26 @@ export function SimpleOperationsClient({
       setMessage({ tone: "error", text: `Cleaner could not be deleted: ${errorMessage(error)}` });
     } finally {
       setSavingStaff(false);
+    }
+  }
+
+  async function updatePotentialQuickCheck(id: string, fields: { interviewed?: boolean; notes?: string }) {
+    if (updatingStaffId) return;
+    setUpdatingStaffId(id);
+    try {
+      const { error } = await supabase
+        .from("staff_members")
+        .update({
+          ...fields,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw new Error(error.message);
+      await loadData();
+    } catch (err) {
+      setMessage({ tone: "error", text: `Failed to update: ${errorMessage(err)}` });
+    } finally {
+      setUpdatingStaffId(null);
     }
   }
 
@@ -4264,6 +4293,60 @@ export function SimpleOperationsClient({
                 <Badge variant="outline">{displayStaffRole(person)}</Badge>
                 <Badge variant="outline">{staffScopeLabel(staffScope(person))}</Badge>
               </div>
+              <div className="mt-3 border-t border-border/40 pt-3 grid gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Entrevistado</span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      disabled={updatingStaffId === person.id}
+                      className={cn(
+                        "h-6 px-2.5 rounded-lg border text-[10px] font-bold transition-all focus:outline-none disabled:opacity-50",
+                        person.interviewed
+                          ? "bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm dark:bg-emerald-950/35 dark:border-emerald-800 dark:text-emerald-300"
+                          : "border-input bg-card hover:bg-accent/40 text-muted-foreground"
+                      )}
+                      onClick={() => updatePotentialQuickCheck(person.id, { interviewed: true })}
+                    >
+                      Sí / Yes
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatingStaffId === person.id}
+                      className={cn(
+                        "h-6 px-2.5 rounded-lg border text-[10px] font-bold transition-all focus:outline-none disabled:opacity-50",
+                        !person.interviewed
+                          ? "bg-rose-50 border-rose-300 text-rose-700 shadow-sm dark:bg-rose-950/35 dark:border-rose-800 dark:text-rose-300"
+                          : "border-input bg-card hover:bg-accent/40 text-muted-foreground"
+                      )}
+                      onClick={() => updatePotentialQuickCheck(person.id, { interviewed: false })}
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+                <div className="grid gap-1">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Notas</span>
+                  <input
+                    type="text"
+                    disabled={updatingStaffId === person.id}
+                    className="h-8 w-full rounded-lg border border-input bg-card/45 px-2.5 text-[11px] font-medium text-foreground outline-none shadow-sm transition placeholder:text-muted-foreground/60 focus:border-primary/45 focus:ring-1 focus:ring-primary/10 disabled:opacity-50"
+                    placeholder="Notas rápidas..."
+                    defaultValue={person.notes ?? ""}
+                    onBlur={(event) => {
+                      const val = event.target.value;
+                      if (val !== (person.notes ?? "")) {
+                        updatePotentialQuickCheck(person.id, { notes: val.trim() });
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
+              </div>
               <div className="mt-3 flex justify-end gap-2">
                 <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" size="sm" onClick={() => openStaffDraft(person)}><Edit3 className="size-[18px]" /> Edit</Button>
                 <Button 
@@ -4765,6 +4848,48 @@ export function SimpleOperationsClient({
               ) : null}
               {staffDraft.teamScope !== "commercial" && isJuanRomero(staffDraft.name) ? <div className="self-end rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">Juan Romero is always mixed pay.</div> : null}
             </div>
+            {staffDraft.status === "Potential" ? (
+              <div className="grid gap-3 border-t border-border/40 pt-3 md:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <span className="text-xs font-semibold text-muted-foreground">Entrevistado</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex-1 h-9 rounded-xl border text-xs font-bold transition-all focus:outline-none",
+                        staffDraft.interviewed
+                          ? "bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm dark:bg-emerald-950/35 dark:border-emerald-800 dark:text-emerald-300"
+                          : "border-input bg-card hover:bg-accent/40 text-muted-foreground"
+                      )}
+                      onClick={() => setStaffDraft({ ...staffDraft, interviewed: true })}
+                    >
+                      Sí / Yes
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex-1 h-9 rounded-xl border text-xs font-bold transition-all focus:outline-none",
+                        !staffDraft.interviewed
+                          ? "bg-rose-50 border-rose-300 text-rose-700 shadow-sm dark:bg-rose-950/35 dark:border-rose-800 dark:text-rose-300"
+                          : "border-input bg-card hover:bg-accent/40 text-muted-foreground"
+                      )}
+                      onClick={() => setStaffDraft({ ...staffDraft, interviewed: false })}
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+                <label className={PAYMENT_LABEL_CLASS}>
+                  Notas de entrevista
+                  <textarea
+                    className={cn(PAYMENT_FIELD_CLASS, "h-9 min-h-[36px] py-1.5 font-medium normal-case resize-none")}
+                    placeholder="Escribe notas aquí..."
+                    value={staffDraft.notes}
+                    onChange={(event) => setStaffDraft({ ...staffDraft, notes: event.target.value })}
+                  />
+                </label>
+              </div>
+            ) : null}
           </div>
           <div className="flex justify-end gap-2 border-t border-border/70 px-5 py-4">
             <Button className={SOP_ACTION_BUTTON_CLASS} type="button" variant="outline" disabled={savingStaff} onClick={() => setStaffDraft(null)}>Cancel</Button>

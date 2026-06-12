@@ -222,6 +222,8 @@ export type StaffMemberRow = {
   payment_mode?: PaymentMode | string | null;
   commercial_payroll_eligible?: boolean | null;
   active?: boolean | null;
+  interviewed?: boolean | null;
+  notes?: string | null;
   deleted_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -274,6 +276,8 @@ export type StaffDraft = {
   hourlyRate: string;
   paymentMode: PaymentMode;
   active: boolean;
+  interviewed: boolean;
+  notes: string;
 };
 
 export type PaymentRowDraft = {

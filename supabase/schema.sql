@@ -61,7 +61,9 @@ alter table public.staff_members
   add column if not exists hourly_rate numeric(10,2),
   add column if not exists payment_mode text not null default 'residential_only',
   add column if not exists active boolean not null default true,
-  add column if not exists deleted_at timestamptz;
+  add column if not exists deleted_at timestamptz,
+  add column if not exists interviewed boolean default false,
+  add column if not exists notes text;
 
 drop policy if exists "Staff members are readable by owners" on public.staff_members;
 create policy "Staff members are readable by owners"
