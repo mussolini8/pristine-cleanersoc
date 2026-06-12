@@ -4295,7 +4295,7 @@ export function SimpleOperationsClient({
               </div>
               <div className="mt-3 border-t border-border/40 pt-3 grid gap-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Entrevistado</span>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Interviewed</span>
                   <div className="flex gap-1">
                     <button
                       type="button"
@@ -4308,7 +4308,7 @@ export function SimpleOperationsClient({
                       )}
                       onClick={() => updatePotentialQuickCheck(person.id, { interviewed: true })}
                     >
-                      Sí / Yes
+                      Yes
                     </button>
                     <button
                       type="button"
@@ -4326,12 +4326,12 @@ export function SimpleOperationsClient({
                   </div>
                 </div>
                 <div className="grid gap-1">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Notas</span>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Notes</span>
                   <input
                     type="text"
                     disabled={updatingStaffId === person.id}
                     className="h-8 w-full rounded-lg border border-input bg-card/45 px-2.5 text-[11px] font-medium text-foreground outline-none shadow-sm transition placeholder:text-muted-foreground/60 focus:border-primary/45 focus:ring-1 focus:ring-primary/10 disabled:opacity-50"
-                    placeholder="Notas rápidas..."
+                    placeholder="Quick notes..."
                     defaultValue={person.notes ?? ""}
                     onBlur={(event) => {
                       const val = event.target.value;
@@ -4851,7 +4851,7 @@ export function SimpleOperationsClient({
             {staffDraft.status === "Potential" ? (
               <div className="grid gap-3 border-t border-border/40 pt-3 md:grid-cols-2">
                 <div className="grid gap-1.5">
-                  <span className="text-xs font-semibold text-muted-foreground">Entrevistado</span>
+                  <span className="text-xs font-semibold text-muted-foreground">Interviewed</span>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -4863,7 +4863,7 @@ export function SimpleOperationsClient({
                       )}
                       onClick={() => setStaffDraft({ ...staffDraft, interviewed: true })}
                     >
-                      Sí / Yes
+                      Yes
                     </button>
                     <button
                       type="button"
@@ -4880,10 +4880,10 @@ export function SimpleOperationsClient({
                   </div>
                 </div>
                 <label className={PAYMENT_LABEL_CLASS}>
-                  Notas de entrevista
+                  Interview notes
                   <textarea
                     className={cn(PAYMENT_FIELD_CLASS, "h-9 min-h-[36px] py-1.5 font-medium normal-case resize-none")}
-                    placeholder="Escribe notas aquí..."
+                    placeholder="Write notes here..."
                     value={staffDraft.notes}
                     onChange={(event) => setStaffDraft({ ...staffDraft, notes: event.target.value })}
                   />
