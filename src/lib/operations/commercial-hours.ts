@@ -8,6 +8,7 @@ import {
   formatDateOnly,
   isDateWithinPeriod,
   minDateOnly,
+  normalizeDateOnly,
   parseDateOnly,
 } from "@/lib/dates/periods";
 import { roundHours, toNumber } from "@/lib/residential-operations";
@@ -160,8 +161,8 @@ export function buildCommercialOccurrences(input: {
 
       for (const date of dates) {
         const key = formatDateOnly(date);
-        const effectiveFrom = rule.effective_from ?? rule.effective_start_date ?? account.contract_start;
-        const effectiveUntil = rule.effective_until ?? rule.effective_end_date ?? account.contract_end;
+        const effectiveFrom = normalizeDateOnly(rule.effective_from ?? rule.effective_start_date ?? account.contract_start);
+        const effectiveUntil = normalizeDateOnly(rule.effective_until ?? rule.effective_end_date ?? account.contract_end);
         if (date.getDay() !== day) continue;
         if (effectiveFrom && key < effectiveFrom) continue;
         if (effectiveUntil && key > effectiveUntil) continue;

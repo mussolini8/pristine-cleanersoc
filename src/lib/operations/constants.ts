@@ -5,7 +5,7 @@ export const COMMERCIAL_HOURS_STATUSES = ["scheduled", "completed", "verified", 
 export const STAFF_TEAM_SCOPES = ["residential", "commercial", "mixed"] as const;
 export const STAFF_PIPELINE_STATUSES = ["Active", "Potential", "Inactive"] as const;
 export const PAYMENT_MODES = ["residential_only", "mixed"] as const;
-export const COMMERCIAL_SCHEDULE_FREQUENCIES = ["weekly", "every_15_days", "every_3_weeks", "monthly", "custom"] as const;
+export const COMMERCIAL_SCHEDULE_FREQUENCIES = ["weekly", "biweekly", "every_15_days", "every_3_weeks", "monthly", "custom"] as const;
 export const WORK_LOG_STATUSES = ["pending", "approved", "paid"] as const;
 
 export const ORANGE_COUNTY_CITIES = [
