@@ -454,8 +454,12 @@ function paymentLineTotal(row: Pick<ResidentialWeeklyPaymentLineRow, "payment_am
 }
 
 function paymentSummaryStatus(summary: { rows: ResidentialWeeklyPaymentLineRow[]; payment?: ResidentialWeeklyPaymentRow }) {
-  if (summary.rows.length > 0) return summary.rows.every((row) => row.status === "paid") ? "paid" : "pending";
-  return summary.payment?.status === "paid" ? "paid" : "pending";
+  if (summary.rows.length > 0) {
+    if (summary.rows.every((row) => row.status === "paid")) return "paid";
+    if (summary.rows.every((row) => row.status === "verified" || row.status === "paid")) return "verified";
+    return "pending";
+  }
+  return summary.payment?.status ?? "pending";
 }
 
 function displayPaymentCity(row: Pick<ResidentialWeeklyPaymentLineRow, "city" | "custom_city">) {
@@ -1145,7 +1149,46 @@ export function SimpleOperationsClient({
       const key = teamKey(teamId, teamName);
       const team = activeResidentialTeams.find((item) => item.id === teamId || item.name === teamName) ?? teamByKey.get(key) ?? teamByKey.get(teamName.toLowerCase());
       const displayName = isJuanRomero(teamName) ? JUAN_ROMERO_NAME : teamName;
-      const current = map.get(key) ?? {
+
+      // If we already have an entry for this exact key, use it
+      if (map.has(key)) {
+        const existing = map.get(key)!;
+        if (isJuanRomero(teamName)) {
+          existing.teamId = existing.teamId ?? teamId ?? team?.id ?? null;
+          existing.teamName = JUAN_ROMERO_NAME;
+          existing.team = existing.team ?? team;
+        }
+        return existing;
+      }
+
+      // Deduplicate by name: if a different key already exists for the same cleaner name,
+      // reuse that entry instead of creating a duplicate card.
+      const nameLower = displayName.trim().toLowerCase();
+      for (const [existingKey, existingEntry] of map.entries()) {
+        if (existingEntry.teamName.trim().toLowerCase() === nameLower) {
+          // Merge: prefer the entry that has a real teamId
+          if (!existingEntry.teamId && teamId) existingEntry.teamId = teamId;
+          if (!existingEntry.team && team) existingEntry.team = team;
+          // Also register this key so future lookups hit the same entry
+          map.set(key, existingEntry);
+          return existingEntry;
+        }
+      }
+
+      const current: {
+        key: string;
+        teamId: string | null;
+        teamName: string;
+        totalHours: number;
+        accounts: Set<string>;
+        logs: ResidentialWorkLogRow[];
+        rows: ResidentialWeeklyPaymentLineRow[];
+        residentialTotal: number;
+        commercialTotal: number;
+        paymentTotal: number;
+        payment?: ResidentialWeeklyPaymentRow;
+        team?: StaffMemberRow;
+      } = {
         key,
         teamId,
         teamName: displayName,
@@ -1206,7 +1249,7 @@ export function SimpleOperationsClient({
       current.payment = payment;
     }
 
-    return Array.from(map.values()).sort((a, b) => a.teamName.localeCompare(b.teamName));
+    return Array.from(new Set(map.values())).sort((a, b) => a.teamName.localeCompare(b.teamName));
   }, [activeResidentialTeams, logsInPaymentWeek, paymentRowsInWeek, staff, teamByKey, weekRange.start, weeklyPayments]);
 
   const pendingPaymentTotal = useMemo(() => weeklyPaymentSummaries.reduce((sum, item) => {
