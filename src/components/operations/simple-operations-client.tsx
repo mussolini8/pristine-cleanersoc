@@ -778,6 +778,7 @@ export function SimpleOperationsClient({
   const [taskSelectedDay, setTaskSelectedDay] = useState(todayKey());
   const [taskCalendarAnchor, setTaskCalendarAnchor] = useState(() => formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [importingMonthlySop, setImportingMonthlySop] = useState(false);
+  const [deduplicating, setDeduplicating] = useState(false);
   const monthlySopAutoImportAttempted = useRef(new Set<string>());
   const [monthlySopImportSummary, setMonthlySopImportSummary] = useState<MonthlySopImportSummary | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
@@ -1045,6 +1046,23 @@ export function SimpleOperationsClient({
       setImportingMonthlySop(false);
     }
   }, [importingMonthlySop, loadData, visibleTaskMonth]);
+
+  const deduplicateTasks = useCallback(async () => {
+    if (deduplicating) return;
+    setDeduplicating(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/tasks/deduplicate", { method: "POST" });
+      const result = await response.json() as { ok: boolean; message: string; archived?: number; duplicateGroups?: number; error?: string };
+      if (!response.ok || result.error) throw new Error(result.error ?? "Deduplication failed.");
+      setMessage({ tone: result.archived ? "success" : "info", text: result.message });
+      if (result.archived) await loadData();
+    } catch (error) {
+      setMessage({ tone: "error", text: `Could not remove duplicates: ${errorMessage(error)}` });
+    } finally {
+      setDeduplicating(false);
+    }
+  }, [deduplicating, loadData]);
 
   useEffect(() => {
     if (view !== "tasks" || loading || importingMonthlySop || !selectedMonthCanGenerateSop || monthlySopTaskCount >= 56) return;
@@ -2816,6 +2834,7 @@ export function SimpleOperationsClient({
             {view === "tasks" ? (
               <>
                 <Button variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays /> {importingMonthlySop ? "Generating..." : "Generate Monthly SOP"}</Button>
+                <Button variant="outline" disabled={deduplicating || importingMonthlySop} onClick={deduplicateTasks}><RotateCcw /> {deduplicating ? "Removing duplicates..." : "Remove duplicates"}</Button>
                 <Button onClick={() => openTaskDraft()}><Plus /> Add reminder</Button>
               </>
             ) : null}
@@ -3063,7 +3082,10 @@ export function SimpleOperationsClient({
                 <p className="font-semibold">Monthly SOP not generated for {visibleTaskMonth.label}</p>
                 <p className="mt-1 text-sm font-medium text-muted-foreground">Generate the 56 recurring SOP task instances from active Monthly SOP templates.</p>
               </div>
-              <Button className={SOP_ACTION_BUTTON_CLASS} disabled={importingMonthlySop} onClick={() => importMonthlySop(visibleTaskMonth)}><CalendarDays className="size-[18px]" /> {importingMonthlySop ? "Generating..." : `Generate ${visibleTaskMonth.label}`}</Button>
+              <div className="flex flex-wrap gap-2">
+                <Button className={SOP_ACTION_BUTTON_CLASS} disabled={importingMonthlySop || deduplicating} onClick={() => importMonthlySop(visibleTaskMonth)}><CalendarDays className="size-[18px]" /> {importingMonthlySop ? "Generating..." : `Generate ${visibleTaskMonth.label}`}</Button>
+                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" disabled={deduplicating || importingMonthlySop} onClick={deduplicateTasks}><RotateCcw className="size-[18px]" /> {deduplicating ? "Removing duplicates..." : "Remove duplicates"}</Button>
+              </div>
             </CardContent>
           </Card>
         ) : null}

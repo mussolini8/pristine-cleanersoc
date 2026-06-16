@@ -88,15 +88,36 @@ export async function POST(request: Request) {
     }
   }
 
-  // 3. Check existing to give accurate summary
+  // 3. Check existing by sop_source_key AND by normalized (title, due_date) pair
+  //    The second check prevents duplicates when import-monthly already created the same task
+  //    under a different panel (e.g. "Operations" vs "Residential").
   const sopSourceKeys = instancesToCreate.map(i => i.sop_source_key);
-  const { data: existing } = await supabase
-    .from("operation_tasks")
-    .select("sop_source_key")
-    .in("sop_source_key", sopSourceKeys);
 
-  const existingKeys = new Set(existing?.map(e => e.sop_source_key) ?? []);
-  const newInstances = instancesToCreate.filter(i => !existingKeys.has(i.sop_source_key));
+  const targetDates = [...new Set(instancesToCreate.map(i => i.due_date))];
+  const startDate = targetDates.reduce((a, b) => (a < b ? a : b));
+  const endDate   = targetDates.reduce((a, b) => (a > b ? a : b));
+
+  const [{ data: existingBySopKey }, { data: existingByDate }] = await Promise.all([
+    supabase.from("operation_tasks").select("sop_source_key").in("sop_source_key", sopSourceKeys).is("deleted_at", null),
+    supabase.from("operation_tasks").select("title,due_date").is("deleted_at", null).gte("due_date", startDate).lte("due_date", endDate),
+  ]);
+
+  const existingKeys = new Set(existingBySopKey?.map(e => e.sop_source_key) ?? []);
+
+  // Build a set of "normTitle|YYYY-MM-DD" for all tasks that already exist in this date range
+  const normTitle = (t: string) =>
+    t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const existingTitleDateKeys = new Set(
+    (existingByDate ?? [])
+      .filter(e => e.title && e.due_date)
+      .map(e => `${normTitle(e.title)}|${String(e.due_date).split("T")[0]}`)
+  );
+
+  const newInstances = instancesToCreate.filter(i => {
+    if (existingKeys.has(i.sop_source_key)) return false;
+    if (existingTitleDateKeys.has(`${normTitle(i.title)}|${i.due_date}`)) return false;
+    return true;
+  });
 
   // 4. Insert ONLY new ones (idempotent)
   if (newInstances.length > 0) {
