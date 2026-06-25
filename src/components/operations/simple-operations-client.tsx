@@ -19,6 +19,7 @@ import {
   FileDown,
   FileSpreadsheet,
   FileText,
+  MessageSquare,
   MoreVertical,
   PauseCircle,
   Pencil,
@@ -784,6 +785,11 @@ export function SimpleOperationsClient({
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
+  const [profileName, setProfileName] = useState<string>("Operations Manager");
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentBody, setCommentBody] = useState("");
+  const [fetchingComments, setFetchingComments] = useState(false);
+  const [completionNotes, setCompletionNotes] = useState("");
   const [savingTask, setSavingTask] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
@@ -846,6 +852,14 @@ export function SimpleOperationsClient({
 
       setUserId(user.id);
       setUserEmail(user.email ?? null);
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, username")
+        .eq("id", user.id)
+        .maybeSingle();
+      const name = String(profile?.full_name ?? profile?.username ?? user.email ?? "Operations Manager");
+      setProfileName(name);
 
       const {
         taskResult,
@@ -1073,6 +1087,77 @@ export function SimpleOperationsClient({
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [importMonthlySop, importingMonthlySop, loading, monthlySopTaskCount, selectedMonthCanGenerateSop, view, visibleTaskMonth]);
+
+  useEffect(() => {
+    if (!selectedTask) {
+      setComments([]);
+      setCompletionNotes("");
+      return;
+    }
+    const fetchComments = async () => {
+      setFetchingComments(true);
+      try {
+        const { data, error } = await supabase
+          .from("operation_task_comments")
+          .select("*")
+          .eq("task_id", selectedTask.id)
+          .order("created_at", { ascending: true });
+        if (error) throw error;
+        setComments(data ?? []);
+      } catch (err) {
+        console.error("Error fetching comments:", err);
+      } finally {
+        setFetchingComments(false);
+      }
+    };
+    void fetchComments();
+  }, [selectedTask, supabase]);
+
+  async function addComment() {
+    if (!selectedTask || !userId || !commentBody.trim()) return;
+    try {
+      const { error } = await supabase.from("operation_task_comments").insert({
+        task_id: selectedTask.id,
+        user_id: userId,
+        author_name: profileName,
+        body: commentBody.trim(),
+        internal: true,
+      });
+      if (error) throw error;
+      
+      await writeTaskAudit(selectedTask.id, "comment_added", { actor: profileName });
+      
+      const { data: newComments, error: fetchError } = await supabase
+        .from("operation_task_comments")
+        .select("*")
+        .eq("task_id", selectedTask.id)
+        .order("created_at", { ascending: true });
+      
+      if (!fetchError && newComments) {
+        setComments(newComments);
+      }
+      setCommentBody("");
+    } catch (error) {
+      setMessage({ tone: "error", text: `Comment could not be added: ${errorMessage(error)}` });
+    }
+  }
+
+  useEffect(() => {
+    if (view === "tasks" && !loading && userId) {
+      const silentDeduplicate = async () => {
+        try {
+          const response = await fetch("/api/tasks/deduplicate", { method: "POST" });
+          const result = await response.json();
+          if (result.archived) {
+            await loadData();
+          }
+        } catch (e) {
+          console.error("Silent deduplication failed", e);
+        }
+      };
+      void silentDeduplicate();
+    }
+  }, [view, loading, userId, loadData]);
 
   const filteredTasks = useMemo(() => {
     const search = taskSearch.trim().toLowerCase();
@@ -1574,7 +1659,7 @@ export function SimpleOperationsClient({
     }
   }
 
-  async function completeTask(task: OperationTaskRow) {
+  async function completeTask(task: OperationTaskRow, notes?: string) {
     if (!userId || normalizeTaskStatus(task.status) === "completed" || completingTaskId) return;
     setCompletingTaskId(task.id);
     const completedAt = new Date().toISOString();
@@ -1589,12 +1674,22 @@ export function SimpleOperationsClient({
           status: "completed",
           completed_at: completedAt,
           completed_by: userId,
-          completion_notes: task.completion_notes ?? task.description,
+          completion_notes: notes?.trim() || task.completion_notes || task.description,
           updated_at: completedAt,
         })
         .eq("id", task.id);
 
       if (error) throw new Error(error.message);
+
+      if (notes && notes.trim()) {
+        await supabase.from("operation_task_comments").insert({
+          task_id: task.id,
+          user_id: userId,
+          author_name: profileName,
+          body: `Completed with note: ${notes.trim()}`,
+          internal: true,
+        });
+      }
 
       const completedTask = { ...task, status: "completed", completed_at: completedAt, completed_by: userId };
       setTasks((current) => current.map((item) => item.id === task.id ? completedTask : item));
@@ -3027,9 +3122,9 @@ export function SimpleOperationsClient({
     const taskChipClass = (task: OperationTaskRow, dayKey: string) => {
       const status = normalizeTaskStatus(task.status);
       const overdue = status === "pending" && dayKey < today;
-      if (overdue) return "border-rose-200/80 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-100";
-      if (status === "completed") return "border-emerald-200/80 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100";
-      return "border-amber-200/70 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100";
+      if (overdue) return "border-rose-200/80 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-100 hover:bg-rose-100/50 hover:shadow-sm";
+      if (status === "completed") return "border-emerald-200/80 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100 hover:bg-emerald-100/50 hover:shadow-sm";
+      return "border-amber-200/70 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100 hover:bg-amber-100/50 hover:shadow-sm";
     };
     const compactMetrics = [
       { label: "Pending", value: taskStats.pending.length, Icon: Clock, note: "Open reminders", tone: "neutral" },
@@ -3047,18 +3142,42 @@ export function SimpleOperationsClient({
             const dueKey = dateKeyFromValue(task.due_date);
             const overdue = status === "pending" && Boolean(dueKey && dueKey < today);
             const sourceDocument = taskSourceDocument(task);
+            
+            const borderClass = overdue 
+              ? "border-l-4 border-l-rose-500" 
+              : status === "completed" 
+                ? "border-l-4 border-l-emerald-500" 
+                : task.priority === "high" || task.priority === "urgent"
+                  ? "border-l-4 border-l-amber-500"
+                  : "border-l-4 border-l-primary/40";
+
             return (
-              <div className={cn(SOP_ROW_CLASS, "flex flex-wrap items-center justify-between gap-3")} key={task.id}>
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelectedTask(task)}>
-                  <p className="truncate font-semibold">{task.title}</p>
-                  <p className="mt-1 text-xs font-medium text-muted-foreground">{task.assignee ?? "Unassigned"} · {displayDate(task.due_date)} · {TASK_FREQUENCY_LABELS[frequencyFromRecurrence(task.recurrence)]}</p>
+              <div 
+                className={cn(
+                  SOP_ROW_CLASS, 
+                  "flex flex-wrap items-center justify-between gap-3 transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md hover:border-primary/20",
+                  borderClass
+                )} 
+                key={task.id}
+              >
+                <button type="button" className="min-w-0 flex-1 text-left pl-1" onClick={() => setSelectedTask(task)}>
+                  <p className="truncate font-semibold text-foreground hover:text-primary transition-colors">{task.title}</p>
+                  <p className="mt-1 text-xs font-medium text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold text-primary">{task.assignee ?? "Unassigned"}</span>
+                    <span>·</span>
+                    <span>{displayDate(task.due_date)}</span>
+                    <span>·</span>
+                    <Badge variant="secondary" className="px-1.5 py-0 text-[10px] uppercase font-bold tracking-wider">{TASK_FREQUENCY_LABELS[frequencyFromRecurrence(task.recurrence)]}</Badge>
+                  </p>
                 </button>
-                {sourceDocument ? <Badge variant="outline">{sourceDocument}</Badge> : null}
-                <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status)}</Badge>
-                <div className="flex gap-1">
-                  <Button className="h-10 rounded-xl px-2.5 text-xs" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-[18px]" /> Mark completed</Button>
-                  <Button className="size-10" size="icon" variant="outline" aria-label="Edit task" title="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-[18px]" /></Button>
-                  <Button className="size-10 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" size="icon" variant="outline" aria-label="Delete task" title="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-[18px]" /></Button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {sourceDocument ? <Badge variant="outline" className="bg-background/40">{sourceDocument}</Badge> : null}
+                  <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status)}</Badge>
+                  <div className="flex gap-1">
+                    <Button className="h-10 rounded-xl px-2.5 text-xs font-semibold transition-transform hover:scale-[1.02]" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-[18px]" /> Mark completed</Button>
+                    <Button className="size-10 transition-transform hover:scale-[1.02]" size="icon" variant="outline" aria-label="Edit task" title="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-[18px]" /></Button>
+                    <Button className="size-10 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 transition-transform hover:scale-[1.02]" size="icon" variant="outline" aria-label="Delete task" title="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-[18px]" /></Button>
+                  </div>
                 </div>
               </div>
             );
@@ -4771,8 +4890,90 @@ export function SimpleOperationsClient({
         </div>
         <div className="space-y-5 p-5">
           {sourceSection ? <section className="rounded-xl border border-border/70 bg-background/65 p-3 text-sm font-medium text-muted-foreground">Source section: {sourceSection}</section> : null}
-          <section className="rounded-xl border border-border/70 bg-background/65 p-4 text-sm font-medium text-muted-foreground">{selectedTask.description || "No notes yet."}</section>
-          <section className="grid gap-2 rounded-xl border border-border/70 bg-background/65 p-4 text-sm">
+          
+          <section className="space-y-1.5 rounded-xl border border-border/70 bg-background/65 p-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Description / Notes</p>
+            <p className="text-sm font-medium text-foreground whitespace-pre-wrap leading-relaxed">{selectedTask.description || "No description provided."}</p>
+          </section>
+
+          {/* Completion Notes Section */}
+          <section>
+            {selectedStatus !== "completed" ? (
+              <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.01] p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-primary">Complete Task</p>
+                <textarea
+                  className="w-full min-h-[80px] rounded-xl border border-input bg-background/80 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/60"
+                  placeholder="Optional completion notes for review..."
+                  value={completionNotes}
+                  onChange={(e) => setCompletionNotes(e.target.value)}
+                />
+                <Button
+                  className="w-full h-10 rounded-xl font-semibold transition hover:scale-[1.01]"
+                  disabled={completingTaskId === selectedTask.id}
+                  onClick={() => completeTask(selectedTask, completionNotes)}
+                >
+                  <Check className="size-[18px]" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark as Completed"}
+                </Button>
+              </div>
+            ) : (
+              selectedTask.completion_notes ? (
+                <div className="space-y-1.5 rounded-xl border border-emerald-200 bg-emerald-50/20 p-4 dark:border-emerald-950/30 dark:bg-emerald-950/10">
+                  <p className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400">Completion Notes</p>
+                  <p className="text-sm font-medium leading-relaxed">{selectedTask.completion_notes}</p>
+                </div>
+              ) : null
+            )}
+          </section>
+
+          {/* RLS-Friendly Task Comments & Notes Section */}
+          <section className="space-y-3 border-t border-border/50 pt-5">
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+              <MessageSquare className="size-4 text-muted-foreground" /> Notes & Discussion
+            </h3>
+            <div className="grid gap-2.5 max-h-[300px] overflow-y-auto pr-1">
+              {fetchingComments ? (
+                <p className="text-xs font-medium text-muted-foreground animate-pulse p-2">Loading notes...</p>
+              ) : comments.length === 0 ? (
+                <p className="text-xs font-medium text-muted-foreground italic bg-muted/15 rounded-xl p-3 text-center border border-dashed">No notes added yet. Both Jake (Admin) and Carlos (User) can write notes here.</p>
+              ) : (
+                comments.map((comment) => (
+                  <div
+                    className={cn(
+                      "rounded-xl border p-3 text-sm space-y-1 transition-all duration-150",
+                      comment.author_name === profileName 
+                        ? "border-primary/20 bg-primary/[0.02]" 
+                        : "border-border/60 bg-muted/10"
+                    )}
+                    key={comment.id}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-primary">{comment.author_name}</span>
+                      <span className="text-[10px] font-medium text-muted-foreground">{new Date(comment.created_at).toLocaleString()}</span>
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap font-medium">{comment.body}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2 items-start mt-2">
+              <textarea
+                className="flex-1 min-h-[56px] rounded-xl border border-input bg-background/80 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/60"
+                placeholder="Write an operational update/note..."
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+              />
+              <Button 
+                className="h-10 rounded-xl font-semibold"
+                onClick={addComment}
+                disabled={!commentBody.trim()}
+              >
+                Add note
+              </Button>
+            </div>
+          </section>
+
+          <section className="grid gap-2 rounded-xl border border-border/70 bg-background/65 p-4 text-sm border-t border-border/50 pt-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Settings</p>
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium text-muted-foreground">Notify assignee</span>
               <Badge className={statusBadgeClass(notifyAssignee ? "active" : "skipped")} variant="outline">{notifyAssignee ? "On" : "Off"}</Badge>
@@ -4784,13 +4985,14 @@ export function SimpleOperationsClient({
             {assignmentSentAt ? <p className="text-xs font-medium text-muted-foreground">Assignment email sent {new Date(assignmentSentAt).toLocaleString()}</p> : null}
             {completionSentAt ? <p className="text-xs font-medium text-muted-foreground">Completion email sent {new Date(completionSentAt).toLocaleString()}</p> : null}
           </section>
-          <div className="flex flex-wrap gap-2">
-            <Button className={SOP_ACTION_BUTTON_CLASS} disabled={selectedStatus === "completed" || completingTaskId === selectedTask.id} onClick={() => completeTask(selectedTask)}><Check className="size-[18px]" /> {completingTaskId === selectedTask.id ? "Completing..." : "Mark completed"}</Button>
-            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => openTaskDraft(selectedTask)}><Edit3 className="size-[18px]" /> Edit</Button>
-            <Button className={cn(SOP_ACTION_BUTTON_CLASS, "border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800")} variant="outline" disabled={deletingTaskId === selectedTask.id} onClick={() => deleteTask(selectedTask)}><Trash2 className="size-[18px]" /> Delete</Button>
+
+          <div className="flex flex-wrap gap-2 border-t border-border/50 pt-4">
+            <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" onClick={() => openTaskDraft(selectedTask)}><Edit3 className="size-[18px]" /> Edit details</Button>
+            <Button className={cn(SOP_ACTION_BUTTON_CLASS, "border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800")} variant="outline" disabled={deletingTaskId === selectedTask.id} onClick={() => deleteTask(selectedTask)}><Trash2 className="size-[18px]" /> Delete reminder</Button>
           </div>
-          <section>
-            <h3 className="font-semibold">Activity log</h3>
+
+          <section className="border-t border-border/50 pt-4">
+            <h3 className="text-sm font-bold text-foreground">Activity log</h3>
             <div className="mt-3 grid gap-2">
               {taskActivity.length === 0 ? <p className={cn(SOP_EMPTY_CLASS, "p-3 text-left")}>No activity yet.</p> : null}
               {taskActivity.slice(0, 12).map((item) => {

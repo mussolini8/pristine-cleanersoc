@@ -105,13 +105,13 @@ async function main() {
       );
 
       if (!DRY_RUN) {
-        const { error: updateError } = await supabase
+        const { error: deleteError } = await supabase
           .from("operation_tasks")
-          .update({ deleted_at: now, updated_at: now })
+          .delete()
           .eq("id", r.id);
 
-        if (updateError) {
-          console.error(`  ❌ Failed to soft-delete ${r.id}:`, updateError.message);
+        if (deleteError) {
+          console.error(`  ❌ Failed to delete ${r.id}:`, deleteError.message);
         } else {
           softDeletedCount++;
         }
@@ -121,15 +121,28 @@ async function main() {
     }
   }
 
+  // Also purge any existing soft-deleted tasks to clean up database duplicates completely
+  if (!DRY_RUN) {
+    const { error: purgeError } = await supabase
+      .from("operation_tasks")
+      .delete()
+      .not("deleted_at", "is", null);
+    if (purgeError) {
+      console.error(`  ❌ Failed to purge soft-deleted tasks:`, purgeError.message);
+    } else {
+      console.log("\n✅ Purged all existing soft-deleted tasks.");
+    }
+  }
+
   console.log(`\n--- Summary ---`);
   console.log(`Unique task slots scanned: ${uniqueCount}`);
-  console.log(`Duplicates ${DRY_RUN ? "would be" : ""} soft-deleted: ${softDeletedCount}`);
+  console.log(`Duplicates ${DRY_RUN ? "would be" : ""} deleted: ${softDeletedCount}`);
   if (DRY_RUN) {
     console.log(
       "\nRun WITHOUT --dry-run to apply changes:\n  node tools/deduplicate-all-tasks.mjs"
     );
   } else {
-    console.log("\n✅ Done. Duplicates have been soft-deleted (deleted_at set).");
+    console.log("\n✅ Done. Duplicates have been permanently deleted.");
   }
 }
 

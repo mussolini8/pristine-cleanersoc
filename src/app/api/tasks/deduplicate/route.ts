@@ -98,14 +98,13 @@ export async function POST() {
   let archived = 0;
 
   if (toArchive.length > 0) {
-    const now = new Date().toISOString();
     // Process in chunks to avoid query size limits
     const CHUNK = 100;
     for (let i = 0; i < toArchive.length; i += CHUNK) {
       const chunk = toArchive.slice(i, i + CHUNK);
       const { error } = await supabase
         .from("operation_tasks")
-        .update({ deleted_at: now, updated_at: now })
+        .delete()
         .in("id", chunk)
         .eq("user_id", user.id); // safety: only touch own tasks
 
@@ -115,6 +114,13 @@ export async function POST() {
       archived += chunk.length;
     }
   }
+
+  // Also purge any existing soft-deleted tasks to clean up database duplicates completely
+  await supabase
+    .from("operation_tasks")
+    .delete()
+    .not("deleted_at", "is", null)
+    .eq("user_id", user.id);
 
   return NextResponse.json({
     ok: true,

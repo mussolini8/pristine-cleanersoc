@@ -240,11 +240,9 @@ export async function POST(request: NextRequest) {
   if (duplicateIdsToArchive.size > 0) {
     const { error } = await supabase
       .from("operation_tasks")
-      .update({
-        deleted_at: now,
-        updated_at: now,
-      })
-      .in("id", Array.from(duplicateIdsToArchive));
+      .delete()
+      .in("id", Array.from(duplicateIdsToArchive))
+      .eq("user_id", user.id);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     archivedDuplicates = duplicateIdsToArchive.size;
   }

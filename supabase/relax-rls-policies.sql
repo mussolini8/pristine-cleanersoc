@@ -75,3 +75,15 @@ create policy "Commercial schedule rules are editable by all signed in users"
   on public.commercial_account_schedule_rules for all
   using (auth.uid() is not null)
   with check (auth.uid() is not null);
+
+-- 11. Operation Task Comments
+drop policy if exists "Operation task comments readable by task viewers" on public.operation_task_comments;
+create policy "Operation task comments readable by all signed in users"
+  on public.operation_task_comments for select
+  using (auth.uid() is not null);
+
+drop policy if exists "Operation task comments writable by task viewers" on public.operation_task_comments;
+create policy "Operation task comments writable by all signed in users"
+  on public.operation_task_comments for insert
+  with check (auth.uid() is not null);
+
