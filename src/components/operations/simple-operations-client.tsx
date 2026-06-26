@@ -3522,7 +3522,15 @@ export function SimpleOperationsClient({
     const paidTotal = weeklyPaymentSummaries.flatMap((summary) => summary.rows).filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const pendingTotal = weekTotal - paidTotal;
     const totalJobs = weeklyPaymentSummaries.filter((summary) => !isCarlosLopez(summary.teamName)).reduce((sum, summary) => sum + summary.rows.length, 0);
-    const displayedSummaries = (showAllPaymentCleaners ? weeklyPaymentSummaries : weeklyPaymentSummaries.filter((summary) => summary.rows.length > 0)).filter((summary) => {
+    const displayedSummaries = (showAllPaymentCleaners
+      ? weeklyPaymentSummaries
+      : weeklyPaymentSummaries.filter((summary) => {
+          const mixed = isMixedPaySummary(summary);
+          return mixed
+            ? summary.rows.some((row) => toNumber(row.residential_amount) > 0 || toNumber(row.commercial_amount) > 0)
+            : summary.rows.some((row) => toNumber(row.payment_amount) > 0);
+        })
+    ).filter((summary) => {
       const mixed = isMixedPaySummary(summary);
       if (isCarlosLopez(summary.teamName)) return false;
       if (paymentCleanerFilter !== "all" && summary.key !== paymentCleanerFilter) return false;
