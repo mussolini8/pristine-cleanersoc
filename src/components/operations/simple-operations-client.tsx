@@ -3604,8 +3604,12 @@ export function SimpleOperationsClient({
 
         <div className="grid gap-4">
           {displayedSummaries.length === 0 ? <Card><CardContent className="p-8 text-center text-sm font-bold text-muted-foreground">No residential payments recorded for this period.</CardContent></Card> : null}
-          <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {displayedSummaries.map((summary) => renderCleanerPaymentCard(summary))}
+          <div className="columns-1 gap-4 md:columns-2 xl:columns-3 [column-fill:balance]">
+            {displayedSummaries.map((summary) => (
+              <div key={summary.key} className="break-inside-avoid mb-4">
+                {renderCleanerPaymentCard(summary)}
+              </div>
+            ))}
           </div>
         </div>
         {renderPaymentModal(activePaymentSummary)}
