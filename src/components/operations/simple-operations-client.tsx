@@ -1388,9 +1388,8 @@ export function SimpleOperationsClient({
       scheduleRules: commercialScheduleRules,
       storedEntries: commercialHoursEntries,
       period: { start: commercialRange.start, end: commercialRange.end },
-      cutoffDate: today,
     });
-  }, [commercialAccounts, commercialHoursEntries, commercialRange.end, commercialRange.start, commercialScheduleRules, today]);
+  }, [commercialAccounts, commercialHoursEntries, commercialRange.end, commercialRange.start, commercialScheduleRules]);
 
   const filteredCommercialRows = useMemo(() => {
     return commercialRowsInWeek.filter((entry) => {
@@ -2409,6 +2408,7 @@ export function SimpleOperationsClient({
         regularHoursStr = String(totalHrs);
       }
       setCommercialHoursDraft({
+        id: entry.id,
         accountId: entry.account_id ?? "",
         teamId: "",
         teamName: entry.team_name ?? "",
@@ -2494,15 +2494,16 @@ export function SimpleOperationsClient({
         manual_entry: commercialHoursDraft.manualEntry,
         updated_at: now,
       };
-      const result = commercialHoursDraft.id
+      const isUpdate = !!(commercialHoursDraft.id && !commercialHoursDraft.id.startsWith("scheduled-"));
+      const result = isUpdate
         ? await supabase.from("commercial_hours_entries").update(payload).eq("id", commercialHoursDraft.id)
         : await supabase.from("commercial_hours_entries").insert({ ...payload, created_at: now });
       if (result.error) throw new Error(result.error.message);
       await writePayrollAudit(supabase, {
         entityType: "commercial_hours_entries",
-        entityId: commercialHoursDraft.id ?? null,
-        action: commercialHoursDraft.id ? "commercial_hours_updated" : "commercial_hours_created",
-        before: commercialHoursDraft.id ? commercialHoursEntries.find((entry) => entry.id === commercialHoursDraft.id) : null,
+        entityId: isUpdate ? commercialHoursDraft.id! : null,
+        action: isUpdate ? "commercial_hours_updated" : "commercial_hours_created",
+        before: isUpdate ? commercialHoursEntries.find((entry) => entry.id === commercialHoursDraft.id) : null,
         after: payload,
         actorId: userId,
       });
@@ -2524,19 +2525,55 @@ export function SimpleOperationsClient({
     if (!window.confirm("Are you sure you want to delete this commercial hours entry?")) return;
     setSavingPaymentKey("commercial-hours");
     try {
-      const { error } = await supabase
-        .from("commercial_hours_entries")
-        .delete()
-        .eq("id", commercialHoursDraft.id);
-      if (error) throw new Error(error.message);
-      await writePayrollAudit(supabase, {
-        entityType: "commercial_hours_entries",
-        entityId: commercialHoursDraft.id,
-        action: "commercial_hours_deleted",
-        before: commercialHoursEntries.find((entry) => entry.id === commercialHoursDraft.id) || null,
-        after: null,
-        actorId: userId,
-      });
+      const isStored = !commercialHoursDraft.id.startsWith("scheduled-");
+      if (isStored) {
+        const { error } = await supabase
+          .from("commercial_hours_entries")
+          .delete()
+          .eq("id", commercialHoursDraft.id);
+        if (error) throw new Error(error.message);
+        await writePayrollAudit(supabase, {
+          entityType: "commercial_hours_entries",
+          entityId: commercialHoursDraft.id,
+          action: "commercial_hours_deleted",
+          before: commercialHoursEntries.find((entry) => entry.id === commercialHoursDraft.id) || null,
+          after: null,
+          actorId: userId,
+        });
+      } else {
+        const now = new Date().toISOString();
+        const account = commercialAccounts.find((item) => item.id === commercialHoursDraft.accountId);
+        if (!account) throw new Error("Account not found");
+        const payload = {
+          user_id: userId,
+          account_id: account.id,
+          account_name: account.name,
+          team_id: commercialHoursDraft.teamId || null,
+          team_name: commercialHoursDraft.teamName,
+          work_date: commercialHoursDraft.workDate,
+          scheduled_day: WEEKDAY_NAMES[(parseDateKey(commercialHoursDraft.workDate) ?? new Date()).getDay()],
+          scheduled_hours: 0,
+          completed_hours: 0,
+          verified_hours: 0,
+          status: "skipped",
+          verified: false,
+          notes: "Deleted from schedule",
+          manual_entry: false,
+          updated_at: now,
+        };
+        const { error } = await supabase
+          .from("commercial_hours_entries")
+          .insert({ ...payload, created_at: now });
+        if (error) throw new Error(error.message);
+        await writePayrollAudit(supabase, {
+          entityType: "commercial_hours_entries",
+          entityId: null,
+          action: "commercial_hours_skipped_on_delete",
+          before: null,
+          after: payload,
+          actorId: userId,
+        });
+      }
       setCommercialHoursDraft({ ...EMPTY_COMMERCIAL_HOURS_DRAFT, workDate: commercialHoursDraft.workDate });
       setIsExtraHours(false);
       setExtraHoursValue("");

@@ -52,8 +52,12 @@ export function getCurrentWeekPeriod(anchor: string | Date = new Date()): Payrol
 
 export function getEvery15DaysPeriod(anchor: string | Date = new Date()): PayrollPeriodRange {
   const anchorDate = anchor instanceof Date ? anchor : parseDateOnly(anchor) ?? new Date();
-  const start = startOfWeek(anchorDate);
-  return { start: formatDateOnly(start), end: formatDateOnly(addDays(start, 14)), label: "Every 15 days" };
+  const year = anchorDate.getFullYear();
+  const month = anchorDate.getMonth();
+  const start = anchorDate.getDate() <= 15 ? new Date(year, month, 1) : new Date(year, month, 16);
+  const end = anchorDate.getDate() <= 15 ? new Date(year, month, 15) : new Date(year, month + 1, 0);
+  const label = anchorDate.getDate() <= 15 ? "1st - 15th of Month" : "16th - End of Month";
+  return { start: formatDateOnly(start), end: formatDateOnly(end), label };
 }
 
 export function getMonthPeriod(anchor: string | Date = new Date()): PayrollPeriodRange {
