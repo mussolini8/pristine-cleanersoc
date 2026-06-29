@@ -216,8 +216,8 @@ export function getPayableCommercialHours(entry: Pick<CommercialHoursEntryRow, "
 
 export function calculateCommercialHoursForPeriod(entries: CommercialHoursEntryRow[]) {
   return entries.reduce((totals, entry) => {
-    const scheduled = toNumber(entry.scheduled_hours);
-    const completed = toNumber(entry.completed_hours);
+    const scheduled = entry.status === "skipped" ? 0 : toNumber(entry.scheduled_hours);
+    const completed = entry.status === "skipped" ? 0 : toNumber(entry.completed_hours);
     const payable = getPayableCommercialHours(entry);
     return {
       scheduled: roundHours(totals.scheduled + scheduled),
