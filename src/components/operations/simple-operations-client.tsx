@@ -2498,6 +2498,57 @@ export function SimpleOperationsClient({
         updated_at: now,
       };
       const isUpdate = !!(commercialHoursDraft.id && !commercialHoursDraft.id.startsWith("scheduled-"));
+      const originalEntry = isUpdate
+        ? commercialHoursEntries.find((e) => e.id === commercialHoursDraft.id)
+        : null;
+      const originalDate = originalEntry
+        ? originalEntry.work_date
+        : (commercialHoursDraft.id && commercialHoursDraft.id.startsWith("scheduled-")
+          ? commercialHoursDraft.id.split("-").slice(-3).join("-")
+          : null);
+      const dateChanged = !!(originalDate && commercialHoursDraft.workDate !== originalDate);
+
+      if (dateChanged) {
+        const hasScheduleRuleOnOriginal = commercialScheduleRules.some(
+          (rule) =>
+            rule.commercial_account_id === commercialHoursDraft.accountId &&
+            rule.active !== false &&
+            Number(rule.day_of_week) === (parseDateKey(originalDate!) ?? new Date()).getDay()
+        );
+        if (hasScheduleRuleOnOriginal) {
+          const skipPayload = {
+            user_id: userId,
+            account_id: account.id,
+            account_name: account.name,
+            team_id: commercialHoursDraft.teamId || null,
+            team_name: teamName,
+            work_date: originalDate!,
+            scheduled_day: WEEKDAY_NAMES[(parseDateKey(originalDate!) ?? new Date()).getDay()],
+            scheduled_hours: 0,
+            completed_hours: 0,
+            verified_hours: 0,
+            status: "skipped",
+            verified: false,
+            notes: `Moved to ${commercialHoursDraft.workDate}`,
+            manual_entry: false,
+            updated_at: now,
+          };
+          const { error: skipError } = await supabase
+            .from("commercial_hours_entries")
+            .insert({ ...skipPayload, created_at: now });
+          if (skipError) throw new Error(skipError.message);
+
+          await writePayrollAudit(supabase, {
+            entityType: "commercial_hours_entries",
+            entityId: null,
+            action: "commercial_hours_skipped_on_move",
+            before: null,
+            after: skipPayload,
+            actorId: userId,
+          });
+        }
+      }
+
       const result = isUpdate
         ? await supabase.from("commercial_hours_entries").update(payload).eq("id", commercialHoursDraft.id)
         : await supabase.from("commercial_hours_entries").insert({ ...payload, created_at: now });
