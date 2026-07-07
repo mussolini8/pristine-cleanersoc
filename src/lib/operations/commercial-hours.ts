@@ -128,7 +128,7 @@ export function buildCommercialOccurrences(input: {
         team_name: ruleCleaner,
         scheduled_hours: ruleHours,
       };
-      if (toNumber(entry.completed_hours) === 0 || entry.completed_hours === entry.scheduled_hours) {
+      if (toNumber(entry.completed_hours) === 0 || (entry.completed_hours === entry.scheduled_hours && entry.completed_hours === ruleHours)) {
         updatedEntry.completed_hours = ruleHours;
       }
       syncedStored.push(updatedEntry);
