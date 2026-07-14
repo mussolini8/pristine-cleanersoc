@@ -88,7 +88,7 @@ type ScheduleRule = {
 const CLEANERS = [
   "", "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
   "Mirna Contreras", "Esperanza Youseff", "Ana Morales", "Maria Lopez",
-  "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin",
+  "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin", "Vanessa Ortega",
 ];
 
 const PIE_COLORS = [
@@ -915,7 +915,8 @@ export default function CommercialPage() {
           const seedCleaners = [
             "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
             "Mirna Contreras", "Esperanza Youseff", "Esperanza Yoseff", "Ana Morales",
-            "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin"
+            "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin",
+            "Vanessa Ortega"
           ];
 
           const staffToInsert = [];
