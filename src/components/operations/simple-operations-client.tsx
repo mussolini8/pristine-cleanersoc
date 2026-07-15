@@ -748,6 +748,76 @@ const SOP_TABLE_WRAP_CLASS = "overflow-hidden rounded-2xl border border-border/7
 const SOP_ACTION_BUTTON_CLASS = "h-10 rounded-xl px-3.5 text-xs font-semibold";
 const SOP_EMPTY_CLASS = "rounded-2xl border border-dashed border-border/70 bg-background/50 p-6 text-center text-xs font-medium text-muted-foreground";
 const SOP_ROW_CLASS = "rounded-xl border border-border/70 bg-card/60 p-3 transition hover:border-primary/30 hover:bg-accent/20";
+interface ParsedBulkHourRow {
+  date: string;
+  hours: number;
+  notes: string;
+  isHoliday: boolean;
+}
+
+function parseBulkHours(text: string, year: number, month: number): ParsedBulkHourRow[] {
+  const lines = text.split("\n");
+  const results: ParsedBulkHourRow[] = [];
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    
+    const dayMatch = trimmed.match(/^(?:day\s+|dia\s+)?(\d+)\b/i);
+    if (!dayMatch) continue;
+    
+    const day = parseInt(dayMatch[1], 10);
+    if (day < 1 || day > 31) continue;
+    
+    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const rest = trimmed.substring(dayMatch[0].length).trim();
+    
+    let hours = 0;
+    let isHoliday = false;
+    
+    const lowercaseRest = rest.toLowerCase();
+    if (
+      lowercaseRest.includes("festivo") || 
+      lowercaseRest.includes("holiday") || 
+      lowercaseRest.includes("no trabajó") || 
+      lowercaseRest.includes("no trabajo") || 
+      lowercaseRest.includes("day off")
+    ) {
+      isHoliday = true;
+    }
+    
+    const timeMatch = rest.match(/\b(\d{1,2}):(\d{2})\b/);
+    if (timeMatch) {
+      const h = parseInt(timeMatch[1], 10);
+      const m = parseInt(timeMatch[2], 10);
+      hours = h + m / 60;
+    } else {
+      if (isHoliday) {
+        hours = 0;
+      } else {
+        const cleanRest = rest.replace(/[:\-]/g, "").trim();
+        const simpleNumMatch = cleanRest.match(/^(\d+(?:\.\d+)?)$/);
+        if (simpleNumMatch) {
+          hours = parseFloat(simpleNumMatch[1]);
+        } else {
+          const unitNumMatch = rest.match(/\b(\d+(?:\.\d+)?)\s*(?:h|hrs|hours|horas)\b/i);
+          if (unitNumMatch) {
+            hours = parseFloat(unitNumMatch[1]);
+          }
+        }
+      }
+    }
+    
+    results.push({
+      date: dateStr,
+      hours: Math.round(hours * 100) / 100,
+      notes: trimmed,
+      isHoliday,
+    });
+  }
+  return results;
+}
+
 const SOP_CLOSE_BUTTON_CLASS = "grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent/55 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50";
 
 export function SimpleOperationsClient({
@@ -813,6 +883,23 @@ export function SimpleOperationsClient({
   const [commercialHoursDraft, setCommercialHoursDraft] = useState<CommercialHoursDraft>(EMPTY_COMMERCIAL_HOURS_DRAFT);
   const [commercialScheduleDraft, setCommercialScheduleDraft] = useState<CommercialScheduleDraft>(EMPTY_COMMERCIAL_SCHEDULE_DRAFT);
   const [paymentModalMode, setPaymentModalMode] = useState<PaymentModalMode | null>(null);
+  const [bulkHoursCleaner, setBulkHoursCleaner] = useState("");
+  const [bulkHoursAccount, setBulkHoursAccount] = useState("");
+  const [bulkHoursText, setBulkHoursText] = useState("");
+  const [bulkHoursMonth, setBulkHoursMonth] = useState(7);
+  const [bulkHoursYear, setBulkHoursYear] = useState(2026);
+  const [bulkHoursStatus, setBulkHoursStatus] = useState<CommercialHoursStatus>("completed");
+  const [bulkHoursSaving, setBulkHoursSaving] = useState(false);
+
+  const parsedBulkRows = useMemo(() => {
+    if (!bulkHoursText) return [];
+    return parseBulkHours(bulkHoursText, bulkHoursYear, bulkHoursMonth);
+  }, [bulkHoursText, bulkHoursYear, bulkHoursMonth]);
+
+  const parsedBulkTotalHours = useMemo(() => {
+    return parsedBulkRows.reduce((sum, row) => sum + row.hours, 0);
+  }, [parsedBulkRows]);
+
   const [commercialPanelOpen, setCommercialPanelOpen] = useState(false);
   const [paymentsRegistryOpen, setPaymentsRegistryOpen] = useState(false);
   const [activePaymentSummaryKey, setActivePaymentSummaryKey] = useState<string | null>(null);
@@ -2449,6 +2536,122 @@ export function SimpleOperationsClient({
     });
   }
 
+  function openBulkHoursModal() {
+    const d = parseDateKey(paymentWeekStart) || new Date();
+    setBulkHoursMonth(d.getMonth() + 1);
+    setBulkHoursYear(d.getFullYear());
+    setBulkHoursText("");
+    setBulkHoursStatus("completed");
+    
+    const cleanerName = commercialTeamFilter !== "all" ? commercialTeamFilter : "";
+    setBulkHoursCleaner(cleanerName);
+    
+    const defaultAcc = commercialAccounts.find(
+      (acc) => acc.cleaner_name?.toLowerCase() === cleanerName.toLowerCase()
+    );
+    setBulkHoursAccount(defaultAcc ? defaultAcc.id : "");
+    
+    setPaymentModalMode("commercial_bulk_hours");
+  }
+
+  async function saveBulkHours() {
+    if (!userId || bulkHoursSaving) return;
+    if (!bulkHoursCleaner || !bulkHoursAccount) {
+      setMessage({ tone: "error", text: "Limpiadora y Cuenta son requeridas." });
+      return;
+    }
+    if (parsedBulkRows.length === 0) {
+      setMessage({ tone: "error", text: "No se encontraron horas válidas en el texto. Verifica el formato." });
+      return;
+    }
+
+    const account = commercialAccounts.find((item) => item.id === bulkHoursAccount);
+    const team = staff.find((item) => item.name.toLowerCase() === bulkHoursCleaner.toLowerCase());
+    
+    if (!account) {
+      setMessage({ tone: "error", text: "Cuenta no encontrada." });
+      return;
+    }
+
+    setBulkHoursSaving(true);
+    const now = new Date().toISOString();
+    
+    try {
+      const dates = parsedBulkRows.map(r => r.date);
+      
+      const { data: existingEntries, error: fetchError } = await supabase
+        .from("commercial_hours_entries")
+        .select("id, work_date")
+        .eq("account_id", account.id)
+        .eq("team_name", bulkHoursCleaner)
+        .in("work_date", dates);
+
+      if (fetchError) throw new Error(fetchError.message);
+
+      const existingMap = new Map<string, string>();
+      if (existingEntries) {
+        for (const entry of existingEntries) {
+          existingMap.set(entry.work_date, entry.id);
+        }
+      }
+
+      const upsertRows = parsedBulkRows.map((row) => {
+        const existingId = existingMap.get(row.date);
+        const dayOfWeek = (parseDateKey(row.date) ?? new Date()).getDay();
+        const scheduledDay = WEEKDAY_NAMES[dayOfWeek];
+        
+        const payload: any = {
+          user_id: userId,
+          account_id: account.id,
+          account_name: account.name,
+          team_id: team?.id ?? null,
+          team_name: bulkHoursCleaner,
+          work_date: row.date,
+          scheduled_day: scheduledDay,
+          scheduled_hours: row.isHoliday ? 0 : row.hours,
+          completed_hours: row.hours,
+          verified_hours: bulkHoursStatus === "verified" || bulkHoursStatus === "paid" ? row.hours : 0,
+          status: row.isHoliday ? "skipped" : bulkHoursStatus,
+          verified: bulkHoursStatus === "verified" || bulkHoursStatus === "paid",
+          notes: row.notes || null,
+          manual_entry: true,
+          updated_at: now,
+        };
+
+        if (existingId) {
+          payload.id = existingId;
+        }
+
+        return payload;
+      });
+
+      const { error: upsertError } = await supabase
+        .from("commercial_hours_entries")
+        .upsert(upsertRows, { onConflict: "id" });
+
+      if (upsertError) throw new Error(upsertError.message);
+
+      for (const row of upsertRows) {
+        await writePayrollAudit(supabase, {
+          entityType: "commercial_hours_entries",
+          entityId: row.id || null,
+          action: row.id ? "commercial_hours_updated" : "commercial_hours_created",
+          before: null,
+          after: row,
+          actorId: userId,
+        });
+      }
+
+      setMessage({ tone: "success", text: `Se guardaron ${upsertRows.length} días de horas para ${bulkHoursCleaner}.` });
+      setPaymentModalMode(null);
+      await loadData();
+    } catch (err: any) {
+      setMessage({ tone: "error", text: `Error al guardar: ${err.message || err}` });
+    } finally {
+      setBulkHoursSaving(false);
+    }
+  }
+
   async function saveCommercialHours(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!userId || savingPaymentKey) return;
@@ -3036,8 +3239,9 @@ export function SimpleOperationsClient({
             {view === "residential" ? (
               commercialPanelOpen ? (
                 <>
-                  <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
+                   <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
                   <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
+                  <Button variant="outline" onClick={openBulkHoursModal}><FileSpreadsheet className="size-4" /> Ingreso Rápido</Button>
                   <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure</Button>
                   <Button variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
                 </>
@@ -4189,6 +4393,142 @@ export function SimpleOperationsClient({
               <button type="button" className="grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close commercial hours modal" onClick={() => setPaymentModalMode(null)}><X className="size-[18px]" /></button>
             </div>
             <div className="p-5">{renderCommercialHoursForm()}</div>
+          </div>
+        </div>
+      );
+    }
+    if (paymentModalMode === "commercial_bulk_hours") {
+      return (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm sm:p-6">
+          <div className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-4xl w-full")}>
+            <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold tracking-normal text-emerald-950 dark:text-emerald-50">Ingreso Rápido de Horas Comerciales</h2>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">Pega una lista de horas y días para subirlos de una sola vez.</p>
+              </div>
+              <button type="button" className="grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close modal" onClick={() => setPaymentModalMode(null)}><X className="size-[18px]" /></button>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <label className={PAYMENT_LABEL_CLASS}>Limpiadora / Equipo
+                  <select className={PAYMENT_FIELD_CLASS} value={bulkHoursCleaner} onChange={(event) => {
+                    const cleaner = event.target.value;
+                    setBulkHoursCleaner(cleaner);
+                    const defaultAcc = commercialAccounts.find(
+                      (acc) => acc.cleaner_name?.toLowerCase() === cleaner.toLowerCase()
+                    );
+                    if (defaultAcc) setBulkHoursAccount(defaultAcc.id);
+                  }}>
+                    <option value="">Seleccionar limpiadora</option>
+                    {activeCommercialTeams.map((team) => <option key={team.id} value={team.name}>{team.name}</option>)}
+                  </select>
+                </label>
+                
+                <label className={PAYMENT_LABEL_CLASS}>Cuenta Comercial
+                  <select className={PAYMENT_FIELD_CLASS} value={bulkHoursAccount} onChange={(event) => setBulkHoursAccount(event.target.value)}>
+                    <option value="">Seleccionar cuenta</option>
+                    {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} ({account.city})</option>)}
+                  </select>
+                </label>
+                
+                <label className={PAYMENT_LABEL_CLASS}>Año
+                  <select className={PAYMENT_FIELD_CLASS} value={bulkHoursYear} onChange={(event) => setBulkHoursYear(Number(event.target.value))}>
+                    {[2024, 2025, 2026, 2027].map((yr) => <option key={yr} value={yr}>{yr}</option>)}
+                  </select>
+                </label>
+                
+                <label className={PAYMENT_LABEL_CLASS}>Mes
+                  <select className={PAYMENT_FIELD_CLASS} value={bulkHoursMonth} onChange={(event) => setBulkHoursMonth(Number(event.target.value))}>
+                    {["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"].map((name, index) => (
+                      <option key={index + 1} value={index + 1}>{name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-foreground">
+                    Copia y pega la lista de días y horas aquí:
+                  </label>
+                  <textarea
+                    className="w-full h-64 p-3 rounded-xl border border-input bg-background font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                    placeholder={`Ejemplo:\n1: 7:09\n2: 7:36\n3: no trabajó (festivo)\n6: 5:47`}
+                    value={bulkHoursText}
+                    onChange={(event) => setBulkHoursText(event.target.value)}
+                  />
+                  <div className="text-xs text-muted-foreground leading-relaxed">
+                    <strong>Formatos soportados:</strong><br />
+                    • Horas: <code>día: H:MM</code> (ej: <code>1: 7:09</code>) o <code>día H:MM</code> (ej: <code>7 5:47</code>)<br />
+                    • Decimales: <code>día: horas</code> (ej: <code>1: 7.15</code>)<br />
+                    • Festivos/No trabajados: incluye palabras como <code>festivo</code>, <code>holiday</code>, <code>no trabajó</code> (se guardan como 0h y se marcan como no elegibles/skipped).
+                  </div>
+                </div>
+                
+                <div className="space-y-2 flex flex-col h-full">
+                  <div className="text-sm font-semibold text-foreground flex justify-between">
+                    <span>Previsualización del Cálculo:</span>
+                    <span className="text-emerald-700 dark:text-emerald-400 font-bold">Total: {formatHours(parsedBulkTotalHours)}</span>
+                  </div>
+                  
+                  <div className="flex-1 overflow-auto rounded-xl border border-border/70 bg-muted/20 p-3 max-h-64">
+                    {parsedBulkRows.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">
+                        Los días y horas parseados aparecerán aquí...
+                      </div>
+                    ) : (
+                      <table className="w-full text-xs text-left">
+                        <thead>
+                          <tr className="border-b border-border/70 text-muted-foreground font-semibold">
+                            <th className="pb-2">Fecha</th>
+                            <th className="pb-2 text-right">Horas</th>
+                            <th className="pb-2 pl-3">Tipo / Nota</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parsedBulkRows.map((row, idx) => (
+                            <tr key={idx} className="border-b border-border/40 last:border-0">
+                              <td className="py-1.5 font-medium">{displayDate(row.date)}</td>
+                              <td className="py-1.5 text-right font-semibold">{row.hours.toFixed(2)} hrs</td>
+                              <td className="py-1.5 pl-3">
+                                {row.isHoliday ? (
+                                  <Badge className="border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-900 px-1 py-0" variant="outline">Festivo / No elegible</Badge>
+                                ) : (
+                                  <span className="text-muted-foreground truncate max-w-[150px] inline-block" title={row.notes}>{row.notes.replace(/^\d+[:\s]*/, "") || "Normal"}</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  <div className="pt-2">
+                    <label className={PAYMENT_LABEL_CLASS}>Estado al guardar
+                      <select className={PAYMENT_FIELD_CLASS} value={bulkHoursStatus} onChange={(event) => setBulkHoursStatus(event.target.value as CommercialHoursStatus)}>
+                        <option value="completed">Completed (Completado)</option>
+                        <option value="verified">Verified (Verificado)</option>
+                        <option value="paid">Paid (Pagado)</option>
+                        <option value="needs_review">Needs review (Requiere revisión)</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-2 border-t border-border/70 p-4 bg-muted/10">
+              <Button className="rounded-xl" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancelar</Button>
+              <Button 
+                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white" 
+                disabled={bulkHoursSaving || parsedBulkRows.length === 0 || !bulkHoursCleaner || !bulkHoursAccount} 
+                onClick={saveBulkHours}
+              >
+                {bulkHoursSaving ? "Guardando..." : `Guardar ${parsedBulkRows.length} días (${formatHours(parsedBulkTotalHours)})`}
+              </Button>
+            </div>
           </div>
         </div>
       );
