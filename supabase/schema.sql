@@ -809,7 +809,7 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, full_name, avatar_url, username, app_role, access_scope)
+  insert into public.profiles (id, full_name, avatar_url, username, app_role, access_scope, email)
   values (
     new.id,
     new.raw_user_meta_data ->> 'full_name',
@@ -829,12 +829,14 @@ begin
       when lower(new.email) = 'pristinejanitorial@pristine.local' then 'commercial'
       when lower(new.email) = 'pristineseo@pristine.local' then 'seo'
       else 'residential'
-    end
+    end,
+    new.email
   )
   on conflict (id) do update set
     username = coalesce(excluded.username, public.profiles.username),
     app_role = excluded.app_role,
     access_scope = excluded.access_scope,
+    email = coalesce(excluded.email, public.profiles.email),
     updated_at = now();
   return new;
 end;
