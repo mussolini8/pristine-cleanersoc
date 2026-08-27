@@ -9,6 +9,7 @@ import {
   MapPin,
   Star,
   Users,
+  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,8 @@ import {
   InspectorsPanel,
   type QCInspector as InspPanelInspector,
 } from "@/components/qc/inspectors-panel";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 // ─────────────────────────────────────────────
 // Types
@@ -29,6 +32,9 @@ type GeofenceRow = {
   commercial_account_id: string;
   account_name: string;
   address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  radius_meters: number | null;
   active: boolean;
 };
 
@@ -111,10 +117,12 @@ function AccountsTab({
   geofences,
   allAccounts,
   loading,
+  onConfigureGeofence,
 }: {
   geofences: GeofenceRow[];
   allAccounts: CommercialAccountRow[];
   loading: boolean;
+  onConfigureGeofence: (account: CommercialAccountRow) => void;
 }) {
   const geofenceAccountIds = useMemo(
     () => new Set(geofences.map((g) => g.commercial_account_id)),
@@ -145,6 +153,7 @@ function AccountsTab({
               <th className="px-4 text-left">Account</th>
               <th className="px-4 text-left">City</th>
               <th className="px-4 text-left">Geofence</th>
+              <th className="px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -176,6 +185,15 @@ function AccountsTab({
                       {hasGeo ? "Configured" : "Not configured"}
                     </span>
                   </td>
+                  <td className="px-4 text-right">
+                    <button
+                      type="button"
+                      onClick={() => onConfigureGeofence(acct)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border/80 bg-card px-2.5 py-1 text-xs font-semibold text-muted-foreground hover:border-border hover:text-foreground transition-all cursor-pointer animate-none"
+                    >
+                      Configure
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -202,6 +220,7 @@ export function QCDashboardClient() {
   const [schedules, setSchedules] = useState<QCSchedule[]>([]);
   const [geofences, setGeofences] = useState<GeofenceRow[]>([]);
   const [allAccounts, setAllAccounts] = useState<CommercialAccountRow[]>([]);
+  const [selectedGeofenceAccount, setSelectedGeofenceAccount] = useState<CommercialAccountRow | null>(null);
 
   // ── Load data ──────────────────────────────────
   useEffect(() => {
@@ -222,7 +241,7 @@ export function QCDashboardClient() {
           .eq("active", true),
         supabase
           .from("qc_property_geofences")
-          .select("id, commercial_account_id, account_name, address, active"),
+          .select("id, commercial_account_id, account_name, address, latitude, longitude, radius_meters, active"),
         supabase
           .from("commercial_accounts")
           .select("id, name, city")
@@ -249,6 +268,72 @@ export function QCDashboardClient() {
       mounted = false;
     };
   }, [supabase]);
+
+  // Geofence save handler
+  async function handleSaveGeofence(
+    lat: number,
+    lng: number,
+    radius: number,
+    address: string | null
+  ) {
+    if (!selectedGeofenceAccount) return;
+    const acct = selectedGeofenceAccount;
+
+    const existing = geofences.find((g) => g.commercial_account_id === acct.id);
+
+    if (existing) {
+      // Update existing geofence
+      const { data, error } = await supabase
+        .from("qc_property_geofences")
+        .update({
+          address,
+          latitude: lat,
+          longitude: lng,
+          radius_meters: radius,
+          active: true,
+        })
+        .eq("id", existing.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Update state
+      setGeofences((prev) =>
+        prev.map((g) =>
+          g.id === existing.id
+            ? {
+                ...g,
+                address,
+                latitude: lat,
+                longitude: lng,
+                radius_meters: radius,
+              }
+            : g
+        )
+      );
+    } else {
+      // Create new geofence
+      const { data, error } = await supabase
+        .from("qc_property_geofences")
+        .insert({
+          commercial_account_id: acct.id,
+          account_name: acct.name,
+          address,
+          latitude: lat,
+          longitude: lng,
+          radius_meters: radius,
+          active: true,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Update state
+      setGeofences((prev) => [...prev, data as GeofenceRow]);
+    }
+  }
 
   // ── Computed overview metrics ──────────────────
   const today = new Date();
@@ -462,8 +547,139 @@ export function QCDashboardClient() {
           geofences={geofences}
           allAccounts={allAccounts}
           loading={false}
+          onConfigureGeofence={(acct) => setSelectedGeofenceAccount(acct)}
         />
       )}
+
+      {selectedGeofenceAccount && (
+        <GeofenceModal
+          account={selectedGeofenceAccount}
+          existingGeofence={geofences.find((g) => g.commercial_account_id === selectedGeofenceAccount.id) ?? null}
+          onClose={() => setSelectedGeofenceAccount(null)}
+          onSave={handleSaveGeofence}
+        />
+      )}
+    </div>
+  );
+}
+
+function GeofenceModal({
+  account,
+  existingGeofence,
+  onClose,
+  onSave,
+}: {
+  account: CommercialAccountRow;
+  existingGeofence: GeofenceRow | null;
+  onClose: () => void;
+  onSave: (lat: number, lng: number, radius: number, address: string | null) => Promise<void>;
+}) {
+  const [lat, setLat] = useState(existingGeofence?.latitude?.toString() ?? "");
+  const [lng, setLng] = useState(existingGeofence?.longitude?.toString() ?? "");
+  const [radius, setRadius] = useState(existingGeofence?.radius_meters?.toString() ?? "75");
+  const [address, setAddress] = useState(existingGeofence?.address ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!lat || !lng || !radius) {
+      setError("Please fill in Latitude, Longitude, and Radius.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(Number(lat), Number(lng), Number(radius), address || null);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message ?? "Error saving geofence");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+      <Card className="w-full max-w-md border-border/60">
+        <form onSubmit={handleSubmit}>
+          <div className="flex items-center justify-between border-b border-border/50 px-5 py-4">
+            <h3 className="text-base font-bold text-foreground">Configure Geofence</h3>
+            <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer">
+              <X className="size-4" />
+            </button>
+          </div>
+          <CardContent className="p-5 space-y-4">
+            <div className="bg-primary/[0.04] border border-primary/10 rounded-xl p-3 text-xs text-primary font-semibold">
+              Property: {account.name}
+            </div>
+
+            {error && (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-xs font-semibold text-destructive">
+                {error}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Latitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  placeholder="e.g. 33.6846"
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  value={lat}
+                  onChange={(e) => setLat(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Longitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  placeholder="e.g. -117.8265"
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  value={lng}
+                  onChange={(e) => setLng(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-muted-foreground uppercase">Radius (meters)</label>
+              <input
+                type="number"
+                required
+                placeholder="Default: 75"
+                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                value={radius}
+                onChange={(e) => setRadius(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-muted-foreground uppercase">Address</label>
+              <textarea
+                placeholder="Optional property address"
+                className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                rows={2}
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+              />
+            </div>
+          </CardContent>
+          <div className="flex gap-2 border-t border-border/50 px-5 py-4 justify-end">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save Geofence"}
+            </Button>
+          </div>
+        </form>
+      </Card>
     </div>
   );
 }
