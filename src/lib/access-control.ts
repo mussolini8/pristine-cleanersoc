@@ -6,7 +6,7 @@ export const USERNAME_AUTH_EMAILS: Record<string, string> = {
   pristinejanitorial: "pristinejanitorial@pristine.local",
   pristineseo: "pristineseo@pristine.local",
   // QC Field Inspectors
-  marial: "marial@pristine.local",
+  marial: "marialpristine@gmail.com",
   anam: "anam@pristine.local",
 };
 
