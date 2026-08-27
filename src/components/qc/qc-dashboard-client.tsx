@@ -667,6 +667,7 @@ function GeofenceModal({
   const [address, setAddress] = useState(existingGeofence?.address ?? "");
   const [saving, setSaving] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Pre-fill maps URL if editing existing coordinates
@@ -675,6 +676,39 @@ function GeofenceModal({
       setMapsUrl(`https://www.google.com/maps/place/${existingGeofence.latitude},${existingGeofence.longitude}`);
     }
   }, [existingGeofence]);
+
+  async function handleGeocodeAddress() {
+    if (!address.trim()) return;
+    setGeocoding(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/qc/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setLat(data.lat.toString());
+        setLng(data.lng.toString());
+      } else {
+        const data = await res.json();
+        setError(data.error ?? "Failed to geocode address automatically. Enter coordinates manually.");
+      }
+    } catch (e: any) {
+      setError("Error calling geocoder. Please enter coordinates manually.");
+    } finally {
+      setGeocoding(false);
+    }
+  }
+
+  // Auto-geocode address on mount if coordinates are empty
+  useEffect(() => {
+    if (!lat && !lng && address.trim()) {
+      handleGeocodeAddress();
+    }
+  }, [address]);
 
   async function handleLinkChange(value: string) {
     setMapsUrl(value);
@@ -828,6 +862,22 @@ function GeofenceModal({
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
               />
+              {address.trim() && (
+                <button
+                  type="button"
+                  onClick={handleGeocodeAddress}
+                  disabled={geocoding}
+                  className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                >
+                  {geocoding ? (
+                    <>
+                      <Loader2 className="size-3 animate-spin" /> Locating address...
+                    </>
+                  ) : (
+                    "📍 Auto-locate Coordinates from Address"
+                  )}
+                </button>
+              )}
             </div>
           </CardContent>
           <div className="flex gap-2 border-t border-border/50 px-5 py-4 justify-end">
