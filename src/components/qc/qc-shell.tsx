@@ -35,7 +35,9 @@ export function QCShell({ children, role }: { children: React.ReactNode; role: A
 
         {/* Main scrollable content */}
         <main className="flex-1 overflow-y-auto pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
-          {children}
+          <div className="mx-auto max-w-2xl w-full px-4 md:px-0">
+            {children}
+          </div>
         </main>
 
         {/* Bottom nav bar — mobile ergonomic, thumb-friendly */}
