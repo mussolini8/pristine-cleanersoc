@@ -9,6 +9,7 @@ import {
   FileText,
   Loader2,
   MapPin,
+  Plus,
   Star,
   Users,
   X,
@@ -239,6 +240,7 @@ export function QCDashboardClient() {
   const [inspections, setInspections] = useState<InspectionRow[]>([]);
   const [selectedGeofenceAccount, setSelectedGeofenceAccount] = useState<CommercialAccountRow | null>(null);
   const [selectedAudit, setSelectedAudit] = useState<InspectionRow | null>(null);
+  const [schedulingOpen, setSchedulingOpen] = useState(false);
 
   // ── Load data ──────────────────────────────────
   useEffect(() => {
@@ -550,10 +552,17 @@ export function QCDashboardClient() {
 
       {/* Calendar */}
       {activeTab === "calendar" && (
-        <QCCalendar
-          inspectors={calendarInspectors}
-          schedules={schedules}
-        />
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-end">
+            <Button onClick={() => setSchedulingOpen(true)} size="sm" className="cursor-pointer gap-1">
+              <Plus className="size-4" /> Schedule Inspection
+            </Button>
+          </div>
+          <QCCalendar
+            inspectors={calendarInspectors}
+            schedules={schedules}
+          />
+        </div>
       )}
 
       {/* Inspectors */}
@@ -600,6 +609,16 @@ export function QCDashboardClient() {
           account={allAccounts.find((a) => a.id === selectedAudit.account_id) ?? null}
           inspector={inspectors.find((i) => i.id === selectedAudit.inspector_id) ?? null}
           onClose={() => setSelectedAudit(null)}
+        />
+      )}
+
+      {schedulingOpen && (
+        <ScheduleInspectionModal
+          open={schedulingOpen}
+          onClose={() => setSchedulingOpen(false)}
+          accounts={allAccounts}
+          inspectors={inspectors}
+          onSaved={(newSched) => setSchedules((prev) => [...prev, newSched])}
         />
       )}
     </div>
@@ -1011,6 +1030,235 @@ function AuditReportModal({
             Close
           </Button>
         </div>
+      </Card>
+    </div>
+  );
+}
+
+function ScheduleInspectionModal({
+  open,
+  onClose,
+  accounts,
+  inspectors,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  accounts: CommercialAccountRow[];
+  inspectors: InspPanelInspector[];
+  onSaved: (schedule: QCSchedule) => void;
+}) {
+  const supabase = createClient();
+  const [acctId, setAcctId] = useState("");
+  const [inspId, setInspId] = useState("");
+  const [frequency, setFrequency] = useState("weekly");
+  const [days, setDays] = useState<number[]>([]);
+  const [time, setTime] = useState("18:00");
+  const [date, setDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  function handleDayToggle(idx: number) {
+    setDays((prev) =>
+      prev.includes(idx) ? prev.filter((d) => d !== idx) : [...prev, idx].sort()
+    );
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!acctId || !inspId) {
+      setError("Please select an Account and an Inspector.");
+      return;
+    }
+    if ((frequency === "weekly" || frequency === "biweekly") && days.length === 0) {
+      setError("Please select at least one day of the week.");
+      return;
+    }
+    if (frequency === "one_off" && !date) {
+      setError("Please select a specific date.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    const selectedAcct = accounts.find((a) => a.id === acctId);
+
+    try {
+      const { data, error: dbErr } = await supabase
+        .from("qc_inspection_schedules")
+        .insert({
+          inspector_id: inspId,
+          commercial_account_id: acctId,
+          account_name: selectedAcct?.name ?? "Unknown Property",
+          frequency_type: frequency,
+          days_of_week: frequency === "weekly" || frequency === "biweekly" ? days : null,
+          scheduled_time: time || null,
+          specific_date: frequency === "one_off" ? date : null,
+          notes: notes || null,
+          active: true,
+        })
+        .select()
+        .single();
+
+      if (dbErr) throw dbErr;
+
+      onSaved(data as QCSchedule);
+      onClose();
+      // Reset form
+      setAcctId("");
+      setInspId("");
+      setDays([]);
+      setNotes("");
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to save schedule.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <Card className="w-full max-w-md border-border/60 shadow-xl">
+        <form onSubmit={handleSubmit}>
+          <div className="flex items-center justify-between border-b border-border/50 px-5 py-4">
+            <h3 className="text-base font-bold text-foreground">Schedule Inspection</h3>
+            <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer">
+              <X className="size-4" />
+            </button>
+          </div>
+          <CardContent className="p-5 space-y-4">
+            {error && (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-xs font-semibold text-destructive">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-muted-foreground uppercase">Property / Account *</label>
+              <select
+                required
+                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                value={acctId}
+                onChange={(e) => setAcctId(e.target.value)}
+              >
+                <option value="">Select account...</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.city ?? "No City"})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-muted-foreground uppercase">Assigned Inspector *</label>
+              <select
+                required
+                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                value={inspId}
+                onChange={(e) => setInspId(e.target.value)}
+              >
+                <option value="">Select inspector...</option>
+                {inspectors.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Frequency *</label>
+                <select
+                  required
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  value={frequency}
+                  onChange={(e) => setFrequency(e.target.value)}
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Bi-weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="one_off">One-off Date</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Time *</label>
+                <input
+                  type="time"
+                  required
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {frequency === "one_off" ? (
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Specific Date *</label>
+                <input
+                  type="date"
+                  required
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </div>
+            ) : (frequency === "weekly" || frequency === "biweekly") ? (
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Days of Week *</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {DAYS_OF_WEEK.map((label, idx) => {
+                    const selected = days.includes(idx);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleDayToggle(idx)}
+                        className={cn(
+                          "rounded-lg px-2.5 py-1.5 text-xs font-semibold border transition-all cursor-pointer",
+                          selected
+                            ? "bg-primary border-primary text-primary-foreground"
+                            : "border-border bg-card text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-muted-foreground uppercase">Notes</label>
+              <textarea
+                placeholder="Instructions or schedule notes..."
+                className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </div>
+          </CardContent>
+          <div className="flex gap-2 border-t border-border/50 px-5 py-4 justify-end">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Scheduling..." : "Schedule"}
+            </Button>
+          </div>
+        </form>
       </Card>
     </div>
   );
