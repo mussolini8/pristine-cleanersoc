@@ -64,6 +64,8 @@ export function canAccessArea(role: AppRole, area: AccessArea) {
   if (role === "operations_manager") return true;
   // Inspectors: QC area only — read-only on bookings enforced in each page
   if (role === "inspector") return area === "qc";
+  // Managers, admins, owners, residential, and commercial roles can access the QC area
+  if (area === "qc") return true;
   if (area === "tasks") return role === "residential" || role === "commercial" || role === "seo";
   if (area === "workspace") return role === "residential" || role === "commercial";
   if (area === "operations") return role !== "seo";
