@@ -1474,56 +1474,144 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
+// ─── Distance helper ──────────────────────────────────────────────────────────
+
+function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // metres
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // in meters
+}
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
+
 export function QCInspectorClient() {
   const [screen, setScreen] = useState<Screen>("home");
   const [activeInspection, setActiveInspection] =
     useState<ActiveInspection | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  
+  // Geofence Warning state
+  const [geofenceWarning, setGeofenceWarning] = useState<{
+    accountName: string;
+    distance: number;
+    radius: number;
+    onConfirm: () => void;
+  } | null>(null);
+  const [checkingGps, setCheckingGps] = useState(false);
+
+  const startInspectionDb = useCallback(async (account: ScheduledAccount, lat?: number, lng?: number) => {
+    const supabase = createClient();
+    try {
+      let inspectionId = account.inspection_id;
+      if (!inspectionId) {
+        const { data, error } = await supabase
+          .from("qc_inspections")
+          .insert({
+            account_id: account.account_id,
+            status: "in_progress",
+            check_in_at: new Date().toISOString(),
+            check_in_latitude: lat ?? null,
+            check_in_longitude: lng ?? null,
+          })
+          .select("id")
+          .single();
+
+        if (error || !data) {
+          inspectionId = `local-${Date.now()}`;
+        } else {
+          inspectionId = data.id as string;
+          await supabase
+            .from("qc_inspection_schedules")
+            .update({ status: "in_progress" })
+            .eq("id", account.id);
+        }
+      }
+      setActiveInspection({
+        inspection_id: inspectionId ?? `local-${Date.now()}`,
+        account_id: account.account_id,
+        account_name: account.account_name,
+        areas: buildDefaultAreas(),
+      });
+      setScreen("active");
+    } catch {
+      setActiveInspection({
+        inspection_id: `local-${Date.now()}`,
+        account_id: account.account_id,
+        account_name: account.account_name,
+        areas: buildDefaultAreas(),
+      });
+      setScreen("active");
+    }
+  }, []);
 
   const handleStartInspection = useCallback(
     async (account: ScheduledAccount) => {
+      setCheckingGps(true);
       const supabase = createClient();
-      try {
-        let inspectionId = account.inspection_id;
-        if (!inspectionId) {
-          const { data, error } = await supabase
-            .from("qc_inspections")
-            .insert({
-              account_id: account.account_id,
-              status: "in_progress",
-              check_in_at: new Date().toISOString(),
-            })
-            .select("id")
-            .single();
 
-          if (error || !data) {
-            inspectionId = `local-${Date.now()}`;
-          } else {
-            inspectionId = data.id as string;
-            await supabase
-              .from("qc_inspection_schedules")
-              .update({ status: "in_progress" })
-              .eq("id", account.id);
-          }
-        }
-        setActiveInspection({
-          inspection_id: inspectionId ?? `local-${Date.now()}`,
-          account_id: account.account_id,
-          account_name: account.account_name,
-          areas: buildDefaultAreas(),
-        });
-        setScreen("active");
-      } catch {
-        setActiveInspection({
-          inspection_id: `local-${Date.now()}`,
-          account_id: account.account_id,
-          account_name: account.account_name,
-          areas: buildDefaultAreas(),
-        });
-        setScreen("active");
+      // 1. Fetch configured geofence
+      const { data: geo } = await supabase
+        .from("qc_property_geofences")
+        .select("latitude, longitude, radius_meters")
+        .eq("commercial_account_id", account.account_id)
+        .eq("active", true)
+        .maybeSingle();
+
+      if (!geo || !geo.latitude || !geo.longitude) {
+        setCheckingGps(false);
+        await startInspectionDb(account);
+        return;
       }
+
+      // 2. Get current GPS position
+      if (!navigator.geolocation) {
+        setCheckingGps(false);
+        await startInspectionDb(account);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          setCheckingGps(false);
+          const currentLat = position.coords.latitude;
+          const currentLng = position.coords.longitude;
+          const targetLat = Number(geo.latitude);
+          const targetLng = Number(geo.longitude);
+          const radius = Number(geo.radius_meters || 75);
+
+          const distance = getDistanceMeters(currentLat, currentLng, targetLat, targetLng);
+
+          if (distance > radius) {
+            setGeofenceWarning({
+              accountName: account.account_name,
+              distance: Math.round(distance),
+              radius,
+              onConfirm: () => {
+                setGeofenceWarning(null);
+                void startInspectionDb(account, currentLat, currentLng);
+              },
+            });
+          } else {
+            await startInspectionDb(account, currentLat, currentLng);
+          }
+        },
+        async () => {
+          setCheckingGps(false);
+          await startInspectionDb(account);
+        },
+        { timeout: 6000 }
+      );
     },
-    [],
+    [startInspectionDb]
   );
 
   const handleAreaUpdate = useCallback(
@@ -1551,6 +1639,20 @@ export function QCInspectorClient() {
       const grade = calcGrade(score);
       const isLocal = activeInspection.inspection_id.startsWith("local-");
 
+      // Try capturing checkout GPS
+      let checkOutLat: number | null = null;
+      let checkOutLng: number | null = null;
+
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 3000 });
+        });
+        checkOutLat = pos.coords.latitude;
+        checkOutLng = pos.coords.longitude;
+      } catch {
+        // Silent fallback
+      }
+
       if (!isLocal) {
         await supabase
           .from("qc_inspections")
@@ -1561,6 +1663,8 @@ export function QCInspectorClient() {
             grade,
             inspector_signature: signatureDataUrl ?? null,
             inspection_data: JSON.stringify(activeInspection.areas),
+            check_out_latitude: checkOutLat,
+            check_out_longitude: checkOutLng,
           })
           .eq("id", activeInspection.inspection_id);
       }
@@ -1592,6 +1696,44 @@ export function QCInspectorClient() {
           onBack={() => setScreen("active")}
         />
       )}
+
+      {/* Checking GPS overlay loading */}
+      {checkingGps && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+          <Loader2 className="size-8 animate-spin text-primary" />
+          <p className="mt-3 text-sm font-semibold text-muted-foreground">Verifying GPS Location...</p>
+        </div>
+      )}
+
+      {/* Geofence Warning Modal */}
+      {geofenceWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <Card className="w-full max-w-sm border-destructive/20 shadow-xl">
+            <CardContent className="flex flex-col items-center p-6 text-center">
+              <div className="flex size-14 items-center justify-center rounded-full bg-destructive/10 text-destructive mb-4 animate-pulse">
+                <MapPin className="size-7" />
+              </div>
+              <h3 className="text-lg font-bold text-foreground">Out of Geofence</h3>
+              <p className="text-sm text-muted-foreground mt-2">
+                You are currently <strong className="text-foreground">{geofenceWarning.distance} meters</strong> away from <strong>{geofenceWarning.accountName}</strong>. 
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                You must be on-site (within {geofenceWarning.radius} meters) to perform this audit.
+              </p>
+
+              <div className="flex gap-2 w-full mt-6">
+                <Button variant="outline" className="flex-1" onClick={() => setGeofenceWarning(null)}>
+                  Close
+                </Button>
+                <Button className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={geofenceWarning.onConfirm}>
+                  Bypass (Demo)
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );
