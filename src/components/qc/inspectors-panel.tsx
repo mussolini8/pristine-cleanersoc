@@ -213,11 +213,13 @@ function InspectorModal({
   onClose,
   existing,
   onSaved,
+  onDeleted,
 }: {
   open: boolean;
   onClose: () => void;
   existing: QCInspector | null;
   onSaved: (inspector: QCInspector) => void;
+  onDeleted?: (id: string) => void;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [form, setForm] = useState<InspectorFormState>(DEFAULT_FORM);
@@ -292,6 +294,30 @@ function InspectorModal({
     }
     onSaved(data);
     onClose();
+  }
+
+  async function handleDelete() {
+    if (!existing || !window.confirm(`Are you sure you want to delete ${existing.name}? This will also delete all their assignments.`)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const { error: err } = await supabase
+        .from("qc_inspectors")
+        .delete()
+        .eq("id", existing.id);
+        
+      if (err) {
+        setError(err.message ?? "Failed to delete inspector.");
+        return;
+      }
+      
+      onDeleted?.(existing.id);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message ?? "Error deleting inspector.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -402,14 +428,27 @@ function InspectorModal({
             />
           </div>
 
-          <Button type="submit" disabled={saving} className="w-full">
-            {saving ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Check className="size-4" />
+          <div className="flex gap-2">
+            {existing && (
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 border-destructive/20 text-destructive hover:bg-destructive/10 hover:text-destructive gap-2 cursor-pointer"
+                onClick={handleDelete}
+                disabled={saving}
+              >
+                <Trash2 className="size-4" /> Delete
+              </Button>
             )}
-            {saving ? "Saving…" : existing ? "Save Changes" : "Add Inspector"}
-          </Button>
+            <Button type="submit" disabled={saving} className="flex-1 cursor-pointer">
+              {saving ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Check className="size-4" />
+              )}
+              {saving ? "Saving…" : existing ? "Save Changes" : "Add Inspector"}
+            </Button>
+          </div>
         </div>
       </form>
     </Modal>
@@ -1129,6 +1168,10 @@ export function InspectorsPanel({
     }
   }
 
+  function handleInspectorDeleted(id: string) {
+    onInspectorsChange(inspectors.filter((i) => i.id !== id));
+  }
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
@@ -1172,6 +1215,7 @@ export function InspectorsPanel({
         onClose={() => setModalOpen(false)}
         existing={editTarget}
         onSaved={handleInspectorSaved}
+        onDeleted={handleInspectorDeleted}
       />
 
       {/* Schedule management modal */}
