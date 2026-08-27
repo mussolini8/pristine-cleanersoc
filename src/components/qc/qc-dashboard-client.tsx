@@ -658,15 +658,34 @@ function GeofenceModal({
       return;
     }
 
-    const coords = parseGoogleMapsCoords(mapsUrl);
-    if (!coords) {
-      setError("Could not parse coordinates. Paste a standard Google Maps URL containing coordinates (e.g. copied from URL bar or showing lat,lng).");
-      return;
-    }
-
     setSaving(true);
     setError(null);
+
     try {
+      let coords = parseGoogleMapsCoords(mapsUrl);
+
+      // Try resolving redirect URL from short links (maps.app.goo.gl or share.google.com) via API
+      if (!coords && (mapsUrl.startsWith("http://") || mapsUrl.startsWith("https://"))) {
+        const resolveRes = await fetch("/api/qc/resolve-maps-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: mapsUrl }),
+        });
+
+        if (resolveRes.ok) {
+          const { finalUrl } = await resolveRes.json();
+          if (finalUrl) {
+            coords = parseGoogleMapsCoords(finalUrl);
+          }
+        }
+      }
+
+      if (!coords) {
+        setError("Could not parse coordinates. Paste a standard Google Maps URL containing coordinates (e.g. copied from URL bar or showing lat,lng).");
+        setSaving(false);
+        return;
+      }
+
       await onSave(coords.lat, coords.lng, Number(radius), address || null);
       onClose();
     } catch (err: any) {
