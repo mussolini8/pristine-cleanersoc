@@ -1,13 +1,14 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardCheck, Home, LogOut } from "lucide-react";
+import { ClipboardCheck, Home, LogOut, User } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/access-control";
 
 const INSPECTOR_NAV = [
   { label: "Today", href: "/qc/inspector", icon: Home },
+  { label: "Profile", href: "/qc/inspector/profile", icon: User },
 ];
 
 export function QCShell({ children, role }: { children: React.ReactNode; role: AppRole }) {
@@ -41,7 +42,9 @@ export function QCShell({ children, role }: { children: React.ReactNode; role: A
         <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border/60 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
           {INSPECTOR_NAV.map((item) => {
             const active =
-              pathname === item.href || pathname.startsWith(item.href + "/");
+              item.href === "/qc/inspector"
+                ? pathname === "/qc/inspector"
+                : pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link
                 key={item.href}
