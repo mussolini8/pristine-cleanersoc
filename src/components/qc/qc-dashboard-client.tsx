@@ -660,52 +660,76 @@ function GeofenceModal({
   onClose: () => void;
   onSave: (lat: number, lng: number, radius: number, address: string | null) => Promise<void>;
 }) {
-  const [mapsUrl, setMapsUrl] = useState(
-    existingGeofence?.latitude && existingGeofence?.longitude
-      ? `https://www.google.com/maps/place/${existingGeofence.latitude},${existingGeofence.longitude}`
-      : ""
-  );
+  const [mapsUrl, setMapsUrl] = useState("");
+  const [lat, setLat] = useState(existingGeofence?.latitude?.toString() ?? "");
+  const [lng, setLng] = useState(existingGeofence?.longitude?.toString() ?? "");
   const [radius, setRadius] = useState(existingGeofence?.radius_meters?.toString() ?? "75");
   const [address, setAddress] = useState(existingGeofence?.address ?? "");
   const [saving, setSaving] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!mapsUrl.trim() || !radius) {
-      setError("Please paste a Google Maps link and specify Radius.");
+  // Pre-fill maps URL if editing existing coordinates
+  useEffect(() => {
+    if (existingGeofence?.latitude && existingGeofence?.longitude) {
+      setMapsUrl(`https://www.google.com/maps/place/${existingGeofence.latitude},${existingGeofence.longitude}`);
+    }
+  }, [existingGeofence]);
+
+  async function handleLinkChange(value: string) {
+    setMapsUrl(value);
+    setError(null);
+    if (!value.trim()) return;
+
+    // 1. Try local client-side parsing first
+    const coords = parseGoogleMapsCoords(value);
+    if (coords) {
+      setLat(coords.lat.toString());
+      setLng(coords.lng.toString());
       return;
     }
 
-    setSaving(true);
-    setError(null);
-
-    try {
-      let coords = parseGoogleMapsCoords(mapsUrl);
-
-      // Try resolving redirect URL from short links (maps.app.goo.gl or share.google.com) via API
-      if (!coords && (mapsUrl.startsWith("http://") || mapsUrl.startsWith("https://"))) {
+    // 2. Try server-side redirect resolver for short links (maps.app.goo.gl or share.google)
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+      setResolving(true);
+      try {
         const resolveRes = await fetch("/api/qc/resolve-maps-url", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: mapsUrl }),
+          body: JSON.stringify({ url: value }),
         });
 
         if (resolveRes.ok) {
           const { finalUrl } = await resolveRes.json();
           if (finalUrl) {
-            coords = parseGoogleMapsCoords(finalUrl);
+            const resolvedCoords = parseGoogleMapsCoords(finalUrl);
+            if (resolvedCoords) {
+              setLat(resolvedCoords.lat.toString());
+              setLng(resolvedCoords.lng.toString());
+              setResolving(false);
+              return;
+            }
           }
         }
+      } catch (e) {
+        // Fall back to manual input without raising an error
       }
+      setResolving(false);
+      setError("Could not auto-extract coordinates from this link. Please enter Latitude and Longitude manually below.");
+    }
+  }
 
-      if (!coords) {
-        setError("Could not parse coordinates. Paste a standard Google Maps URL containing coordinates (e.g. copied from URL bar or showing lat,lng).");
-        setSaving(false);
-        return;
-      }
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!lat || !lng || !radius) {
+      setError("Please specify Latitude, Longitude, and Radius.");
+      return;
+    }
 
-      await onSave(coords.lat, coords.lng, Number(radius), address || null);
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(Number(lat), Number(lng), Number(radius), address || null);
       onClose();
     } catch (err: any) {
       setError(err?.message ?? "Error saving geofence");
@@ -737,21 +761,54 @@ function GeofenceModal({
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-muted-foreground uppercase">Google Maps Link</label>
-              <input
-                type="text"
-                required
-                placeholder="Paste Google Maps URL or 'lat,lng'"
-                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
-                value={mapsUrl}
-                onChange={(e) => setMapsUrl(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Paste Google Maps URL"
+                  className="w-full rounded-xl border border-input bg-background pl-3 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  value={mapsUrl}
+                  onChange={(e) => handleLinkChange(e.target.value)}
+                />
+                {resolving && (
+                  <div className="absolute right-3 top-2.5">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
               <p className="text-[10px] text-muted-foreground">
-                Paste the URL copied from Google Maps, or coordinates directly (e.g. <code>33.6846, -117.8265</code>).
+                Paste the URL copied from Google Maps, and coordinates will be auto-filled below.
               </p>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Latitude *</label>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  placeholder="e.g. 33.6846"
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  value={lat}
+                  onChange={(e) => setLat(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Longitude *</label>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  placeholder="e.g. -117.8265"
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  value={lng}
+                  onChange={(e) => setLng(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Radius (meters)</label>
+              <label className="text-xs font-bold text-muted-foreground uppercase">Radius (meters) *</label>
               <input
                 type="number"
                 required
