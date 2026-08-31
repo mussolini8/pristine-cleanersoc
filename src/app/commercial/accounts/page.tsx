@@ -23,10 +23,12 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  TrendingUp,
   X,
 } from "lucide-react";
 import { applyCommercialAccountChangesGoingForward } from "@/lib/payroll";
 import { displayDate } from "@/lib/dates/periods";
+import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 
 // ─────────────────────────────────────────────
 type Account = {
@@ -883,6 +885,7 @@ export default function CommercialPage() {
   const [formNotice, setFormNotice] = useState<string | null>(null);
   const [accountSearch, setAccountSearch] = useState("");
   const [accountView, setAccountView] = useState<"all" | "needs-qc" | "supplies" | "keys">("all");
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
@@ -1460,10 +1463,51 @@ export default function CommercialPage() {
             <h1 className="page-title">Commercial Accounts</h1>
             <p className="page-sub">Accounts sheet + Team supplies, including hidden rows, Last QC Check, and financial overview</p>
           </div>
-          <button className="add-account-btn" onClick={() => showAccountStudio ? closeAccountStudio() : openCreateStudio()} type="button">
-            {showAccountStudio ? <X size={15} /> : <Plus size={15} />}
-            {showAccountStudio ? "Close Form" : "Add Account"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <Link
+              href="/commercial/sales-track"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 14px",
+                borderRadius: "12px",
+                border: "1px solid hsl(var(--border))",
+                background: "hsl(var(--card))",
+                color: "hsl(var(--foreground))",
+                fontSize: "0.78rem",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              <TrendingUp size={15} color="hsl(142 76% 36%)" />
+              Sales Track Report
+            </Link>
+            <button
+              onClick={() => setIsCopilotOpen(true)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 14px",
+                borderRadius: "12px",
+                border: "none",
+                background: "linear-gradient(135deg, #059669, #0d9488)",
+                color: "#ffffff",
+                fontSize: "0.78rem",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+              type="button"
+            >
+              <Sparkles size={15} />
+              Copiloto IA (Gemini)
+            </button>
+            <button className="add-account-btn" onClick={() => showAccountStudio ? closeAccountStudio() : openCreateStudio()} type="button">
+              {showAccountStudio ? <X size={15} /> : <Plus size={15} />}
+              {showAccountStudio ? "Close Form" : "Add Account"}
+            </button>
+          </div>
         </div>
 
         {showAccountStudio ? (
@@ -1604,6 +1648,29 @@ export default function CommercialPage() {
             </div>
           )}
         </div>
+
+        <AiSopCopilotModal
+          isOpen={isCopilotOpen}
+          onClose={() => setIsCopilotOpen(false)}
+          onApplySopModifications={(mods) => {
+            // Apply modifications to matching accounts in state
+            setAccounts((prev) => {
+              return prev.map((acc) => {
+                const match = mods.find((m) => m.accountName && acc.name.toLowerCase().includes(m.accountName.toLowerCase()));
+                if (!match) return acc;
+                return {
+                  ...acc,
+                  hours: match.newHours !== undefined ? match.newHours : acc.hours,
+                  cleaner_name: match.cleanerName || acc.cleaner_name,
+                  revenue: match.newPricing !== undefined ? match.newPricing : acc.revenue,
+                  cost: match.newCleanerCost !== undefined ? match.newCleanerCost : acc.cost,
+                  supplies_notes: match.notes ? `${acc.supplies_notes ? `${acc.supplies_notes}; ` : ""}${match.notes}` : acc.supplies_notes,
+                };
+              });
+            });
+            alert("Modificaciones del SOP aplicadas exitosamente.");
+          }}
+        />
       </div>
     </DashboardShell>
   );

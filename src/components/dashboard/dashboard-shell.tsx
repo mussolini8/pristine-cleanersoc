@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, CheckSquare, ClipboardCheck, Home, LogOut, Settings, Sparkles, Users, Wallet } from "lucide-react";
+import { BarChart3, Building2, CheckSquare, ClipboardCheck, Home, LogOut, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
+  { label: "Sales Track & AI Copilot", href: "/commercial/sales-track", icon: TrendingUp, area: "workspace" as AccessArea },
   { label: "Task Reminders", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
   { label: "Residential payments / commercial hours", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
   { label: "Commercial Accounts", href: "/commercial/accounts", icon: Building2, area: "workspace" as AccessArea },

@@ -27,6 +27,7 @@ import {
   RotateCcw,
   Save,
   Settings2,
+  Sparkles,
   Trash2,
   UserRoundCheck,
   Users,
@@ -39,6 +40,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { exportRows, exportWorkbook, exportCleanerGridReport } from "@/lib/export/workbook";
+import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
   buildCommercialOccurrences,
@@ -829,6 +831,7 @@ export function SimpleOperationsClient({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [message, setMessage] = useState<{ tone: MessageTone; text: string } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -3211,6 +3214,13 @@ export function SimpleOperationsClient({
           </div>
         </>
       )}
+      <AiSopCopilotModal
+        isOpen={isCopilotOpen}
+        onClose={() => setIsCopilotOpen(false)}
+        onApplySopModifications={(mods) => {
+          setMessage({ tone: "success", text: `Se procesaron ${mods.length} modificaciones operativas con Gemini.` });
+        }}
+      />
     </DashboardShell>
   );
 
@@ -3229,13 +3239,19 @@ export function SimpleOperationsClient({
     const Icon = meta.icon;
     return (
       <div className="flex items-center gap-2 flex-wrap">
-            {view === "tasks" ? (
-              <>
-                <Button variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays /> {importingMonthlySop ? "Generating..." : "Generate Monthly SOP"}</Button>
-                <Button variant="outline" disabled={deduplicating || importingMonthlySop} onClick={deduplicateTasks}><RotateCcw /> {deduplicating ? "Removing duplicates..." : "Remove duplicates"}</Button>
-                <Button onClick={() => openTaskDraft()}><Plus /> Add reminder</Button>
-              </>
-            ) : null}
+        <Button
+          className="bg-gradient-to-r from-emerald-600 to-teal-600 font-semibold text-white shadow-md hover:from-emerald-700 hover:to-teal-700"
+          onClick={() => setIsCopilotOpen(true)}
+        >
+          <Sparkles className="size-4" /> Copiloto IA (Gemini)
+        </Button>
+        {view === "tasks" ? (
+          <>
+            <Button variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays /> {importingMonthlySop ? "Generating..." : "Generate Monthly SOP"}</Button>
+            <Button variant="outline" disabled={deduplicating || importingMonthlySop} onClick={deduplicateTasks}><RotateCcw /> {deduplicating ? "Removing duplicates..." : "Remove duplicates"}</Button>
+            <Button onClick={() => openTaskDraft()}><Plus /> Add reminder</Button>
+          </>
+        ) : null}
             {view === "residential" ? (
               commercialPanelOpen ? (
                 <>

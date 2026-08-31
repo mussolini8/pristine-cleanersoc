@@ -38,6 +38,7 @@ const serverEnvSchema = publicEnvSchema.extend({
   OWNER_EMAIL: optionalEmail,
   SEO_USER_EMAIL: optionalEmail,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
+  GEMINI_API_KEY: optionalString,
 });
 
 function handleValidationError(error: z.ZodError, envData: Record<string, unknown>) {
@@ -84,6 +85,7 @@ export function getServerEnv() {
     OWNER_EMAIL: process.env.OWNER_EMAIL,
     SEO_USER_EMAIL: process.env.SEO_USER_EMAIL,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   };
 
   const result = serverEnvSchema.safeParse(envData);
