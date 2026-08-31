@@ -69,8 +69,14 @@ export const ONE_TIME_CATEGORIES: ServiceCategory[] = [
   "Other",
 ];
 
+export function isCommercialBooking(b: ServiceBookingRow): boolean {
+  const s = (b.service || "").toLowerCase();
+  const cat = (b.serviceCategory || "").toLowerCase();
+  return s.includes("commercial") || cat.includes("commercial");
+}
+
 export function categorizeBooking(row: ServiceBookingRow): ServiceCategory {
-  if (row.serviceCategory) return row.serviceCategory;
+  if (row.serviceCategory === "Commercial Cleaning") return "Commercial Cleaning";
   const s = (row.service || "").toLowerCase();
   const f = (row.frequency || "").toLowerCase();
 
@@ -84,7 +90,7 @@ export function categorizeBooking(row: ServiceBookingRow): ServiceCategory {
   if (f.includes("monthly") || f.includes("month")) return "Monthly";
   if (s.includes("express") || s.includes("stand")) return "Standard Clean";
 
-  return "Commercial Cleaning";
+  return "Standard Clean";
 }
 
 export function calculateCategoryBreakdown(bookings: ServiceBookingRow[]): CategoryPerformance[] {
@@ -95,6 +101,7 @@ export function calculateCategoryBreakdown(bookings: ServiceBookingRow[]): Categ
     {
       name: "All Recurring",
       filterFn: (b) => {
+        if (isCommercialBooking(b)) return false;
         const cat = categorizeBooking(b);
         const freq = (b.frequency || "").toLowerCase();
         return Boolean(RECURRING_CATEGORIES.includes(cat) || freq.includes("week") || freq.includes("month"));
@@ -103,27 +110,31 @@ export function calculateCategoryBreakdown(bookings: ServiceBookingRow[]): Categ
     {
       name: "Weekly",
       filterFn: (b) => {
+        if (isCommercialBooking(b)) return false;
         const f = (b.frequency || "").toLowerCase();
-        return Boolean(f === "weekly" || f === "5 days a week" || f === "3 times per week" || f.includes("week"));
+        return Boolean(f === "weekly" || (f.includes("week") && !f.includes("bi") && !f.includes("tri") && !f.includes("month")));
       },
     },
     {
       name: "Biweekly",
       filterFn: (b) => {
+        if (isCommercialBooking(b)) return false;
         const f = (b.frequency || "").toLowerCase();
-        return Boolean(f.includes("biweekly") || f.includes("every 2 weeks") || f.includes("2 week"));
+        return Boolean(f.includes("biweekly") || f.includes("every 2 weeks") || f.includes("2 week") || f.includes("bi"));
       },
     },
     {
       name: "Triweekly",
       filterFn: (b) => {
+        if (isCommercialBooking(b)) return false;
         const f = (b.frequency || "").toLowerCase();
-        return Boolean(f.includes("triweekly") || f.includes("tri weekly") || f.includes("3 week"));
+        return Boolean(f.includes("triweekly") || f.includes("tri weekly") || f.includes("3 week") || f.includes("tri"));
       },
     },
     {
       name: "Monthly",
       filterFn: (b) => {
+        if (isCommercialBooking(b)) return false;
         const f = (b.frequency || "").toLowerCase();
         return Boolean(f === "monthly" || f.includes("month"));
       },
@@ -131,15 +142,16 @@ export function calculateCategoryBreakdown(bookings: ServiceBookingRow[]): Categ
     {
       name: "All One-Time",
       filterFn: (b) => {
+        if (isCommercialBooking(b)) return false;
         const f = (b.frequency || "").toLowerCase();
         const cat = categorizeBooking(b);
         return Boolean(f.includes("one time") || ONE_TIME_CATEGORIES.includes(cat));
       },
     },
-    { name: "Deep Clean", filterFn: (b) => Boolean((b.service || "").toLowerCase().includes("deep")) },
-    { name: "Standard Clean", filterFn: (b) => Boolean((b.service || "").toLowerCase().includes("express") || (b.service || "").toLowerCase().includes("stand")) },
-    { name: "Move In/Out Clean", filterFn: (b) => Boolean((b.service || "").toLowerCase().includes("move")) },
-    { name: "Commercial Cleaning", filterFn: (b) => Boolean((b.service || "").toLowerCase().includes("commercial")) },
+    { name: "Deep Clean", filterFn: (b) => Boolean(!isCommercialBooking(b) && (b.service || "").toLowerCase().includes("deep")) },
+    { name: "Standard Clean", filterFn: (b) => Boolean(!isCommercialBooking(b) && ((b.service || "").toLowerCase().includes("express") || (b.service || "").toLowerCase().includes("stand"))) },
+    { name: "Move In/Out Clean", filterFn: (b) => Boolean(!isCommercialBooking(b) && (b.service || "").toLowerCase().includes("move")) },
+    { name: "Commercial Cleaning", filterFn: (b) => isCommercialBooking(b) },
     { name: "Airbnb Clean", filterFn: (b) => Boolean((b.service || "").toLowerCase().includes("bnb") || (b.service || "").toLowerCase().includes("airbnb")) },
   ];
 
