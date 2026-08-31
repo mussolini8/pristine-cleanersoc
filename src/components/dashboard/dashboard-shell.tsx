@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, CheckSquare, ClipboardCheck, Home, LogOut, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
+import { BarChart3, Building2, CheckSquare, ClipboardCheck, FileSpreadsheet, Home, LogOut, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { GlobalAiBubble } from "@/components/ai/global-ai-bubble";
+import { BookingKoalaImporterModal } from "@/components/operations/bookingkoala-importer-modal";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
@@ -34,6 +35,7 @@ export function DashboardShell({
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
   const [role, setRole] = useState<AppRole>("residential");
+  const [isKoalaOpen, setIsKoalaOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -68,11 +70,19 @@ export function DashboardShell({
             />
           </Link>
         </div>
-        <div className="px-4 py-3">
+        <div className="px-4 py-3 space-y-2">
           <div className="flex items-center gap-2 rounded-xl border border-primary/10 bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-primary shadow-sm">
             <Sparkles className="size-[18px]" />
             <span>Premium cleaning SOP</span>
           </div>
+          <button
+            type="button"
+            onClick={() => setIsKoalaOpen(true)}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs font-bold text-primary hover:bg-primary/15 transition-all shadow-xs"
+          >
+            <FileSpreadsheet className="size-4" />
+            <span>Importar BookingKoala</span>
+          </button>
         </div>
         <nav className="space-y-1 px-3">
           {visibleNavItems.map((item) => (
@@ -114,6 +124,15 @@ export function DashboardShell({
             <p className="text-sm font-semibold text-foreground">Operations SOP</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsKoalaOpen(true)}
+              className="gap-2 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 font-bold"
+            >
+              <FileSpreadsheet className="size-4" />
+              <span className="hidden sm:inline">Importar BookingKoala</span>
+            </Button>
             <ThemeToggle />
             <form action="/auth/sign-out" method="post">
               <Button variant="outline" size="sm">
@@ -143,6 +162,15 @@ export function DashboardShell({
         </header>
         <main className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
+
+      {/* BookingKoala Smart Importer Modal */}
+      <BookingKoalaImporterModal
+        isOpen={isKoalaOpen}
+        onClose={() => setIsKoalaOpen(false)}
+        onSuccess={() => {
+          // optionally refresh page or show feedback
+        }}
+      />
 
       {/* Global AI Copilot Floating Bubble */}
       <GlobalAiBubble />
