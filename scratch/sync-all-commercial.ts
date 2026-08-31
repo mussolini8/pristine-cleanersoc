@@ -199,6 +199,53 @@ async function main() {
     console.log("Inserted single service entry for LA Model Unit Cleaning (Esperanza Youseff).");
   }
 
+  // 6. Update Renewable Farms - 5 events in August 2026 for Ana Morales
+  const renewableFarms = accMap.get("renewable farms");
+  const { data: anaStaff } = await supabase.from("staff_members").select("id").ilike("name", "%Ana Morales%").limit(1);
+  const anaId = anaStaff?.[0]?.id ?? null;
+
+  if (renewableFarms) {
+    console.log("Updating Renewable Farms August 2026 events in commercial_hours_entries...");
+    const renewableEvents = [
+      { date: "2026-08-01", notes: "Event ends at 10:30 PM (3h - $54.00 @ $18/hr)" },
+      { date: "2026-08-09", notes: "Event ends at 2:30 PM (3h - $54.00 @ $18/hr)" },
+      { date: "2026-08-15", notes: "Event ends at 10:30 PM (3h - $54.00 @ $18/hr)" },
+      { date: "2026-08-22", notes: "Event ends at 10:00 PM (3h - $54.00 @ $18/hr)" },
+      { date: "2026-08-30", notes: "Event ends at 8:00 PM (3h - $54.00 @ $18/hr)" },
+    ];
+
+    await supabase.from("commercial_hours_entries")
+      .delete()
+      .eq("account_id", renewableFarms.id)
+      .gte("work_date", "2026-08-01")
+      .lte("work_date", "2026-08-31");
+
+    const rfEntries = renewableEvents.map((e, idx) => ({
+      user_id: user.id,
+      account_id: renewableFarms.id,
+      account_name: "Renewable Farms",
+      team_id: anaId,
+      team_name: "Ana Morales",
+      work_date: e.date,
+      scheduled_day: new Date(e.date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long" }),
+      scheduled_hours: 3.0,
+      completed_hours: 3.0,
+      verified_hours: 3.0,
+      status: "completed",
+      verified: true,
+      notes: `Event #${idx + 1}: ${e.notes}`,
+      manual_entry: true,
+      period_start: e.date <= "2026-08-15" ? "2026-08-01" : "2026-08-16",
+      period_end: e.date <= "2026-08-15" ? "2026-08-15" : "2026-08-31",
+      created_at: now,
+      updated_at: now,
+    }));
+
+    const { error: rfErr } = await supabase.from("commercial_hours_entries").insert(rfEntries);
+    if (rfErr) console.error("Error inserting Renewable Farms entries:", rfErr);
+    else console.log(`Inserted ${rfEntries.length} event entries for Renewable Farms (Ana Morales).`);
+  }
+
   console.log("Custom schedule adjustments applied successfully!");
 }
 
