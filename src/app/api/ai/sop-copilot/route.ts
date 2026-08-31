@@ -5,7 +5,7 @@ import { getServerEnv } from "@/lib/env";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { prompt, images, customApiKey } = body;
+    const { prompt, images, customApiKey, apiKey: bodyApiKey } = body;
 
     let envKey: string | undefined;
     try {
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
       envKey = process.env.GEMINI_API_KEY;
     }
 
-    const apiKey = customApiKey || envKey;
+    const apiKey = customApiKey || bodyApiKey || envKey || process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(

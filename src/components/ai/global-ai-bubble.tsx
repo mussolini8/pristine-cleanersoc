@@ -201,13 +201,16 @@ export function GlobalAiBubble() {
     setActionSuccessMsg(null);
 
     try {
+      const storedKey = typeof window !== "undefined" ? localStorage.getItem("pristine_gemini_api_key") : "";
+      const effectiveKey = apiKey || storedKey || undefined;
+
       const res = await fetch("/api/ai/sop-copilot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
           images,
-          apiKey: apiKey || undefined,
+          apiKey: effectiveKey,
         }),
       });
 
