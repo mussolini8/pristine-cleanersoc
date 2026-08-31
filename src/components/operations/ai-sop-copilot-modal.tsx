@@ -19,6 +19,8 @@ import {
   Clock,
   Users,
   DollarSign,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,13 +52,85 @@ export function AiSopCopilotModal({
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [response, setResponse] = useState<SopCopilotResponse | null>(null);
   const [appliedSuccess, setAppliedSuccess] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     const stored = localStorage.getItem("pristine_gemini_api_key");
     if (stored) setApiKey(stored);
+
+    // Check Speech Recognition support
+    if (typeof window !== "undefined") {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        setSpeechSupported(false);
+      }
+    }
   }, []);
+
+  const toggleListening = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setError("Tu navegador no soporta reconocimiento de voz nativo. Por favor usa Google Chrome, Edge o Safari.");
+      return;
+    }
+
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "es-US"; // Default to Spanish (US)
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setError(null);
+      };
+
+      recognition.onresult = (event: any) => {
+        let currentTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            setPrompt((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          } else {
+            currentTranscript += transcript;
+          }
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("Speech recognition error:", event.error);
+        if (event.error === "not-allowed") {
+          setError("Permiso de micrófono denegado. Permite el acceso al micrófono en tu navegador.");
+        }
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: any) {
+      console.error("Error starting speech recognition:", err);
+      setError("No se pudo iniciar el micrófono: " + (err.message || String(err)));
+      setIsListening(false);
+    }
+  };
 
   const handleSaveApiKey = (key: string) => {
     setApiKey(key);
@@ -297,9 +371,41 @@ export function AiSopCopilotModal({
                     <Upload className="size-3.5" />
                     Subir Captura / Imagen
                   </Button>
-                  <span className="text-[11px] text-muted-foreground hidden sm:inline">
-                    (o pega con <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Ctrl+V</kbd>)
-                  </span>
+
+                  <Button
+                    type="button"
+                    variant={isListening ? "default" : "outline"}
+                    size="sm"
+                    className={`h-8 text-xs gap-1.5 transition-all ${
+                      isListening
+                        ? "animate-pulse border-rose-500 bg-rose-600 text-white hover:bg-rose-700 shadow-md shadow-rose-500/20"
+                        : "border-primary/30 text-primary hover:bg-primary/5"
+                    }`}
+                    onClick={toggleListening}
+                  >
+                    {isListening ? (
+                      <>
+                        <MicOff className="size-3.5" />
+                        Detener Micrófono
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="size-3.5 text-primary" />
+                        Dictar por Voz
+                      </>
+                    )}
+                  </Button>
+
+                  {isListening ? (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-rose-600 dark:text-rose-400 animate-pulse">
+                      <span className="size-2 rounded-full bg-rose-600" />
+                      Escuchando... habla ahora
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                      (o pega con <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Ctrl+V</kbd>)
+                    </span>
+                  )}
                 </div>
 
                 <Button
