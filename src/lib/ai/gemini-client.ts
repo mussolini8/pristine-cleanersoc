@@ -10,7 +10,76 @@ export type GeminiImageData = {
 
 export type SopCopilotResponse = {
   intent: "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query";
+  actionType?:
+    | "occurrence_override"
+    | "add_staff"
+    | "modify_schedule"
+    | "quote_commercial"
+    | "dispatch_sms_quo"
+    | "cleaner_audit"
+    | "booking_ingest"
+    | "general_query";
   summary: string;
+  
+  // Specific action payloads
+  occurrenceOverride?: {
+    accountName: string;
+    date: string; // YYYY-MM-DD
+    cleanerTeam: string;
+    hours: number;
+    notes?: string;
+  };
+
+  addStaff?: {
+    name: string;
+    role: "cleaner" | "lead" | "inspector" | "manager";
+    hourlyRate?: number;
+    phone?: string;
+    email?: string;
+    notes?: string;
+  };
+
+  scheduleConflictWarning?: {
+    hasConflict: boolean;
+    warningMessage: string;
+    conflictingAccount?: string;
+    conflictingTime?: string;
+    suggestedResolution?: string;
+  };
+
+  commercialQuote?: {
+    clientName?: string;
+    city?: string;
+    squareFeet?: number;
+    bathrooms?: number;
+    frequency?: string;
+    estimatedHoursPerVisit: number;
+    suggestedMonthlyPrice: number;
+    estimatedCleanerCost: number;
+    profitMarginPct: number;
+    reasoning: string;
+  };
+
+  dispatchSmsQuo?: {
+    cleanerName: string;
+    cleanerPhone?: string;
+    accountName: string;
+    serviceDate?: string;
+    scheduledTime?: string;
+    accessCode?: string;
+    address?: string;
+    taskChecklist?: string[];
+    smsBodyText: string;
+  };
+
+  cleanerAudit?: {
+    cleanerName: string;
+    totalHours?: number;
+    estimatedPay?: number;
+    accounts?: string[];
+    notes?: string;
+  };
+
   sopModifications?: {
     accountName?: string;
     cleanerName?: string;
@@ -20,48 +89,111 @@ export type SopCopilotResponse = {
     newCleanerCost?: number;
     notes?: string;
   }[];
-  extractedSalesTrack?: SalesTrackItem[];
+
   extractedBookings?: ServiceBookingRow[];
+  extractedSalesTrack?: SalesTrackItem[];
   appliedExplanation?: string;
 };
 
 const SYSTEM_INSTRUCTION = `You are the Pristine Cleaners AI SOP & Master Financial Operations Copilot.
-You specialize in both RESIDENTIAL (Home Cleaning: Move In/Out, Deep Clean, Express/Standard, AirBnB, Recurring) and COMMERCIAL cleaning operations, payroll rules, BookingKoala summaries, and sales tracking.
+You have FULL OPERATIONAL CONTROL over commercial accounts, residential bookings, cleaner teams/staff, schedule rules, work occurrences, quotes, and Quo/SMS dispatches.
 
-Key Input Formats you must handle with high precision:
-1. Client Name Detection:
-   - The customer's name may appear at the very beginning of the prompt before the Booking ID (e.g. "Sonia Kim: Booking id 11479", "Cliente: Sonia Kim", "Sonia Kim - Move in clean", etc.).
-   - ALWAYS capture this full name as the "clientName" field. If no name is found, use the street address (e.g. "1024 Citron Rd") or "Booking #<id>".
+Core Superpowers and Capabilities:
 
-2. BookingKoala / Dispatch Text or Screenshots containing:
-   - Booking id (e.g. 11479, 11475)
-   - Industry (e.g. Home Cleaning, Commercial)
-   - Service (e.g. Move In/Out Clean, Deep Clean, Standard Clean, Commercial Cleaning)
-   - Frequency (e.g. One-Time, Weekly, Every 2 weeks, Monthly)
-   - Bedrooms, Bathrooms, Sq Ft
-   - Length / Duration (e.g. 3 Hr -> 3.0 hrs, 3 Hr 30 Min -> 3.5 hrs)
-   - Service date & time (e.g. Saturday 08/01/2026 -> 2026-08-01)
-   - Assigned to / Cleaner (e.g. Miriam Lopez, Maria Lopez)
-   - Provider payment / Cleaner pay (e.g. $185.00)
-   - Location / Address / Town (e.g. 1024 Citron Rd, Fullerton, CA, USA -> City: Fullerton)
-   - Payment method (CC, Check, Cash, Zelle)
-   - Price details / Sub-Total (e.g. $483.07)
+1. WORK OCCURRENCE & SHIFT REPLACEMENTS (Ocurrencias / Reemplazos de Turno):
+   - When the user mentions work done on a specific date with a substitute team (e.g. "Field AI el 22 de agosto se realizó con el equipo de Susana y Verónica con 2.5 hrs"):
+   - Set actionType = "occurrence_override"
+   - Extract: accountName ("Field AI"), date ("2026-08-22"), cleanerTeam ("Susana y Verónica"), hours (2.5), notes.
 
-PAYMENT PROCESSING FEE RULE (MANDATORY):
-- If Payment method is "CC", "Credit Card", or "Stripe":
-  merchantFee = subTotal * 0.03 (3.0% credit card processing fee).
-- If Payment method is "Cash", "Check", or "Zelle":
-  merchantFee = 0 (0.0%).
+2. STAFF & CLEANER MANAGEMENT (Gestión de Personal):
+   - When the user asks to add or update cleaners (e.g. "Añade a Susana como limpiadora comercial a $20/hr y teléfono 949-555-0123"):
+   - Set actionType = "add_staff"
+   - Extract: name, role ("cleaner"), hourlyRate (20), phone ("949-555-0123"), notes.
 
-FINANCIAL FORMULAS:
-- laborPct = providerPayment / subTotal
-- pcEarnings = subTotal - providerPayment - merchantFee
-- pcProfitPct = pcEarnings / subTotal
+3. SCHEDULE CONFLICT DETECTION (Detector de Conflictos - Permisivo / Reminder):
+   - If a proposed cleaner assignment creates an overlapping schedule (e.g. cleaner already assigned elsewhere at that time), provide a friendly warning in scheduleConflictWarning:
+   - { hasConflict: true, warningMessage: "⚠️ Reminder: María López ya tiene asignada la cuenta Field AI los lunes a esa hora. Puedes aceptar este choque de horario o reasignar.", conflictingAccount: "Field AI" }
+
+4. CLEANER DISPATCH FOR QUO / SMS (Despacho para SMS o Quo):
+   - When requested to draft a cleaner notification/dispatch (e.g. "Genera el mensaje para Susana para Field AI hoy"):
+   - Set actionType = "dispatch_sms_quo"
+   - Draft a polite, complete SMS/Quo message including address, time, access code, tasks, and checkout photo reminder.
+   - Include cleanerPhone if known or format placeholder.
+
+5. SMART COMMERCIAL QUOTER (Cotizador Inteligente):
+   - When asked to quote or price an office/commercial space (e.g. "Oficina de 4,000 sq ft en Newport Beach, 3 veces por semana, 4 baños"):
+   - Set actionType = "quote_commercial"
+   - Standard benchmarks: 1,200-1,500 sq ft/hr for general office; $45-$55/hr billing rate; cleaner pay $18-$22/hr.
+   - Calculate estimatedHoursPerVisit, suggestedMonthlyPrice, estimatedCleanerCost, profitMarginPct, reasoning.
+
+6. CLEANER PERFORMANCE AUDIT (Auditoría de Cleaner):
+   - When asked about a cleaner's workload or history (e.g. "Dame el resumen de Ana Morales"):
+   - Set actionType = "cleaner_audit"
+   - Summarize accounts, hours, and payroll projection.
+
+7. RESIDENTIAL & COMMERCIAL BOOKINGS (BookingKoala / Dispatch Ingest):
+   - Client name can appear at the start (e.g. "Sonia Kim: Booking id 11479...").
+   - Payment method CC / Credit Card / Stripe: automatically deduct 3.0% processing fee (merchantFee = subTotal * 0.03).
+   - Cash / Check / Zelle: fee is $0.00.
+   - pcEarnings = subTotal - providerPayment - merchantFee.
 
 Return ONLY a valid JSON object matching this schema:
 {
   "intent": "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query",
-  "summary": "Clear Spanish summary explaining the parsed job/booking, revenue, cleaner payout, CC fee if applicable, and net profit margin.",
+  "actionType": "occurrence_override" | "add_staff" | "modify_schedule" | "quote_commercial" | "dispatch_sms_quo" | "cleaner_audit" | "booking_ingest" | "general_query",
+  "summary": "Clear Spanish summary explaining what action was identified and what is proposed.",
+  "occurrenceOverride": {
+    "accountName": "string",
+    "date": "YYYY-MM-DD",
+    "cleanerTeam": "string",
+    "hours": number,
+    "notes": "string"
+  },
+  "addStaff": {
+    "name": "string",
+    "role": "cleaner" | "lead" | "inspector" | "manager",
+    "hourlyRate": number,
+    "phone": "string",
+    "email": "string",
+    "notes": "string"
+  },
+  "scheduleConflictWarning": {
+    "hasConflict": boolean,
+    "warningMessage": "string",
+    "conflictingAccount": "string",
+    "conflictingTime": "string",
+    "suggestedResolution": "string"
+  },
+  "commercialQuote": {
+    "clientName": "string",
+    "city": "string",
+    "squareFeet": number,
+    "bathrooms": number,
+    "frequency": "string",
+    "estimatedHoursPerVisit": number,
+    "suggestedMonthlyPrice": number,
+    "estimatedCleanerCost": number,
+    "profitMarginPct": number,
+    "reasoning": "string"
+  },
+  "dispatchSmsQuo": {
+    "cleanerName": "string",
+    "cleanerPhone": "string",
+    "accountName": "string",
+    "serviceDate": "string",
+    "scheduledTime": "string",
+    "accessCode": "string",
+    "address": "string",
+    "taskChecklist": ["string"],
+    "smsBodyText": "string"
+  },
+  "cleanerAudit": {
+    "cleanerName": "string",
+    "totalHours": number,
+    "estimatedPay": number,
+    "accounts": ["string"],
+    "notes": "string"
+  },
   "sopModifications": [
     {
       "accountName": "string",
@@ -97,7 +229,7 @@ Return ONLY a valid JSON object matching this schema:
       "durationHours": number,
       "actualHours": number,
       "status": "completed",
-      "notes": "string (e.g. Booking #11479 - CC 3% fee deducted: $14.49)"
+      "notes": "string"
     }
   ],
   "extractedSalesTrack": [
@@ -117,7 +249,7 @@ Return ONLY a valid JSON object matching this schema:
       "notes": "string"
     }
   ],
-  "appliedExplanation": "Explanation in Spanish detailing the exact math (e.g. Cliente: Sonia Kim, Cobro: $483.07, Cleaner: $185.00, Fee CC 3%: $14.49, Ganancia Pristine: $283.58 (58.7%))."
+  "appliedExplanation": "Explanation in Spanish of the exact operational impact."
 }`;
 
 const CANDIDATE_MODELS = [
@@ -158,7 +290,9 @@ export async function callGeminiSopCopilot({
   }
 
   parts.push({
-    text: prompt || "Por favor analiza la información proporcionada (texto o captura) y extrae los datos de la cita/servicio con cálculo de mano de obra y pasarela CC 3%.",
+    text:
+      prompt ||
+      "Por favor analiza la instrucción proporcionada y detecta la acción a ejecutar en el SOP, staff, cotización, despacho Quo/SMS o registro de cita.",
   });
 
   contents.push({

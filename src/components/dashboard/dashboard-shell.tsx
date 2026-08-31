@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { GlobalAiBubble } from "@/components/ai/global-ai-bubble";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
@@ -142,6 +143,9 @@ export function DashboardShell({
         </header>
         <main className="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
+
+      {/* Global AI Copilot Floating Bubble */}
+      <GlobalAiBubble />
     </div>
   );
 }
