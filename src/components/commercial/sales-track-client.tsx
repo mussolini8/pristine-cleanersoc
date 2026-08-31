@@ -50,7 +50,8 @@ import {
 import { initialSalesTrackerBookings } from "@/lib/sales-tracker/seed-data";
 
 export function SalesTrackClient() {
-  const [bookings, setBookings] = useState<ServiceBookingRow[]>(initialSalesTrackerBookings);
+  const [selectedPeriod, setSelectedPeriod] = useState<"current" | "july_2026">("current");
+  const [currentMonthBookings, setCurrentMonthBookings] = useState<ServiceBookingRow[]>([]);
   const [activeTab, setActiveTab] = useState<"dash" | "table" | "target" | "ledger">("dash");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -72,14 +73,14 @@ export function SalesTrackClient() {
     actualHours: 3.0,
   });
 
-  // Load from local storage if available
+  // Load from local storage for current month
   useEffect(() => {
-    const saved = localStorage.getItem("pristine_master_sales_tracker");
+    const saved = localStorage.getItem("pristine_sales_tracker_current_month");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setBookings(parsed);
+        if (Array.isArray(parsed)) {
+          setCurrentMonthBookings(parsed);
         }
       } catch (e) {
         console.error("Could not load stored bookings", e);
@@ -87,9 +88,23 @@ export function SalesTrackClient() {
     }
   }, []);
 
-  const saveBookings = (newBookings: ServiceBookingRow[]) => {
-    setBookings(newBookings);
-    localStorage.setItem("pristine_master_sales_tracker", JSON.stringify(newBookings));
+  const bookings = useMemo(() => {
+    return selectedPeriod === "july_2026" ? initialSalesTrackerBookings : currentMonthBookings;
+  }, [selectedPeriod, currentMonthBookings]);
+
+  const saveCurrentBookings = (newBookings: ServiceBookingRow[]) => {
+    setCurrentMonthBookings(newBookings);
+    localStorage.setItem("pristine_sales_tracker_current_month", JSON.stringify(newBookings));
+  };
+
+  const handleClearCurrentMonth = () => {
+    if (confirm("¿Deseas limpiar todos los registros del mes actual para empezar desde cero?")) {
+      saveCurrentBookings([]);
+    }
+  };
+
+  const handleLoadDemoJulyData = () => {
+    setSelectedPeriod("july_2026");
   };
 
   const handleApplySalesTrack = (newEntries: SalesTrackItem[]) => {
@@ -116,8 +131,8 @@ export function SalesTrackClient() {
       });
     });
 
-    const updated = [...convertedRows, ...bookings];
-    saveBookings(updated);
+    const updated = [...convertedRows, ...currentMonthBookings];
+    saveCurrentBookings(updated);
   };
 
   const handleAddManualBooking = (e: React.FormEvent) => {
@@ -130,7 +145,7 @@ export function SalesTrackClient() {
       teamEarningsWithoutTips: Number(newBookingDraft.teamEarningsWithoutTips) || 0,
     });
 
-    saveBookings([row, ...bookings]);
+    saveCurrentBookings([row, ...currentMonthBookings]);
     setShowAddModal(false);
     setNewBookingDraft({
       clientName: "",
@@ -148,7 +163,7 @@ export function SalesTrackClient() {
   };
 
   const handleDeleteBooking = (id: string) => {
-    saveBookings(bookings.filter((b) => b.id !== id));
+    saveCurrentBookings(currentMonthBookings.filter((b) => b.id !== id));
   };
 
   // Calculations
@@ -175,14 +190,16 @@ export function SalesTrackClient() {
   }, [bookings, search, categoryFilter]);
 
   const handleExportXLSX = () => {
-    exportComprehensiveTrackerToXLSX("July-2026-Income-Labor-Sales-Tracker", bookings);
+    const periodName = selectedPeriod === "july_2026" ? "July-2026" : "August-2026-Active";
+    exportComprehensiveTrackerToXLSX(`${periodName}-Income-Labor-Sales-Tracker`, bookings);
   };
 
   const handleExportPDF = () => {
+    const periodName = selectedPeriod === "july_2026" ? "July 2026 (Histórico)" : "August 2026 (Mes Actual)";
     exportComprehensiveTrackerToPDF(
-      "July-2026-Income-Labor-Sales-Tracker",
+      `${selectedPeriod === "july_2026" ? "July-2026" : "August-2026"}-Income-Labor-Sales-Tracker`,
       bookings,
-      "Income, Labor & Sales Tracker Executive Report (July 2026)"
+      `Income, Labor & Sales Tracker Executive Report (${periodName})`
     );
   };
 
@@ -192,21 +209,48 @@ export function SalesTrackClient() {
         {/* Header & Hero */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                 <TrendingUp className="size-3.5" />
-                Control Financiero y Operativo · July 2026
+                Control Financiero y Operativo
               </span>
+
+              {/* Period Selector Dropdown */}
+              <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs">
+                <Calendar className="size-3.5 text-muted-foreground" />
+                <span className="font-semibold text-muted-foreground">Periodo:</span>
+                <select
+                  value={selectedPeriod}
+                  onChange={(e) => setSelectedPeriod(e.target.value as any)}
+                  className="bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
+                >
+                  <option value="current">Agosto 2026 (Mes Actual en Vivo)</option>
+                  <option value="july_2026">Julio 2026 (Histórico / Plantilla Demo)</option>
+                </select>
+              </div>
             </div>
             <h1 className="mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
               Income, Labor & Sales Tracker
             </h1>
             <p className="text-sm text-muted-foreground">
-              Dashboard ejecutivo, desglose por categoría, libro mayor de servicios y modelado de tarifas/metas.
+              {selectedPeriod === "current"
+                ? "Mes actual en curso. Listo para registrar y procesar citas y contratos en tiempo real."
+                : "Mostrando datos históricos cerrados del mes de Julio 2026."}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {selectedPeriod === "current" && currentMonthBookings.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleClearCurrentMonth}
+                className="h-9 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
+              >
+                Limpiar Mes
+              </Button>
+            )}
+
             <Button
               onClick={() => setIsCopilotOpen(true)}
               className="gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 font-semibold text-white shadow-md hover:from-emerald-700 hover:to-teal-700"
@@ -965,8 +1009,9 @@ export function SalesTrackClient() {
           onClose={() => setIsCopilotOpen(false)}
           onApplySalesTrack={handleApplySalesTrack}
           onApplyBookings={(extractedList) => {
-            const updated = [...extractedList, ...bookings];
-            saveBookings(updated);
+            const updated = [...extractedList, ...currentMonthBookings];
+            saveCurrentBookings(updated);
+            setSelectedPeriod("current");
             setActiveTab("ledger");
           }}
         />
