@@ -75,6 +75,8 @@ export function GlobalAiBubble() {
   const [response, setResponse] = useState<SopCopilotResponse | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [isSendingSms, setIsSendingSms] = useState(false);
+  const [smsSentSuccess, setSmsSentSuccess] = useState<string | null>(null);
 
   // Speech Recognition state
   const [isListening, setIsListening] = useState(false);
@@ -257,6 +259,38 @@ export function GlobalAiBubble() {
     navigator.clipboard.writeText(text);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleSendQuoSms = async () => {
+    if (!response?.dispatchSmsQuo) return;
+    const phone = response.dispatchSmsQuo.cleanerPhone || "949-570-4521";
+    const text = response.dispatchSmsQuo.smsBodyText;
+
+    setIsSendingSms(true);
+    setSmsSentSuccess(null);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/sms/send-quo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: phone,
+          message: text,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Error al enviar SMS por Quo.");
+      }
+
+      setSmsSentSuccess(data.message || `SMS enviado exitosamente a ${phone} vía Quo.`);
+    } catch (err: any) {
+      setError(err?.message || "Error al conectar con el servicio de Quo.");
+    } finally {
+      setIsSendingSms(false);
+    }
   };
 
   return (
@@ -611,7 +645,7 @@ export function GlobalAiBubble() {
                         {response.dispatchSmsQuo.smsBodyText}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
                           size="sm"
                           variant="outline"
@@ -619,19 +653,35 @@ export function GlobalAiBubble() {
                           className="flex-1 h-8 text-xs gap-1.5"
                         >
                           {isCopied ? <Check className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
-                          {isCopied ? "¡Copiado!" : "Copiar para SMS / Quo"}
+                          {isCopied ? "¡Copiado!" : "Copiar Texto"}
                         </Button>
-                        {response.dispatchSmsQuo.cleanerPhone && (
-                          <a
-                            href={`sms:${response.dispatchSmsQuo.cleanerPhone}?body=${encodeURIComponent(
-                              response.dispatchSmsQuo.smsBodyText
-                            )}`}
-                            className="inline-flex h-8 items-center justify-center rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
-                          >
-                            Abrir SMS
-                          </a>
-                        )}
+
+                        <Button
+                          size="sm"
+                          onClick={handleSendQuoSms}
+                          disabled={isSendingSms}
+                          className="flex-1 h-8 text-xs gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700"
+                        >
+                          {isSendingSms ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin" />
+                              Enviando Quo...
+                            </>
+                          ) : (
+                            <>
+                              <Send className="size-3.5" />
+                              🚀 Enviar SMS por Quo
+                            </>
+                          )}
+                        </Button>
                       </div>
+
+                      {smsSentSuccess && (
+                        <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2.5 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium flex items-center gap-1.5">
+                          <CheckCircle className="size-3.5 text-emerald-600" />
+                          {smsSentSuccess}
+                        </div>
+                      )}
                     </div>
                   )}
 

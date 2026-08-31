@@ -39,6 +39,8 @@ const serverEnvSchema = publicEnvSchema.extend({
   SEO_USER_EMAIL: optionalEmail,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
   GEMINI_API_KEY: optionalString,
+  QUO_API_KEY: optionalString,
+  QUO_FROM_PHONE: optionalString,
 });
 
 function handleValidationError(error: z.ZodError, envData: Record<string, unknown>) {
