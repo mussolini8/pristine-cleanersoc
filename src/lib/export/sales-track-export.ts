@@ -158,7 +158,7 @@ export async function exportComprehensiveTrackerToXLSX(
     XLSX.utils.book_append_sheet(workbook, commSheet, "Commercial");
   }
 
-  // 6. Recurring Sheet
+  // 6. Recurring Sheet (RECUR)
   const recurBookings = bookings.filter((b) => b.serviceCategory !== "Commercial Cleaning" && (b.frequency.toLowerCase().includes("week") || b.frequency.toLowerCase().includes("month")));
   if (recurBookings.length > 0) {
     const recurRows: ExportRow[] = recurBookings.map((b) => ({
@@ -177,6 +177,39 @@ export async function exportComprehensiveTrackerToXLSX(
     const recurSheet = XLSX.utils.json_to_sheet(recurRows);
     XLSX.utils.book_append_sheet(workbook, recurSheet, "RECUR");
   }
+
+  // 7. Individual Service Sheets (Week, Bi, Month, Deep, Stand, Move)
+  const appendFilteredSheet = (sheetName: string, filterFn: (b: ServiceBookingRow) => boolean) => {
+    const subset = bookings.filter(filterFn);
+    if (subset.length > 0) {
+      const rows: ExportRow[] = subset.map((b) => ({
+        "Date": b.date,
+        "Full Name": b.clientName,
+        "Sub-Total": b.subTotal,
+        "Sales Tax": b.salesTax,
+        "Final Amount": b.finalAmount,
+        "Tip": b.tip,
+        "Frequency": b.frequency,
+        "Teams Assigned": b.cleanerTeam,
+        "Team Earnings": b.teamEarningsWithoutTips,
+        "Labour %": `${(b.laborPct * 100).toFixed(1)}%`,
+        "PC Earnings": b.pcEarnings,
+        "PC Profit %": `${(b.pcProfitPct * 100).toFixed(1)}%`,
+        "Actual Hours": b.actualHours,
+        "Services": b.service,
+        "City": b.city,
+      }));
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+    }
+  };
+
+  appendFilteredSheet("Week", (b) => b.serviceCategory !== "Commercial Cleaning" && b.frequency.toLowerCase().includes("weekly") && !b.frequency.toLowerCase().includes("bi") && !b.frequency.toLowerCase().includes("tri"));
+  appendFilteredSheet("Bi", (b) => b.serviceCategory !== "Commercial Cleaning" && (b.frequency.toLowerCase().includes("bi") || b.frequency.toLowerCase().includes("2 week")));
+  appendFilteredSheet("Month", (b) => b.serviceCategory !== "Commercial Cleaning" && b.frequency.toLowerCase().includes("month"));
+  appendFilteredSheet("Deep", (b) => b.serviceCategory !== "Commercial Cleaning" && b.service.toLowerCase().includes("deep"));
+  appendFilteredSheet("Stand", (b) => b.serviceCategory !== "Commercial Cleaning" && (b.service.toLowerCase().includes("express") || b.service.toLowerCase().includes("stand")));
+  appendFilteredSheet("Move", (b) => b.serviceCategory !== "Commercial Cleaning" && b.service.toLowerCase().includes("move"));
 
   XLSX.writeFile(workbook, filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`);
 }

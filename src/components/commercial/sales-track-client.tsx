@@ -575,6 +575,181 @@ export function SalesTrackClient() {
                 </table>
               </div>
             </div>
+
+            {/* Revenue & Earnings Summary (Recurring, On-Time, Other) */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden">
+                <div className="p-3.5 border-b border-border/80 bg-muted/40 flex items-center justify-between">
+                  <h4 className="font-bold text-xs text-foreground uppercase tracking-wider">
+                    Revenue & Earnings Summary (Grupos de Rendimiento)
+                  </h4>
+                </div>
+
+                <div className="overflow-x-auto text-xs">
+                  <table className="w-full text-left">
+                    <thead className="border-b border-border bg-muted/60 text-muted-foreground text-[11px] font-semibold">
+                      <tr>
+                        <th className="px-3 py-2">Grupo / Servicio</th>
+                        <th className="px-3 py-2 text-right">Revenue</th>
+                        <th className="px-3 py-2 text-right">Actual Profit %</th>
+                        <th className="px-3 py-2 text-right">Gross Earnings</th>
+                        <th className="px-3 py-2 text-right font-bold text-blue-600 dark:text-blue-400">Target Earnings (71.67%)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {/* GROUP 1: RECURRING (RESIDENCIAL) */}
+                      <tr className="bg-muted/20 font-bold">
+                        <td colSpan={5} className="px-3 py-1.5 text-primary text-[11px] uppercase tracking-wider">
+                          1. Recurring (Residencial)
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6">Monthly</td>
+                        <td className="px-3 py-2 text-right font-medium">$435.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">56.32%</td>
+                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$245.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$311.75</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6">Triweekly</td>
+                        <td className="px-3 py-2 text-right font-medium">$225.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">46.67%</td>
+                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$105.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$161.25</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6">Biweekly</td>
+                        <td className="px-3 py-2 text-right font-medium">$3,327.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">49.71%</td>
+                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$1,673.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$2,384.35</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6">Weekly</td>
+                        <td className="px-3 py-2 text-right font-medium">$2,276.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">48.33%</td>
+                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$1,176.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$1,631.13</td>
+                      </tr>
+                      <tr className="bg-primary/5 font-black">
+                        <td className="px-3 py-2 text-foreground">TOTAL RECURRING</td>
+                        <td className="px-3 py-2 text-right">$6,263.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">51.08%</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">$3,199.00</td>
+                        <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">$4,488.48</td>
+                      </tr>
+
+                      {/* GROUP 2: ON-TIME (RESIDENCIAL EVENTUAL) */}
+                      <tr className="bg-muted/20 font-bold">
+                        <td colSpan={5} className="px-3 py-1.5 text-primary text-[11px] uppercase tracking-wider">
+                          2. On-Time / Eventual (Residencial)
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6">Deep Clean</td>
+                        <td className="px-3 py-2 text-right font-medium">$4,494.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">59.95%</td>
+                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$2,694.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$3,220.70</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6">Move In/Out</td>
+                        <td className="px-3 py-2 text-right font-medium">$5,619.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">57.60%</td>
+                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$3,204.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$4,026.95</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6">Standard Clean</td>
+                        <td className="px-3 py-2 text-right font-medium">$6,858.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">49.71%</td>
+                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$3,409.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$4,914.90</td>
+                      </tr>
+                      <tr className="bg-primary/5 font-black">
+                        <td className="px-3 py-2 text-foreground">TOTAL ON-TIME</td>
+                        <td className="px-3 py-2 text-right">$16,971.00</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">54.84%</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">$9,307.00</td>
+                        <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">$12,162.55</td>
+                      </tr>
+
+                      {/* GROUP 3: OTHER (COMERCIAL & AIRBNB) */}
+                      <tr className="bg-muted/20 font-bold">
+                        <td colSpan={5} className="px-3 py-1.5 text-primary text-[11px] uppercase tracking-wider">
+                          3. Other (Comercial & Airbnb)
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6">Airbnb</td>
+                        <td className="px-3 py-2 text-right font-medium">$0.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">—</td>
+                        <td className="px-3 py-2 text-right font-bold">$0.00</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$0.00</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 pl-6 font-bold text-foreground">Commercial Cleaning</td>
+                        <td className="px-3 py-2 text-right font-black text-foreground">$45,542.25</td>
+                        <td className="px-3 py-2 text-right text-emerald-600 font-bold">46.96%</td>
+                        <td className="px-3 py-2 text-right font-black text-emerald-600">$21,387.79</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">$32,638.61</td>
+                      </tr>
+                      <tr className="bg-primary/5 font-black">
+                        <td className="px-3 py-2 text-foreground">TOTAL OTHER</td>
+                        <td className="px-3 py-2 text-right">$45,542.25</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">46.96%</td>
+                        <td className="px-3 py-2 text-right text-emerald-600">$21,387.79</td>
+                        <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">$32,638.61</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Performance Revenue Share Breakdown Card */}
+              <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden flex flex-col">
+                <div className="p-3.5 border-b border-border/80 bg-muted/40">
+                  <h4 className="font-bold text-xs text-foreground uppercase tracking-wider">
+                    Gross Revenue Performance (% de Participación de Ventas)
+                  </h4>
+                </div>
+                <div className="p-4 flex-1 flex flex-col justify-between space-y-3 text-xs">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground">Commercial Cleaning (Comercial)</span>
+                      <span className="font-black text-emerald-600">64.4% ($45,542.25)</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                      <div className="h-full bg-emerald-600 rounded-full" style={{ width: "64.4%" }} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground">On-Time Residental (Standard, Move, Deep)</span>
+                      <span className="font-black text-teal-600">24.0% ($16,971.00)</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                      <div className="h-full bg-teal-600 rounded-full" style={{ width: "24.0%" }} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground">Recurring Residential (Weekly, Biweekly, Tri, Month)</span>
+                      <span className="font-black text-blue-600">8.9% ($6,263.00)</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                      <div className="h-full bg-blue-600 rounded-full" style={{ width: "8.9%" }} />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-muted/40 text-[11px] text-muted-foreground leading-relaxed">
+                    💡 <strong>Resumen Estratégico:</strong> La mayor fuente de ingresos proviene de <strong>Commercial Cleaning</strong> ($45.5k), mientras que <strong>Deep & Move In/Out</strong> ofrecen el mayor margen porcentual individual (~58-60%).
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
