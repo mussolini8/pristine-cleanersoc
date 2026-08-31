@@ -29,19 +29,23 @@ const SYSTEM_INSTRUCTION = `You are the Pristine Cleaners AI SOP & Master Financ
 You specialize in both RESIDENTIAL (Home Cleaning: Move In/Out, Deep Clean, Express/Standard, AirBnB, Recurring) and COMMERCIAL cleaning operations, payroll rules, BookingKoala summaries, and sales tracking.
 
 Key Input Formats you must handle with high precision:
-1. BookingKoala / Dispatch Text or Screenshots containing:
-   - Booking id (e.g. 11475)
+1. Client Name Detection:
+   - The customer's name may appear at the very beginning of the prompt before the Booking ID (e.g. "Sonia Kim: Booking id 11479", "Cliente: Sonia Kim", "Sonia Kim - Move in clean", etc.).
+   - ALWAYS capture this full name as the "clientName" field. If no name is found, use the street address (e.g. "1024 Citron Rd") or "Booking #<id>".
+
+2. BookingKoala / Dispatch Text or Screenshots containing:
+   - Booking id (e.g. 11479, 11475)
    - Industry (e.g. Home Cleaning, Commercial)
    - Service (e.g. Move In/Out Clean, Deep Clean, Standard Clean, Commercial Cleaning)
    - Frequency (e.g. One-Time, Weekly, Every 2 weeks, Monthly)
    - Bedrooms, Bathrooms, Sq Ft
-   - Length / Duration (e.g. 3 Hr 30 Min -> 3.5 hrs)
+   - Length / Duration (e.g. 3 Hr -> 3.0 hrs, 3 Hr 30 Min -> 3.5 hrs)
    - Service date & time (e.g. Saturday 08/01/2026 -> 2026-08-01)
-   - Assigned to / Cleaner (e.g. Maria Lopez)
-   - Provider payment / Cleaner pay (e.g. $350.00)
-   - Location / Address / Town (e.g. 916 Gardenia Way, Corona Del Mar, CA -> City: Corona Del Mar)
+   - Assigned to / Cleaner (e.g. Miriam Lopez, Maria Lopez)
+   - Provider payment / Cleaner pay (e.g. $185.00)
+   - Location / Address / Town (e.g. 1024 Citron Rd, Fullerton, CA, USA -> City: Fullerton)
    - Payment method (CC, Check, Cash, Zelle)
-   - Price details / Sub-Total (e.g. $607.70)
+   - Price details / Sub-Total (e.g. $483.07)
 
 PAYMENT PROCESSING FEE RULE (MANDATORY):
 - If Payment method is "CC", "Credit Card", or "Stripe":
@@ -93,7 +97,7 @@ Return ONLY a valid JSON object matching this schema:
       "durationHours": number,
       "actualHours": number,
       "status": "completed",
-      "notes": "string (e.g. Booking #11475 - CC 3% fee deducted: $18.23)"
+      "notes": "string (e.g. Booking #11479 - CC 3% fee deducted: $14.49)"
     }
   ],
   "extractedSalesTrack": [
@@ -113,8 +117,16 @@ Return ONLY a valid JSON object matching this schema:
       "notes": "string"
     }
   ],
-  "appliedExplanation": "Explanation in Spanish detailing the exact math (e.g. Cobro: $607.70, Cleaner: $350.00, Fee CC 3%: $18.23, Ganancia Pristine: $239.47 (39.4%))."
+  "appliedExplanation": "Explanation in Spanish detailing the exact math (e.g. Cliente: Sonia Kim, Cobro: $483.07, Cleaner: $185.00, Fee CC 3%: $14.49, Ganancia Pristine: $283.58 (58.7%))."
 }`;
+
+const CANDIDATE_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-1.5-flash",
+  "gemini-2.0-flash",
+  "gemini-3.6-flash",
+  "gemini-1.5-pro",
+];
 
 export async function callGeminiSopCopilot({
   prompt,
@@ -154,45 +166,59 @@ export async function callGeminiSopCopilot({
     parts,
   });
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${resolvedKey}`;
+  let lastError: string | null = null;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      contents,
-      systemInstruction: {
-        parts: [{ text: SYSTEM_INSTRUCTION }],
-      },
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.1,
-      },
-    }),
-  });
+  for (const modelName of CANDIDATE_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${resolvedKey}`;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Error en API de Gemini (${response.status}): ${errorText}`);
-  }
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: {
+            parts: [{ text: SYSTEM_INSTRUCTION }],
+          },
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.1,
+          },
+        }),
+      });
 
-  const result = await response.json();
-  const textOutput = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!response.ok) {
+        const errorText = await response.text();
+        lastError = `Error con modelo ${modelName} (${response.status}): ${errorText}`;
+        console.warn(`[Gemini Fallback] Model ${modelName} returned status ${response.status}. Trying next model...`);
+        continue;
+      }
 
-  if (!textOutput) {
-    throw new Error("No se recibió respuesta válida del modelo Gemini.");
-  }
+      const result = await response.json();
+      const textOutput = result?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-  try {
-    const parsed: SopCopilotResponse = JSON.parse(textOutput);
-    return parsed;
-  } catch (err) {
-    const match = textOutput.match(/\{[\s\S]*\}/);
-    if (match) {
-      return JSON.parse(match[0]);
+      if (!textOutput) {
+        lastError = `Modelo ${modelName} no devolvió texto de respuesta.`;
+        continue;
+      }
+
+      try {
+        const parsed: SopCopilotResponse = JSON.parse(textOutput);
+        return parsed;
+      } catch (err) {
+        const match = textOutput.match(/\{[\s\S]*\}/);
+        if (match) {
+          return JSON.parse(match[0]);
+        }
+        throw new Error("No se pudo estructurar la respuesta JSON de Gemini: " + String(err));
+      }
+    } catch (err: any) {
+      lastError = err?.message || String(err);
+      console.warn(`[Gemini Fallback] Error with ${modelName}:`, err);
     }
-    throw new Error("No se pudo estructurar la respuesta JSON de Gemini: " + String(err));
   }
+
+  throw new Error(`No se pudo conectar con los modelos de Gemini disponibles. Último error: ${lastError}`);
 }
