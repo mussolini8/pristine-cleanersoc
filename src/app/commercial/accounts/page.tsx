@@ -89,8 +89,8 @@ type ScheduleRule = {
 
 const CLEANERS = [
   "", "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
-  "Mirna Contreras", "Esperanza Youseff", "Ana Morales", "Maria Lopez",
-  "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin", "Vanessa Ortega",
+  "Susana Bautista", "Mirna Contreras", "Esperanza Youseff", "Ana Morales", "Maria Lopez",
+  "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin", "Vanessa Ortega", "Luz and Vanessa",
 ];
 
 const PIE_COLORS = [
