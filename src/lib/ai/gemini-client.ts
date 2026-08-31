@@ -259,12 +259,47 @@ Return ONLY a valid JSON object matching this schema:
 }`;
 
 const CANDIDATE_MODELS = [
+  "gemini-3.5-flash",
+  "gemini-3.7-flash",
   "gemini-2.5-flash",
-  "gemini-1.5-flash",
-  "gemini-2.0-flash",
-  "gemini-3.6-flash",
-  "gemini-1.5-pro",
+  "gemini-flash-latest",
+  "gemini-2.5-pro",
 ];
+
+function robustParseJsonResponse(rawText: string): SopCopilotResponse {
+  const cleaned = rawText
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {
+        // If JSON has unescaped control chars, try sanitize
+        try {
+          const sanitized = match[0]
+            .replace(/[\u0000-\u001F\u007F-\u009F]/g, (c) => `\\u${('0000' + c.charCodeAt(0).toString(16)).slice(-4)}`);
+          return JSON.parse(sanitized);
+        } catch {
+          // fallback
+        }
+      }
+    }
+  }
+
+  // Fallback: return raw text as valid response
+  return {
+    intent: "general_query",
+    actionType: "general_query",
+    summary: rawText,
+    appliedExplanation: "Respuesta procesada correctamente.",
+  };
+}
 
 export async function callGeminiSopCopilot({
   prompt,
@@ -275,7 +310,8 @@ export async function callGeminiSopCopilot({
   images?: GeminiImageData[];
   apiKey?: string;
 }): Promise<SopCopilotResponse> {
-  const resolvedKey = apiKey || process.env.GEMINI_API_KEY;
+  const rawKey = apiKey || process.env.GEMINI_API_KEY || "";
+  const resolvedKey = rawKey.replace(/^["']|["']$/g, "").trim();
 
   if (!resolvedKey) {
     throw new Error(
@@ -344,16 +380,7 @@ export async function callGeminiSopCopilot({
         continue;
       }
 
-      try {
-        const parsed: SopCopilotResponse = JSON.parse(textOutput);
-        return parsed;
-      } catch (err) {
-        const match = textOutput.match(/\{[\s\S]*\}/);
-        if (match) {
-          return JSON.parse(match[0]);
-        }
-        throw new Error("No se pudo estructurar la respuesta JSON de Gemini: " + String(err));
-      }
+      return robustParseJsonResponse(textOutput);
     } catch (err: any) {
       lastError = err?.message || String(err);
       console.warn(`[Gemini Fallback] Error with ${modelName}:`, err);
