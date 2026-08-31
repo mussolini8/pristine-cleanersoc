@@ -31,6 +31,9 @@ export type ServiceBookingRow = {
   laborPct: number; // teamEarningsWithoutTips / subTotal
   merchantFee: number;
   stripeFee: number;
+  processingFee?: number;
+  supplies?: number;
+  hourlyLabor?: number;
   pcEarnings: number; // subTotal - teamEarningsWithoutTips - merchantFee - stripeFee
   pcProfitPct: number; // pcEarnings / subTotal
   durationHours: number;
