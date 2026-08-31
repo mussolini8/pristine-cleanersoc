@@ -53,6 +53,7 @@ export function AiSopCopilotModal({
   const [response, setResponse] = useState<SopCopilotResponse | null>(null);
   const [appliedSuccess, setAppliedSuccess] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [speechLang, setSpeechLang] = useState<"es-US" | "en-US">("es-US");
   const [speechSupported, setSpeechSupported] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -92,7 +93,7 @@ export function AiSopCopilotModal({
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = "es-US"; // Default to Spanish (US)
+      recognition.lang = speechLang; // "es-US" or "en-US"
 
       recognition.onstart = () => {
         setIsListening(true);
@@ -372,34 +373,51 @@ export function AiSopCopilotModal({
                     Subir Captura / Imagen
                   </Button>
 
-                  <Button
-                    type="button"
-                    variant={isListening ? "default" : "outline"}
-                    size="sm"
-                    className={`h-8 text-xs gap-1.5 transition-all ${
-                      isListening
-                        ? "animate-pulse border-rose-500 bg-rose-600 text-white hover:bg-rose-700 shadow-md shadow-rose-500/20"
-                        : "border-primary/30 text-primary hover:bg-primary/5"
-                    }`}
-                    onClick={toggleListening}
-                  >
-                    {isListening ? (
-                      <>
-                        <MicOff className="size-3.5" />
-                        Detener Micrófono
-                      </>
-                    ) : (
-                      <>
-                        <Mic className="size-3.5 text-primary" />
-                        Dictar por Voz
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant={isListening ? "default" : "outline"}
+                      size="sm"
+                      className={`h-8 text-xs gap-1.5 transition-all ${
+                        isListening
+                          ? "animate-pulse border-rose-500 bg-rose-600 text-white hover:bg-rose-700 shadow-md shadow-rose-500/20"
+                          : "border-primary/30 text-primary hover:bg-primary/5"
+                      }`}
+                      onClick={toggleListening}
+                    >
+                      {isListening ? (
+                        <>
+                          <MicOff className="size-3.5" />
+                          Detener Micrófono
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="size-3.5 text-primary" />
+                          Dictar por Voz
+                        </>
+                      )}
+                    </Button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = speechLang === "es-US" ? "en-US" : "es-US";
+                        setSpeechLang(next);
+                        if (isListening && recognitionRef.current) {
+                          recognitionRef.current.lang = next;
+                        }
+                      }}
+                      className="h-8 rounded-lg border border-border/80 bg-muted/50 px-2 text-[11px] font-bold text-foreground hover:bg-muted transition-colors flex items-center gap-1"
+                      title="Cambiar idioma de dictado (Español / English)"
+                    >
+                      {speechLang === "es-US" ? "🇪🇸 ES" : "🇺🇸 EN"}
+                    </button>
+                  </div>
 
                   {isListening ? (
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-rose-600 dark:text-rose-400 animate-pulse">
                       <span className="size-2 rounded-full bg-rose-600" />
-                      Escuchando... habla ahora
+                      {speechLang === "es-US" ? "Escuchando en español... habla ahora" : "Listening in English... speak now"}
                     </span>
                   ) : (
                     <span className="text-[11px] text-muted-foreground hidden sm:inline">
