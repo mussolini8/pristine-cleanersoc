@@ -25,11 +25,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { exportSalesTrackToXLSX, exportSalesTrackToPDF, type SalesTrackItem } from "@/lib/export/sales-track-export";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
+import type { ServiceBookingRow } from "@/lib/sales-tracker/types";
 
 interface AiSopCopilotModalProps {
   isOpen: boolean;
   onClose: () => void;
   onApplySalesTrack?: (items: SalesTrackItem[]) => void;
+  onApplyBookings?: (bookings: ServiceBookingRow[]) => void;
   onApplySopModifications?: (modifications: NonNullable<SopCopilotResponse["sopModifications"]>) => void;
 }
 
@@ -37,6 +39,7 @@ export function AiSopCopilotModal({
   isOpen,
   onClose,
   onApplySalesTrack,
+  onApplyBookings,
   onApplySopModifications,
 }: AiSopCopilotModalProps) {
   const [prompt, setPrompt] = useState("");
@@ -140,6 +143,10 @@ export function AiSopCopilotModal({
 
   const handleApply = () => {
     if (!response) return;
+
+    if (response.extractedBookings && response.extractedBookings.length > 0 && onApplyBookings) {
+      onApplyBookings(response.extractedBookings);
+    }
 
     if (response.extractedSalesTrack && response.extractedSalesTrack.length > 0 && onApplySalesTrack) {
       onApplySalesTrack(response.extractedSalesTrack);
@@ -383,6 +390,72 @@ export function AiSopCopilotModal({
                           </div>
                         )}
                         {mod.notes && <div className="text-[11px] text-muted-foreground italic">{mod.notes}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Extracted Bookings (BookingKoala / Residential / Master Ledger) */}
+              {response.extractedBookings && response.extractedBookings.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <FileText className="size-3.5 text-primary" /> Servicios / Citas Extraídas ({response.extractedBookings.length})
+                    </h4>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-1">
+                    {response.extractedBookings.map((b, i) => (
+                      <div key={i} className="rounded-xl border border-border/80 bg-card p-4 shadow-sm text-xs space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-sm text-foreground">{b.clientName}</span>
+                            <Badge variant="outline" className="border-primary/30 text-primary font-bold">
+                              {b.service}
+                            </Badge>
+                            <span className="text-muted-foreground">· {b.city}</span>
+                          </div>
+                          <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                            <span>📅 {b.date}</span>
+                            <span>⏱️ {b.actualHours}h</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-center">
+                          <div className="rounded-lg bg-muted/40 p-2">
+                            <span className="text-[10px] uppercase font-bold text-muted-foreground">Cleaner</span>
+                            <p className="font-bold text-foreground mt-0.5">{b.cleanerTeam}</p>
+                          </div>
+                          <div className="rounded-lg bg-muted/40 p-2">
+                            <span className="text-[10px] uppercase font-bold text-muted-foreground">Cobro Subtotal</span>
+                            <p className="font-black text-foreground mt-0.5">${b.subTotal.toFixed(2)}</p>
+                          </div>
+                          <div className="rounded-lg bg-amber-500/10 p-2">
+                            <span className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-300">Pago Cleaner</span>
+                            <p className="font-bold text-amber-700 dark:text-amber-300 mt-0.5">
+                              ${b.teamEarningsWithoutTips.toFixed(2)} ({((b.teamEarningsWithoutTips / (b.subTotal || 1)) * 100).toFixed(0)}%)
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-rose-500/10 p-2">
+                            <span className="text-[10px] uppercase font-bold text-rose-700 dark:text-rose-300">Fee CC (3%)</span>
+                            <p className="font-bold text-rose-700 dark:text-rose-300 mt-0.5">
+                              ${b.merchantFee.toFixed(2)}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-emerald-500/10 p-2">
+                            <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-300">Ganancia Pristine</span>
+                            <p className="font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                              ${b.pcEarnings.toFixed(2)} ({((b.pcEarnings / (b.subTotal || 1)) * 100).toFixed(0)}%)
+                            </p>
+                          </div>
+                        </div>
+
+                        {b.notes && (
+                          <div className="text-[11px] text-muted-foreground italic bg-muted/20 rounded-md p-2">
+                            {b.notes}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

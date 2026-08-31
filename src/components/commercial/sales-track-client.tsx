@@ -789,6 +789,11 @@ export function SalesTrackClient() {
           isOpen={isCopilotOpen}
           onClose={() => setIsCopilotOpen(false)}
           onApplySalesTrack={handleApplySalesTrack}
+          onApplyBookings={(extractedList) => {
+            const updated = [...extractedList, ...bookings];
+            saveBookings(updated);
+            setActiveTab("ledger");
+          }}
         />
       </div>
     </DashboardShell>
