@@ -858,6 +858,7 @@ export function SimpleOperationsClient({
   const [deduplicating, setDeduplicating] = useState(false);
   const monthlySopAutoImportAttempted = useRef(new Set<string>());
   const [monthlySopImportSummary, setMonthlySopImportSummary] = useState<MonthlySopImportSummary | null>(null);
+  const [scheduleTab, setScheduleTab] = useState<"commercial" | "qc">("commercial");
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
@@ -3233,7 +3234,7 @@ export function SimpleOperationsClient({
   
 
   
-  const [scheduleTab, setScheduleTab] = useState<"commercial" | "qc">("commercial");
+  
 
   function renderSchedules() {
     let events: NormalizedCalendarEvent[] = [];
