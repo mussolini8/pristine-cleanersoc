@@ -48,6 +48,7 @@ import {
   computeBookingFormulas,
 } from "@/lib/sales-tracker/calculator";
 import { initialSalesTrackerBookings } from "@/lib/sales-tracker/seed-data";
+import { augustSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-august-2026";
 
 export function SalesTrackClient() {
   const [selectedPeriod, setSelectedPeriod] = useState<"current" | "july_2026">("current");
@@ -73,19 +74,23 @@ export function SalesTrackClient() {
     actualHours: 3.0,
   });
 
-  // Load from local storage for current month
+  // Load from local storage for current month; fall back to August 2026 CSV seed
   useEffect(() => {
     const saved = localStorage.getItem("pristine_sales_tracker_current_month");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           setCurrentMonthBookings(parsed);
+          return;
         }
       } catch (e) {
         console.error("Could not load stored bookings", e);
       }
     }
+    // No saved data — seed August 2026 CSV bookings automatically
+    setCurrentMonthBookings(augustSalesTrackerBookings);
+    localStorage.setItem("pristine_sales_tracker_current_month", JSON.stringify(augustSalesTrackerBookings));
   }, []);
 
   const bookings = useMemo(() => {
@@ -100,6 +105,12 @@ export function SalesTrackClient() {
   const handleClearCurrentMonth = () => {
     if (confirm("¿Deseas limpiar todos los registros del mes actual para empezar desde cero?")) {
       saveCurrentBookings([]);
+    }
+  };
+
+  const handleReloadAugustCSV = () => {
+    if (confirm("¿Recargar los 62 bookings de agosto 2026 desde el CSV original? Esto reemplazará los registros actuales.")) {
+      saveCurrentBookings(augustSalesTrackerBookings);
     }
   };
 
@@ -248,6 +259,17 @@ export function SalesTrackClient() {
                 className="h-9 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
               >
                 Limpiar Mes
+              </Button>
+            )}
+
+            {selectedPeriod === "current" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleReloadAugustCSV}
+                className="h-9 gap-1.5 text-xs text-blue-700 border-blue-300/50 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
+              >
+                ↺ Recargar CSV Agosto
               </Button>
             )}
 
