@@ -51,7 +51,7 @@ import { initialSalesTrackerBookings } from "@/lib/sales-tracker/seed-data";
 import { augustSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-august-2026";
 
 export function SalesTrackClient() {
-  const [selectedPeriod, setSelectedPeriod] = useState<"current" | "july_2026">("current");
+  const [selectedPeriod, setSelectedPeriod] = useState<"september_2026" | "august_2026" | "july_2026">("september_2026");
   const [currentMonthBookings, setCurrentMonthBookings] = useState<ServiceBookingRow[]>([]);
   const [activeTab, setActiveTab] = useState<"dash" | "table" | "target" | "ledger">("dash");
   const [search, setSearch] = useState("");
@@ -74,13 +74,13 @@ export function SalesTrackClient() {
     actualHours: 3.0,
   });
 
-  // Load from local storage for current month; fall back to August 2026 CSV seed
+  // Load from local storage for September 2026; fallback to empty array
   useEffect(() => {
-    const saved = localStorage.getItem("pristine_sales_tracker_current_month");
+    const saved = localStorage.getItem("pristine_sales_tracker_sep_2026");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           setCurrentMonthBookings(parsed);
           return;
         }
@@ -88,34 +88,24 @@ export function SalesTrackClient() {
         console.error("Could not load stored bookings", e);
       }
     }
-    // No saved data — seed August 2026 CSV bookings automatically
-    setCurrentMonthBookings(augustSalesTrackerBookings);
-    localStorage.setItem("pristine_sales_tracker_current_month", JSON.stringify(augustSalesTrackerBookings));
+    setCurrentMonthBookings([]);
   }, []);
 
   const bookings = useMemo(() => {
-    return selectedPeriod === "july_2026" ? initialSalesTrackerBookings : currentMonthBookings;
+    if (selectedPeriod === "july_2026") return initialSalesTrackerBookings;
+    if (selectedPeriod === "august_2026") return augustSalesTrackerBookings;
+    return currentMonthBookings;
   }, [selectedPeriod, currentMonthBookings]);
 
   const saveCurrentBookings = (newBookings: ServiceBookingRow[]) => {
     setCurrentMonthBookings(newBookings);
-    localStorage.setItem("pristine_sales_tracker_current_month", JSON.stringify(newBookings));
+    localStorage.setItem("pristine_sales_tracker_sep_2026", JSON.stringify(newBookings));
   };
 
   const handleClearCurrentMonth = () => {
-    if (confirm("¿Deseas limpiar todos los registros del mes actual para empezar desde cero?")) {
+    if (confirm("¿Deseas limpiar todos los registros de Septiembre 2026 para empezar desde cero?")) {
       saveCurrentBookings([]);
     }
-  };
-
-  const handleReloadAugustCSV = () => {
-    if (confirm("¿Recargar los 62 bookings de agosto 2026 desde el CSV original? Esto reemplazará los registros actuales.")) {
-      saveCurrentBookings(augustSalesTrackerBookings);
-    }
-  };
-
-  const handleLoadDemoJulyData = () => {
-    setSelectedPeriod("july_2026");
   };
 
   const handleApplySalesTrack = (newEntries: SalesTrackItem[]) => {
@@ -174,6 +164,7 @@ export function SalesTrackClient() {
   };
 
   const handleDeleteBooking = (id: string) => {
+    if (selectedPeriod !== "september_2026") return;
     saveCurrentBookings(currentMonthBookings.filter((b) => b.id !== id));
   };
 
@@ -200,17 +191,29 @@ export function SalesTrackClient() {
     });
   }, [bookings, search, categoryFilter]);
 
+  const periodLabel =
+    selectedPeriod === "september_2026"
+      ? "Septiembre-2026-Activo"
+      : selectedPeriod === "august_2026"
+      ? "Agosto-2026-Cerrado"
+      : "Julio-2026-Historico";
+
+  const periodTitle =
+    selectedPeriod === "september_2026"
+      ? "Septiembre 2026 (Mes Actual)"
+      : selectedPeriod === "august_2026"
+      ? "Agosto 2026 (Cerrado)"
+      : "Julio 2026 (Histórico / Demo)";
+
   const handleExportXLSX = () => {
-    const periodName = selectedPeriod === "july_2026" ? "July-2026" : "August-2026-Active";
-    exportComprehensiveTrackerToXLSX(`${periodName}-Income-Labor-Sales-Tracker`, bookings);
+    exportComprehensiveTrackerToXLSX(`${periodLabel}-Income-Labor-Sales-Tracker`, bookings);
   };
 
   const handleExportPDF = () => {
-    const periodName = selectedPeriod === "july_2026" ? "July 2026 (Histórico)" : "August 2026 (Mes Actual)";
     exportComprehensiveTrackerToPDF(
-      `${selectedPeriod === "july_2026" ? "July-2026" : "August-2026"}-Income-Labor-Sales-Tracker`,
+      `${periodLabel}-Income-Labor-Sales-Tracker`,
       bookings,
-      `Income, Labor & Sales Tracker Executive Report (${periodName})`
+      `Income, Labor & Sales Tracker Executive Report (${periodTitle})`
     );
   };
 
@@ -235,7 +238,8 @@ export function SalesTrackClient() {
                   onChange={(e) => setSelectedPeriod(e.target.value as any)}
                   className="bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
                 >
-                  <option value="current">Agosto 2026 (Mes Actual en Vivo)</option>
+                  <option value="september_2026">Septiembre 2026 (Mes Actual en Vivo)</option>
+                  <option value="august_2026">Agosto 2026 (Cerrado / Histórico - 62 jobs)</option>
                   <option value="july_2026">Julio 2026 (Histórico / Plantilla Demo)</option>
                 </select>
               </div>
@@ -244,14 +248,16 @@ export function SalesTrackClient() {
               Income, Labor & Sales Tracker
             </h1>
             <p className="text-sm text-muted-foreground">
-              {selectedPeriod === "current"
+              {selectedPeriod === "september_2026"
                 ? "Mes actual en curso. Listo para registrar y procesar citas y contratos en tiempo real."
+                : selectedPeriod === "august_2026"
+                ? "Mostrando datos históricos cerrados del mes de Agosto 2026 (62 servicios registrados)."
                 : "Mostrando datos históricos cerrados del mes de Julio 2026."}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {selectedPeriod === "current" && currentMonthBookings.length > 0 && (
+            {selectedPeriod === "september_2026" && currentMonthBookings.length > 0 && (
               <Button
                 variant="outline"
                 size="sm"
@@ -259,17 +265,6 @@ export function SalesTrackClient() {
                 className="h-9 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
               >
                 Limpiar Mes
-              </Button>
-            )}
-
-            {selectedPeriod === "current" && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReloadAugustCSV}
-                className="h-9 gap-1.5 text-xs text-blue-700 border-blue-300/50 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
-              >
-                ↺ Recargar CSV Agosto
               </Button>
             )}
 
@@ -467,7 +462,7 @@ export function SalesTrackClient() {
             <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-sm">
               <div className="flex items-center gap-2 text-base font-bold text-foreground mb-4">
                 <ShieldCheck className="size-5 text-primary" />
-                Resumen Ejecutivo y Salud Financiera (July 2026)
+                Resumen Ejecutivo y Salud Financiera ({periodTitle})
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                 <div className="rounded-xl bg-muted/40 p-4 space-y-1">
@@ -851,7 +846,16 @@ export function SalesTrackClient() {
                   <option value="move">Move In/Out</option>
                 </select>
 
-                <Button size="sm" onClick={() => setShowAddModal(true)} className="h-8 text-xs gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (selectedPeriod !== "september_2026") {
+                      setSelectedPeriod("september_2026");
+                    }
+                    setShowAddModal(true);
+                  }}
+                  className="h-8 text-xs gap-1.5"
+                >
                   <Plus className="size-3.5" /> Registrar Cita
                 </Button>
               </div>
@@ -875,7 +879,7 @@ export function SalesTrackClient() {
                       <th className="px-3 py-2.5 text-right">PC Profit</th>
                       <th className="px-3 py-2.5 text-right">Profit %</th>
                       <th className="px-3 py-2.5 text-center">Horas</th>
-                      <th className="px-3 py-2.5 text-center">Acciones</th>
+                      {selectedPeriod === "september_2026" && <th className="px-3 py-2.5 text-center">Acciones</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -893,15 +897,17 @@ export function SalesTrackClient() {
                         <td className="px-3 py-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">${b.pcEarnings.toFixed(2)}</td>
                         <td className="px-3 py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">{(b.pcProfitPct * 100).toFixed(0)}%</td>
                         <td className="px-3 py-2.5 text-center font-semibold text-foreground">{b.actualHours}h</td>
-                        <td className="px-3 py-2.5 text-center">
-                          <button
-                            onClick={() => handleDeleteBooking(b.id)}
-                            className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
-                            title="Eliminar registro"
-                          >
-                            <Trash2 className="size-3" />
-                          </button>
-                        </td>
+                        {selectedPeriod === "september_2026" && (
+                          <td className="px-3 py-2.5 text-center">
+                            <button
+                              onClick={() => handleDeleteBooking(b.id)}
+                              className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
+                              title="Eliminar registro"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1033,7 +1039,7 @@ export function SalesTrackClient() {
           onApplyBookings={(extractedList) => {
             const updated = [...extractedList, ...currentMonthBookings];
             saveCurrentBookings(updated);
-            setSelectedPeriod("current");
+            setSelectedPeriod("september_2026");
             setActiveTab("ledger");
           }}
         />
