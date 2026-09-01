@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { OperationsCalendar, type CalendarView, type NormalizedCalendarEvent } from "./shared-calendar";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1589,7 +1590,7 @@ export function SimpleOperationsClient({
             panel: "Operations",
             description: task.description,
             notes: task.description,
-            status: task.status,
+            status: task.status || "pending",
             completionNotes: task.completion_notes ?? task.description,
             completionEmailEnabled: metadataFlag(task.metadata, "notify_owner_on_completed", true),
             assignmentEmailEnabled: metadataFlag(task.metadata, "notify_assignee_on_assignment", true),
@@ -3156,7 +3157,10 @@ export function SimpleOperationsClient({
         {!loading && view === "residential" ? renderResidential() : null}
         {!loading && view === "staff" ? renderStaff() : null}
         {!loading && view === "reports" ? renderReports() : null}
+        
         {!loading && view === "settings" ? renderSettings() : null}
+        {!loading && view === "schedules" ? renderSchedules() : null}
+
       </div>
       {taskDraft ? renderTaskModal() : null}
       {selectedTask ? renderTaskDetail() : null}
@@ -3226,7 +3230,69 @@ export function SimpleOperationsClient({
     </DashboardShell>
   );
 
-  function renderHeader() {
+  
+
+  
+  const [scheduleTab, setScheduleTab] = useState<"commercial" | "qc">("commercial");
+
+  function renderSchedules() {
+    let events: NormalizedCalendarEvent[] = [];
+    
+    if (scheduleTab === "commercial") {
+      events = commercialAccounts.map(acc => ({
+        id: acc.id,
+        type: "booking",
+        status: "active",
+        title: acc.name,
+        start: todayKey(),
+        end: todayKey(),
+        summary: `${acc.frequency} - ${acc.cleaner_name || 'Unassigned'}`,
+        businessUnit: "commercial",
+        color: { bgClass: "bg-indigo-50", borderClass: "border-indigo-200", textClass: "text-indigo-800", badgeClass: "bg-indigo-100 text-indigo-800" }
+      }));
+    } else if (scheduleTab === "qc") {
+      events = tasks.filter(t => t.category === "QC Inspection").map(task => ({
+        id: task.id,
+        type: "task",
+        status: task.status || "pending",
+        title: task.title,
+        start: task.due_date || todayKey(),
+        end: task.due_date || todayKey(),
+        summary: task.assignee || 'Unassigned',
+        businessUnit: "qc",
+        color: { bgClass: "bg-amber-50", borderClass: "border-amber-200", textClass: "text-amber-800", badgeClass: "bg-amber-100 text-amber-800" }
+      }));
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 border-b border-border/70 pb-3">
+          <button 
+            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${scheduleTab === 'commercial' ? 'bg-primary text-primary-foreground' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
+            onClick={() => setScheduleTab("commercial")}
+          >
+            Commercial Schedule
+          </button>
+          <button 
+            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${scheduleTab === 'qc' ? 'bg-primary text-primary-foreground' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
+            onClick={() => setScheduleTab("qc")}
+          >
+            QC Schedule
+          </button>
+        </div>
+        
+        <OperationsCalendar 
+          events={events} 
+          viewMode="week" 
+          anchor={new Date()} 
+          emptyMessage={scheduleTab === "commercial" ? "No commercial cleanings." : "No QC inspections."} 
+          onEventSelect={() => {}} 
+        />
+      </div>
+    );
+  }
+
+function renderHeader() {
     const headers: Record<SimpleOperationsView, { title: string; sub: string; icon: LucideIcon }> = {
       dashboard: { title: "Operations dashboard", sub: "Daily reminders, residential payments, and commercial hours.", icon: CheckCircle2 },
       tasks: { title: "Task reminders", sub: "Operational reminders for Jake and Carlos.", icon: Clock },
@@ -3235,6 +3301,8 @@ export function SimpleOperationsClient({
         : { title: "Residential payments", sub: "Weekly residential payments and tracking.", icon: WalletCards },
       staff: { title: "Staff / Teams", sub: "Manage team roles, areas, and payment sources.", icon: Users },
       reports: { title: "Reports", sub: "Task, hours, and weekly payment exports.", icon: FileText },
+      
+      "schedules": { title: "Schedules", sub: "Commercial and QC Agenda", icon: CalendarDays },
       settings: { title: "Settings", sub: "Notification setup and residential operations defaults.", icon: Settings2 },
     };
     const meta = headers[view];

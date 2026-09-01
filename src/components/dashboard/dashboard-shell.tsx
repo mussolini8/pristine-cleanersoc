@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, CheckSquare, ClipboardCheck, FileSpreadsheet, Home, LogOut, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
+import { BarChart3, CalendarDays, Building2, CheckSquare, ClipboardCheck, FileSpreadsheet, Home, LogOut, Settings, Sparkles, TrendingUp, Users, Wallet } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
@@ -18,6 +18,11 @@ const navItems = [
   { label: "Sales Track & AI Copilot", href: "/commercial/sales-track", icon: TrendingUp, area: "workspace" as AccessArea },
   { label: "Task Reminders", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
   { label: "Residential payments / commercial hours", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
+  { label: "Schedules (Comm & QC)", href: "/schedules", icon: CalendarDays, area: "workspace" as AccessArea },
+  
+  
+  
+
   { label: "Commercial Accounts", href: "/commercial/accounts", icon: Building2, area: "workspace" as AccessArea },
   { label: "QC Inspections", href: "/qc/dashboard", icon: ClipboardCheck, area: "workspace" as AccessArea },
   { label: "Staff / Teams", href: "/staff", icon: Users, area: "operations" as AccessArea },

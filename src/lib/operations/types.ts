@@ -19,7 +19,7 @@ export type {
   WorkLogStatus,
 } from "@/lib/operations/constants";
 
-export type SimpleOperationsView = "dashboard" | "tasks" | "residential" | "staff" | "reports" | "settings";
+export type SimpleOperationsView = "dashboard" | "tasks" | "residential" | "staff" | "reports" | "settings" | "schedules";
 export type TaskTab = "pending" | "completed" | "overdue" | "all";
 export type TaskViewMode = "month" | "day" | "list";
 export type ReportKind = "tasks" | "hours" | "weekly_payments";

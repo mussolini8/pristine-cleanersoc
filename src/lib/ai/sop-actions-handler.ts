@@ -27,12 +27,12 @@ export async function applyOccurrenceOverrideAction(
     const accountId = accounts && accounts.length > 0 ? accounts[0].id : null;
     const accountName = accounts && accounts.length > 0 ? accounts[0].name : override.accountName;
 
-    // 2. Insert or update entry in commercial_hours_entries
+    // 2. Prepare entry data mapping to commercial_hours_entries schema
     const entryData = {
       account_id: accountId,
       account_name: accountName,
-      service_date: override.date,
-      cleaner_name: override.cleanerTeam,
+      work_date: override.date, // Fixed: schema uses work_date
+      team_name: override.cleanerTeam, // Fixed: schema uses team_name
       scheduled_hours: override.hours,
       completed_hours: override.hours,
       verified_hours: override.hours,
@@ -44,16 +44,45 @@ export async function applyOccurrenceOverrideAction(
     };
 
     if (supabase) {
-      const { data, error } = await supabase
-        .from("commercial_hours_entries")
-        .insert(entryData)
-        .select()
-        .single();
+      // Check if there is an existing entry for this account and date
+      let existingEntry = null;
+      if (accountId) {
+        const { data: existing } = await supabase
+          .from("commercial_hours_entries")
+          .select("id")
+          .eq("account_id", accountId)
+          .eq("work_date", override.date)
+          .limit(1)
+          .maybeSingle();
+        existingEntry = existing;
+      }
+
+      let data, error;
+      if (existingEntry && existingEntry.id) {
+        // Update existing entry
+        const res = await supabase
+          .from("commercial_hours_entries")
+          .update(entryData)
+          .eq("id", existingEntry.id)
+          .select()
+          .single();
+        data = res.data;
+        error = res.error;
+      } else {
+        // Insert new entry
+        const res = await supabase
+          .from("commercial_hours_entries")
+          .insert(entryData)
+          .select()
+          .single();
+        data = res.data;
+        error = res.error;
+      }
 
       if (!error && data) {
         return {
           success: true,
-          message: `Turno registrado exitosamente: ${accountName} el ${override.date} con el equipo de ${override.cleanerTeam} (${override.hours} hrs).`,
+          message: `Turno ${existingEntry ? 'actualizado' : 'registrado'} exitosamente: ${accountName} el ${override.date} con el equipo de ${override.cleanerTeam} (${override.hours} hrs).`,
           data,
         };
       }
@@ -62,13 +91,19 @@ export async function applyOccurrenceOverrideAction(
     // Fallback: save to localStorage for offline / non-auth resilience
     const existingStr = localStorage.getItem("pristine_commercial_hours_entries") || "[]";
     const existing = JSON.parse(existingStr);
+    
+    // Remove old entry for same date and account if exists
+    const filtered = existing.filter(
+      (e: any) => !(e.account_name === accountName && (e.work_date === override.date || e.service_date === override.date))
+    );
+    
     const newEntry = { id: `entry-${Date.now()}`, ...entryData, created_at: new Date().toISOString() };
-    existing.unshift(newEntry);
-    localStorage.setItem("pristine_commercial_hours_entries", JSON.stringify(existing));
+    filtered.unshift(newEntry);
+    localStorage.setItem("pristine_commercial_hours_entries", JSON.stringify(filtered));
 
     return {
       success: true,
-      message: `Turno registrado en el sistema: ${accountName} el ${override.date} con ${override.cleanerTeam} (${override.hours} hrs).`,
+      message: `Turno registrado en el sistema local: ${accountName} el ${override.date} con ${override.cleanerTeam} (${override.hours} hrs).`,
       data: newEntry,
     };
   } catch (err: any) {
