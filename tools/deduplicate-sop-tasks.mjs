@@ -13,13 +13,21 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+function normTitle(title) {
+  return String(title || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 async function main() {
   console.log("Fetching all operation tasks...");
   
   const { data: tasks, error } = await supabase
     .from("operation_tasks")
-    .select("id, title, category, due_date, status, created_at")
-    .eq("panel", "Residential")
+    .select("id, title, category, due_date, status, created_at, metadata")
+    .in("panel", ["Residential", "Operations"])
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -27,16 +35,16 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Found ${tasks.length} total residential tasks.`);
+  console.log(`Found ${tasks.length} total residential/operations tasks.`);
 
-  // Group by title, category, due_date
+  // Group by normalized title and due_date day
   const groups = new Map();
 
   for (const t of tasks) {
     if (!t.due_date || !t.title) continue;
     
     // Create a deterministic key for what should be a unique SOP task
-    const key = `${t.title}|${t.category}|${t.due_date.split("T")[0]}`;
+    const key = `${normTitle(t.title)}|${t.due_date.split("T")[0]}`;
     
     if (!groups.has(key)) {
       groups.set(key, []);

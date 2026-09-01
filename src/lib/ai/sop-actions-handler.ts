@@ -368,3 +368,99 @@ export async function applyIngestScheduleAction(
     };
   }
 }
+
+/**
+ * Apply operational / SOP modifications (updating account hours, days, cleaner assignments, pricing)
+ */
+export async function applySopModificationsAction(
+  modifications: NonNullable<SopCopilotResponse["sopModifications"]>
+): Promise<SopActionResult> {
+  if (!modifications || modifications.length === 0) {
+    return { success: true, message: "No se requirieron modificaciones operativas." };
+  }
+
+  const results: string[] = [];
+  try {
+    const supabase = createClient();
+
+    for (const mod of modifications) {
+      if (!mod.accountName) continue;
+
+      const updateData: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (mod.cleanerName !== undefined) updateData.cleaner_name = mod.cleanerName;
+      if (typeof mod.newHours === "number") updateData.hours = mod.newHours;
+      if (typeof mod.newPricing === "number") updateData.revenue = mod.newPricing;
+      if (typeof mod.newCleanerCost === "number") updateData.cost = mod.newCleanerCost;
+      if (mod.status) {
+        updateData.status = mod.status;
+        if (mod.status === "inactive" || mod.status === "cancelled") {
+          updateData.active = false;
+        }
+      }
+      if (mod.notes) updateData.supplies_notes = mod.notes;
+
+      let appliedSupabase = false;
+      if (supabase) {
+        const { data: accounts } = await supabase
+          .from("commercial_accounts")
+          .select("id, name")
+          .ilike("name", `%${mod.accountName}%`)
+          .limit(1);
+
+        if (accounts && accounts.length > 0) {
+          const { error } = await supabase
+            .from("commercial_accounts")
+            .update(updateData)
+            .eq("id", accounts[0].id);
+
+          if (!error) {
+            appliedSupabase = true;
+            
+            // If setting to inactive, also deactivate recurring schedule entries
+            if (mod.status === "inactive" || mod.status === "cancelled" || mod.newHours === 0) {
+              await supabase
+                .from("commercial_schedule")
+                .update({ active: false })
+                .eq("commercial_account_id", accounts[0].id);
+            }
+
+            const statusText = mod.status === "inactive" ? " (Desactivada del schedule)" : "";
+            results.push(`Modificado "${accounts[0].name}"${statusText}: ${typeof mod.newHours === "number" ? `${mod.newHours} hrs ` : ""}${mod.cleanerName ? `(Cleaner: ${mod.cleanerName})` : ""}`);
+          }
+        }
+      }
+
+      // Fallback: localStorage
+      if (!appliedSupabase) {
+        const key = "pristine_commercial_accounts";
+        const existingStr = localStorage.getItem(key) || "[]";
+        const existingList: any[] = JSON.parse(existingStr);
+        const idx = existingList.findIndex(
+          (e: any) => e.name?.toLowerCase().includes(mod.accountName!.toLowerCase())
+        );
+
+        if (idx !== -1) {
+          existingList[idx] = { ...existingList[idx], ...updateData };
+          localStorage.setItem(key, JSON.stringify(existingList));
+          results.push(`Modificado "${existingList[idx].name}" en almacenamiento local.`);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: results.length > 0
+        ? `Modificaciones operativas aplicadas con éxito:\n${results.join("\n")}`
+        : "Se procesaron las modificaciones operativas.",
+    };
+  } catch (err: any) {
+    console.error("Error applying SOP modifications:", err);
+    return {
+      success: false,
+      message: `Error al aplicar modificaciones: ${err.message || String(err)}`,
+      error: err.message,
+    };
+  }
+}

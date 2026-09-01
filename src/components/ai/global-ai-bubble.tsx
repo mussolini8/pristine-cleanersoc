@@ -38,6 +38,7 @@ import {
   applyAddStaffAction,
   applyCreateCommercialAccountAction,
   applyIngestScheduleAction,
+  applySopModificationsAction,
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
 
@@ -323,6 +324,22 @@ export function GlobalAiBubble() {
       if (res.success) {
         setActionSuccessMsg(res.message);
         setSavedActions((prev) => ({ ...prev, ingest: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
+    }
+  };
+
+  const handleApplySopModifications = async () => {
+    if (!response?.sopModifications) return;
+    setExecutingAction("sop_modifications");
+    try {
+      const res = await applySopModificationsAction(response.sopModifications);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, sop_modifications: true }));
       } else {
         setError(res.message);
       }
@@ -1059,6 +1076,81 @@ export function GlobalAiBubble() {
                         ) : (
                           <>
                             <CheckCircle className="size-3.5" /> Guardar Schedule en SOP
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* ACTION 7: SOP & Schedule Modifications (e.g. Account deactivation, hours update) */}
+                  {response.sopModifications && response.sopModifications.length > 0 && (
+                    <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                          <Sparkles className="size-3.5 text-primary" /> Modificaciones Operativas / SOP
+                        </span>
+                        <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
+                          {response.sopModifications.length} {response.sopModifications.length === 1 ? "cambio" : "cambios"}
+                        </Badge>
+                      </div>
+
+                      <div className="space-y-2">
+                        {response.sopModifications.map((mod, idx) => (
+                          <div key={idx} className="rounded-lg bg-muted/40 p-2.5 text-[11px] space-y-1">
+                            <div className="flex items-center justify-between">
+                              <strong className="text-foreground font-semibold">{mod.accountName || "Cuenta"}</strong>
+                              {mod.status && (
+                                <Badge
+                                  className={
+                                    mod.status === "inactive" || mod.status === "cancelled"
+                                      ? "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30 text-[10px]"
+                                      : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px]"
+                                  }
+                                >
+                                  {mod.status === "inactive"
+                                    ? "Desactivar / Inactiva"
+                                    : mod.status === "cancelled"
+                                    ? "Cancelada"
+                                    : "Activa"}
+                                </Badge>
+                              )}
+                            </div>
+                            {typeof mod.newHours === "number" && (
+                              <p className="text-muted-foreground">
+                                Horas: <strong className="text-foreground">{mod.newHours} hrs</strong>
+                              </p>
+                            )}
+                            {mod.cleanerName && (
+                              <p className="text-muted-foreground">
+                                Cleaner asignada: <strong className="text-foreground">{mod.cleanerName}</strong>
+                              </p>
+                            )}
+                            {mod.notes && <p className="text-muted-foreground italic">{mod.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+
+                      <Button
+                        size="sm"
+                        onClick={handleApplySopModifications}
+                        disabled={executingAction === "sop_modifications" || savedActions.sop_modifications}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.sop_modifications
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
+                      >
+                        {executingAction === "sop_modifications" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Aplicando modificaciones...
+                          </>
+                        ) : savedActions.sop_modifications ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Modificaciones Aplicadas en SOP!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar en SOP
                           </>
                         )}
                       </Button>

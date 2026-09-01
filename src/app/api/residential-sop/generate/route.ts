@@ -113,9 +113,14 @@ export async function POST(request: Request) {
       .map(e => `${normTitle(e.title)}|${String(e.due_date).split("T")[0]}`)
   );
 
+  const seenKeysInBatch = new Set<string>();
   const newInstances = instancesToCreate.filter(i => {
     if (existingKeys.has(i.sop_source_key)) return false;
-    if (existingTitleDateKeys.has(`${normTitle(i.title)}|${i.due_date}`)) return false;
+    const titleDateKey = `${normTitle(i.title)}|${i.due_date}`;
+    if (existingTitleDateKeys.has(titleDateKey)) return false;
+    if (seenKeysInBatch.has(titleDateKey) || seenKeysInBatch.has(i.sop_source_key)) return false;
+    seenKeysInBatch.add(titleDateKey);
+    seenKeysInBatch.add(i.sop_source_key);
     return true;
   });
 
@@ -141,34 +146,34 @@ export async function POST(request: Request) {
 
 function generateDatesForTemplate(t: SopTemplateForGeneration, year: number, month: number): string[] {
   const dates: string[] = [];
-  const daysInMonth = new Date(year, month, 0).getDate();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
 
   if (t.frequency === "daily") {
     for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(year, month - 1, day);
-      const dayOfWeek = date.getDay(); // 0 = Sun, 6 = Sat
+      const date = new Date(Date.UTC(year, month - 1, day));
+      const dayOfWeek = date.getUTCDay(); // 0 = Sun, 6 = Sat
       if (dayOfWeek >= 1 && dayOfWeek <= 5) {
         dates.push(formatDate(date));
       }
     }
-  } else if (t.frequency === "weekly") {
-    // Find the specified day_of_week
-    const targetDayIndex = parseDayOfWeek(t.day_of_week ?? "Monday");
+  } else if (t.frequency === "weekly" && !t.week_of_month) {
+    // True recurring weekly template without a specific week_of_month slot
+    const targetDayIndex = parseDayOfWeek(t.day_of_week ?? "Friday");
     for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(year, month - 1, day);
-      if (date.getDay() === targetDayIndex) {
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (date.getUTCDay() === targetDayIndex) {
         dates.push(formatDate(date));
       }
     }
-  } else if (t.frequency === "monthly") {
-    // Determine the exact date based on week_of_month and day_of_week
-    const targetDayIndex = parseDayOfWeek(t.day_of_week ?? "Monday");
+  } else {
+    // Monthly or week-specific template (e.g. Week 1 Friday, Week 2 Wednesday, etc.)
+    const targetDayIndex = parseDayOfWeek(t.day_of_week ?? "Friday");
     const weekOfMonth = t.week_of_month ?? 1;
     
     let currentWeek = 0;
     for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(year, month - 1, day);
-      if (date.getDay() === targetDayIndex) {
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (date.getUTCDay() === targetDayIndex) {
         currentWeek++;
         if (currentWeek === weekOfMonth) {
           dates.push(formatDate(date));
@@ -176,19 +181,16 @@ function generateDatesForTemplate(t: SopTemplateForGeneration, year: number, mon
         }
       }
     }
-    // Fallback if the month doesn't have a 5th week, just put it on the last instance of that day
+    // Fallback if the month doesn't have that nth week, use the last occurrence of that day
     if (dates.length === 0) {
       for (let day = daysInMonth; day >= 1; day--) {
-        const date = new Date(year, month - 1, day);
-        if (date.getDay() === targetDayIndex) {
+        const date = new Date(Date.UTC(year, month - 1, day));
+        if (date.getUTCDay() === targetDayIndex) {
           dates.push(formatDate(date));
           break;
         }
       }
     }
-  } else {
-    // Fallback to 1st of month
-    dates.push(formatDate(new Date(year, month - 1, 1)));
   }
 
   return dates;
@@ -198,12 +200,9 @@ function parseDayOfWeek(dayStr: string): number {
   const map: Record<string, number> = {
     "sunday": 0, "monday": 1, "tuesday": 2, "wednesday": 3, "thursday": 4, "friday": 5, "saturday": 6
   };
-  return map[dayStr.toLowerCase()] ?? 1; // Default to Monday
+  return map[dayStr.toLowerCase()] ?? 5; // Default to Friday
 }
 
 function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return d.toISOString().slice(0, 10);
 }

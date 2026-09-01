@@ -131,6 +131,7 @@ export type SopCopilotResponse = {
     newDays?: string[];
     newPricing?: number;
     newCleanerCost?: number;
+    status?: "active" | "inactive" | "cancelled" | "proposal";
     notes?: string;
   }[];
 
@@ -202,6 +203,21 @@ Core Superpowers and Capabilities:
    - Set internalNotes to the full raw text of the Internal/Instructions field.
    - If both client name AND building name are visible, use the client name as clientName.
    - budgetHours = hours + (minutes / 60), e.g., "2 hrs 30 min" → 2.5.
+
+9. ACCOUNT DEACTIVATION / SCHEDULE REMOVAL (Cancelación, Baja de Cuenta o Retiro del Schedule):
+   - When the user mentions that a client/account stopped working with us or should be eliminated/removed from schedule / hours payroll (e.g. "Field AI dejó de trabajar con nosotros, elimínalo del schedule para el mes de septiembre incluido del pago de horas"):
+   - Set intent = "modify_sop"
+   - Set actionType = "modify_schedule"
+   - Return sopModifications with:
+     [{
+       "accountName": "Field AI",
+       "status": "inactive",
+       "newHours": 0,
+       "newPricing": 0,
+       "newCleanerCost": 0,
+       "notes": "Cliente inactivo / retirado del schedule y nómina de horas a partir de Septiembre"
+     }]
+   - Return summary explaining in clear Spanish what was changed.
 
 Return ONLY a valid JSON object matching this schema:
 {
@@ -345,14 +361,6 @@ Return ONLY a valid JSON object matching this schema:
   "appliedExplanation": "Explanation in Spanish of the exact operational impact."
 }`;
 
-const CANDIDATE_MODELS = [
-  "gemini-2.0-flash",
-  "gemini-2.5-flash",
-  "gemini-1.5-flash",
-  "gemini-1.5-pro",
-  "gemini-2.5-pro",
-];
-
 function extractSubObject(text: string, key: string): any {
   const regex = new RegExp(`"${key}"\\s*:\\s*(\\{[\\s\\S]*?\\})\\s*(?:,\\s*"|\\n\\s*\\})`);
   const match = text.match(regex);
@@ -360,7 +368,24 @@ function extractSubObject(text: string, key: string): any {
     try {
       return JSON.parse(match[1]);
     } catch {
-      // Try sanitizing
+      try {
+        const sanitized = match[1].replace(/[\u0000-\u001F\u007F-\u009F]/g, " ");
+        return JSON.parse(sanitized);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function extractSubArray(text: string, key: string): any[] | null {
+  const regex = new RegExp(`"${key}"\\s*:\\s*(\\[[\\s\\S]*?\\])\\s*(?:,\\s*"|\\n\\s*\\})`);
+  const match = text.match(regex);
+  if (match && match[1]) {
+    try {
+      return JSON.parse(match[1]);
+    } catch {
       try {
         const sanitized = match[1].replace(/[\u0000-\u001F\u007F-\u009F]/g, " ");
         return JSON.parse(sanitized);
@@ -422,19 +447,36 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
   const dispatchSmsQuo = extractSubObject(cleaned, "dispatchSmsQuo");
   const cleanerAudit = extractSubObject(cleaned, "cleanerAudit");
   const scheduleConflictWarning = extractSubObject(cleaned, "scheduleConflictWarning");
+  const sopModifications = extractSubArray(cleaned, "sopModifications");
+  const extractedBookings = extractSubArray(cleaned, "extractedBookings");
+  const extractedSalesTrack = extractSubArray(cleaned, "extractedSalesTrack");
 
-  if (ingestedSchedule || occurrenceOverride || addStaff || commercialQuote || dispatchSmsQuo || cleanerAudit || summary) {
+  if (
+    ingestedSchedule ||
+    occurrenceOverride ||
+    addStaff ||
+    commercialQuote ||
+    dispatchSmsQuo ||
+    cleanerAudit ||
+    sopModifications ||
+    extractedBookings ||
+    extractedSalesTrack ||
+    summary
+  ) {
     return {
       intent: intent || (ingestedSchedule ? "modify_sop" : "general_query"),
       actionType: actionType || (ingestedSchedule ? "ingest_schedule" : "general_query"),
-      summary: summary || "Se ha extraído con éxito la información de la captura.",
-      ingestedSchedule,
-      occurrenceOverride,
-      addStaff,
-      commercialQuote,
-      dispatchSmsQuo,
-      cleanerAudit,
-      scheduleConflictWarning,
+      summary: summary || "Se ha procesado la información correctamente.",
+      ingestedSchedule: ingestedSchedule || undefined,
+      occurrenceOverride: occurrenceOverride || undefined,
+      addStaff: addStaff || undefined,
+      commercialQuote: commercialQuote || undefined,
+      dispatchSmsQuo: dispatchSmsQuo || undefined,
+      cleanerAudit: cleanerAudit || undefined,
+      scheduleConflictWarning: scheduleConflictWarning || undefined,
+      sopModifications: sopModifications || undefined,
+      extractedBookings: extractedBookings || undefined,
+      extractedSalesTrack: extractedSalesTrack || undefined,
       appliedExplanation,
     };
   }
@@ -446,6 +488,78 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
     summary: rawText,
     appliedExplanation: "Respuesta procesada correctamente.",
   };
+}
+
+// In-memory model discovery cache (10 min TTL)
+let cachedModels: { models: string[]; timestamp: number } | null = null;
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+const FALLBACK_MODELS = [
+  "gemini-3.1-pro-preview",
+  "gemini-2.5-pro-preview",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-2.0-flash-001",
+  "gemini-2.0-pro-exp-02-05",
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro-latest",
+  "gemini-1.5-pro",
+];
+
+async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
+  const now = Date.now();
+  if (cachedModels && now - cachedModels.timestamp < CACHE_TTL_MS && cachedModels.models.length > 0) {
+    return cachedModels.models;
+  }
+
+  try {
+    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+    const res = await fetch(listUrl, {
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.models)) {
+        const available: string[] = data.models
+          .filter(
+            (m: any) =>
+              m.name &&
+              Array.isArray(m.supportedGenerationMethods) &&
+              m.supportedGenerationMethods.includes("generateContent")
+          )
+          .map((m: any) => m.name.replace(/^models\//, ""))
+          .filter((name: string) => name.toLowerCase().includes("gemini"));
+
+        if (available.length > 0) {
+          const rank = (name: string): number => {
+            if (name.includes("3.1-pro")) return 1;
+            if (name.includes("2.5-pro")) return 2;
+            if (name.includes("2.0-flash-lite")) return 3;
+            if (name.includes("2.0-flash")) return 4;
+            if (name.includes("2.0-pro")) return 5;
+            if (name.includes("1.5-flash")) return 6;
+            if (name.includes("1.5-pro")) return 7;
+            return 8;
+          };
+
+          const sorted = [...available].sort((a, b) => rank(a) - rank(b));
+          cachedModels = { models: sorted, timestamp: now };
+          return sorted;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[Gemini Client] Dynamic model fetch failed, using fallback list:", err);
+  }
+
+  return FALLBACK_MODELS;
 }
 
 export async function callGeminiSopCopilot({
@@ -466,73 +580,106 @@ export async function callGeminiSopCopilot({
     );
   }
 
-  const contents: any[] = [];
-  const parts: any[] = [];
+  const candidateModels = await getAvailableGeminiModels(resolvedKey);
 
-  for (const img of images) {
-    parts.push({
-      inline_data: {
-        mime_type: img.inlineData.mimeType,
-        data: img.inlineData.data,
-      },
-    });
-  }
+  const imageParts = images.map((img) => ({
+    inlineData: {
+      mimeType: img.inlineData.mimeType,
+      data: img.inlineData.data,
+    },
+  }));
 
-  parts.push({
-    text:
-      prompt ||
-      "Por favor analiza la instrucción proporcionada y detecta la acción a ejecutar en el SOP, staff, cotización, despacho Quo/SMS o registro de cita.",
-  });
+  const userText =
+    prompt ||
+    "Por favor analiza la instrucción proporcionada y detecta la acción a ejecutar en el SOP, staff, cotización, despacho Quo/SMS o registro de cita.";
 
-  contents.push({
-    role: "user",
-    parts,
-  });
+  const errorsLogged: string[] = [];
 
-  let lastError: string | null = null;
-
-  for (const modelName of CANDIDATE_MODELS) {
+  for (const modelName of candidateModels) {
+    // Attempt 1: Standard structured mode with systemInstruction + responseMimeType
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${resolvedKey}`;
 
+      const requestBody = {
+        contents: [
+          {
+            role: "user",
+            parts: [...imageParts, { text: userText }],
+          },
+        ],
+        systemInstruction: {
+          parts: [{ text: SYSTEM_INSTRUCTION }],
+        },
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.1,
+        },
+      };
+
       const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: {
-            parts: [{ text: SYSTEM_INSTRUCTION }],
-          },
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.1,
-          },
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        lastError = `Error con modelo ${modelName} (${response.status}): ${errorText}`;
-        console.warn(`[Gemini Fallback] Model ${modelName} returned status ${response.status}. Trying next model...`);
-        continue;
+      if (response.ok) {
+        const result = await response.json();
+        const textOutput = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (textOutput) {
+          return robustParseJsonResponse(textOutput);
+        }
       }
 
-      const result = await response.json();
-      const textOutput = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+      // If status 400, model might not support systemInstruction or responseMimeType in this API version
+      // Attempt 2: Fallback within the same model with merged instruction in user prompt
+      if (response.status === 400 || response.status === 404) {
+        const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${resolvedKey}`;
+        const fallbackBody = {
+          contents: [
+            {
+              role: "user",
+              parts: [
+                ...imageParts,
+                {
+                  text: `${SYSTEM_INSTRUCTION}\n\n[INSTRUCCIÓN DEL USUARIO]:\n${userText}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+          },
+        };
 
-      if (!textOutput) {
-        lastError = `Modelo ${modelName} no devolvió texto de respuesta.`;
-        continue;
+        const fallbackResponse = await fetch(fallbackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(fallbackBody),
+        });
+
+        if (fallbackResponse.ok) {
+          const fallbackResult = await fallbackResponse.json();
+          const fallbackText = fallbackResult?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (fallbackText) {
+            return robustParseJsonResponse(fallbackText);
+          }
+        } else {
+          const errText = await fallbackResponse.text();
+          errorsLogged.push(`${modelName} (${fallbackResponse.status}): ${errText}`);
+          console.warn(`[Gemini Fallback] Model ${modelName} fallback failed:`, errText);
+          continue;
+        }
       }
 
-      return robustParseJsonResponse(textOutput);
+      const errorText = await response.text();
+      errorsLogged.push(`${modelName} (${response.status}): ${errorText}`);
+      console.warn(`[Gemini Fallback] Model ${modelName} returned ${response.status}. Trying next...`);
     } catch (err: any) {
-      lastError = err?.message || String(err);
-      console.warn(`[Gemini Fallback] Error with ${modelName}:`, err);
+      errorsLogged.push(`${modelName}: ${err?.message || String(err)}`);
+      console.warn(`[Gemini Fallback] Exception with ${modelName}:`, err);
     }
   }
 
-  throw new Error(`No se pudo conectar con los modelos de Gemini disponibles. Último error: ${lastError}`);
+  const lastErr = errorsLogged[errorsLogged.length - 1] || "Error desconocido al contactar los modelos.";
+  throw new Error(`No se pudo conectar con los modelos de Gemini disponibles. Último detalle: ${lastErr}`);
 }
