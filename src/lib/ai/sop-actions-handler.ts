@@ -203,3 +203,123 @@ export async function applyCreateCommercialAccountAction(
     };
   }
 }
+
+/**
+ * Apply ingesting a schedule parsed from a CleanGuru (or similar) screenshot.
+ * Creates or updates the commercial account with schedule details and structured access instructions.
+ */
+export async function applyIngestScheduleAction(
+  schedule: NonNullable<SopCopilotResponse["ingestedSchedule"]>
+): Promise<SopActionResult> {
+  try {
+    const supabase = createClient();
+
+    const accountName = schedule.clientName || schedule.buildingName || "Nueva Cuenta";
+
+    // Build a rich access_instructions string from the structured object
+    const ai = schedule.accessInstructions;
+    const accessParts: string[] = [];
+    if (ai?.buildingType) accessParts.push(`Tipo: ${ai.buildingType}`);
+    if (ai?.suite) accessParts.push(`Suite: ${ai.suite}`);
+    if (ai?.floor) accessParts.push(`Piso: ${ai.floor}`);
+    if (ai?.elevator) accessParts.push(`Elevador: Sí${ai.elevatorNotes ? ` (${ai.elevatorNotes})` : ""}`);
+    if (ai?.parking) accessParts.push(`Estacionamiento: ${ai.parking}`);
+    if (ai?.accessCode) accessParts.push(`Código de acceso: ${ai.accessCode}`);
+    if (ai?.otherNotes) accessParts.push(ai.otherNotes);
+    const accessInstructionsText = accessParts.join(" | ");
+
+    const scheduleNotes = [
+      schedule.template ? `Plantilla: ${schedule.template}` : null,
+      schedule.recurringRule ? `Recurrencia: ${schedule.recurringRule}` : null,
+      schedule.startDate ? `Inicio: ${schedule.startDate}` : null,
+      schedule.assignedCleaner ? `Cleaner asignada: ${schedule.assignedCleaner}` : null,
+      accessInstructionsText || null,
+      schedule.internalNotes ? `Notas internas: ${schedule.internalNotes}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const accountData = {
+      name: accountName,
+      city: schedule.city || "Orange County",
+      pricing_model: "Monthly",
+      frequency: schedule.frequency || "Monthly",
+      hours: schedule.budgetHours || null,
+      has_supplies: false,
+      has_keys: false,
+      supplies_notes: scheduleNotes,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (supabase) {
+      // Try to find existing account first
+      const { data: existing } = await supabase
+        .from("commercial_accounts")
+        .select("id")
+        .ilike("name", `%${accountName}%`)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.id) {
+        // Update existing account
+        const { data, error } = await supabase
+          .from("commercial_accounts")
+          .update(accountData)
+          .eq("id", existing.id)
+          .select()
+          .single();
+
+        if (!error && data) {
+          return {
+            success: true,
+            message: `Schedule actualizado para "${accountName}": ${schedule.recurringRule || schedule.frequency}, ${schedule.scheduledTime}–${schedule.endTime}, cleaner: ${schedule.assignedCleaner || "sin asignar"}.`,
+            data,
+          };
+        }
+      } else {
+        // Insert new account
+        const { data, error } = await supabase
+          .from("commercial_accounts")
+          .insert({ ...accountData, created_at: new Date().toISOString() })
+          .select()
+          .single();
+
+        if (!error && data) {
+          return {
+            success: true,
+            message: `Cuenta "${accountName}" creada desde captura: ${schedule.recurringRule || schedule.frequency}, ${schedule.scheduledTime}–${schedule.endTime}, cleaner: ${schedule.assignedCleaner || "sin asignar"}.`,
+            data,
+          };
+        }
+      }
+    }
+
+    // LocalStorage fallback
+    const key = "pristine_commercial_accounts";
+    const existingStr = typeof localStorage !== "undefined" ? localStorage.getItem(key) || "[]" : "[]";
+    const existingList = JSON.parse(existingStr);
+    const newEntry = {
+      id: `acc-${Date.now()}`,
+      ...accountData,
+      created_at: new Date().toISOString(),
+      _source: "cleanguru_image_import",
+    };
+    existingList.unshift(newEntry);
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(key, JSON.stringify(existingList));
+    }
+
+    return {
+      success: true,
+      message: `Schedule guardado localmente para "${accountName}": ${schedule.recurringRule || schedule.frequency}, ${schedule.scheduledTime}–${schedule.endTime}.`,
+      data: newEntry,
+    };
+  } catch (err: any) {
+    console.error("Error ingesting schedule:", err);
+    return {
+      success: false,
+      message: `No se pudo guardar el schedule: ${err.message || String(err)}`,
+      error: err.message,
+    };
+  }
+}

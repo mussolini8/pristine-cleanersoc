@@ -37,6 +37,7 @@ import {
   applyOccurrenceOverrideAction,
   applyAddStaffAction,
   applyCreateCommercialAccountAction,
+  applyIngestScheduleAction,
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
 
@@ -60,6 +61,11 @@ const QUICK_PROMPTS = [
   {
     label: "📊 Auditar Cleaner",
     text: "Dame el resumen de desempeño y horas de Ana Morales este mes.",
+  },
+  {
+    label: "📅 Ingresar Schedule",
+    /** Special marker: clicking this will open the file picker automatically */
+    text: "__OPEN_FILE_PICKER__",
   },
 ];
 
@@ -258,6 +264,16 @@ export function GlobalAiBubble() {
     }
   };
 
+  const handleApplyIngestSchedule = async () => {
+    if (!response?.ingestedSchedule) return;
+    const res = await applyIngestScheduleAction(response.ingestedSchedule);
+    if (res.success) {
+      setActionSuccessMsg(res.message);
+    } else {
+      setError(res.message);
+    }
+  };
+
   const handleCopySmsText = (text: string) => {
     navigator.clipboard.writeText(text);
     setIsCopied(true);
@@ -409,7 +425,15 @@ export function GlobalAiBubble() {
                   {QUICK_PROMPTS.map((qp, idx) => (
                     <button
                       key={idx}
-                      onClick={() => setPrompt(qp.text)}
+                      onClick={() => {
+                        if (qp.text === "__OPEN_FILE_PICKER__") {
+                          // Special: set the ingestion prompt and open file picker
+                          setPrompt("Analiza esta captura de CleanGuru e ingresa el schedule completo del cliente al sistema, incluyendo notas de acceso.");
+                          setTimeout(() => fileInputRef.current?.click(), 50);
+                        } else {
+                          setPrompt(qp.text);
+                        }
+                      }}
                       className="whitespace-nowrap rounded-lg border border-border/70 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-primary/10 hover:border-primary/30 transition-colors"
                     >
                       {qp.label}
@@ -417,6 +441,26 @@ export function GlobalAiBubble() {
                   ))}
                 </div>
               </div>
+
+              {/* Drop zone contextual banner: image loaded but no prompt */}
+              {images.length > 0 && !prompt.trim() && (
+                <div className="flex items-center justify-between rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+                  <span className="text-foreground font-medium flex items-center gap-1.5">
+                    🖼️ Imagen detectada — ¿Ingresar schedule desde esta captura?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPrompt(
+                        "Analiza esta captura de CleanGuru e ingresa el schedule completo del cliente al sistema, incluyendo notas de acceso."
+                      )
+                    }
+                    className="ml-2 flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-bold text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap"
+                  >
+                    Sí, analizar →
+                  </button>
+                </div>
+              )}
 
               {/* Main Input Form */}
               <form onSubmit={handleSubmit} className="space-y-2.5">
@@ -762,11 +806,137 @@ export function GlobalAiBubble() {
                           Cuentas Asignadas: <strong className="text-foreground">{response.cleanerAudit.accounts.join(", ")}</strong>
                         </div>
                       )}
-                      {response.cleanerAudit.notes && (
+                    {response.cleanerAudit.notes && (
                         <p className="text-[11px] text-muted-foreground italic bg-muted/20 p-2 rounded-md">
                           {response.cleanerAudit.notes}
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {/* ACTION 6: Ingest Schedule from CleanGuru Image */}
+                  {response.ingestedSchedule && (
+                    <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                          <Calendar className="size-3.5 text-primary" /> Schedule Detectado en Imagen
+                        </span>
+                        {response.ingestedSchedule.frequency && (
+                          <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
+                            {response.ingestedSchedule.frequency}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Main fields grid */}
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className="rounded-lg bg-muted/40 p-2 col-span-2">
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Cliente</span>
+                          <p className="font-black text-foreground mt-0.5">{response.ingestedSchedule.clientName}</p>
+                          {response.ingestedSchedule.buildingName && response.ingestedSchedule.buildingName !== response.ingestedSchedule.clientName && (
+                            <p className="text-muted-foreground text-[10px]">{response.ingestedSchedule.buildingName}</p>
+                          )}
+                        </div>
+
+                        {response.ingestedSchedule.address && (
+                          <div className="rounded-lg bg-muted/40 p-2 col-span-2">
+                            <span className="text-[9px] uppercase font-bold text-muted-foreground">Dirección</span>
+                            <p className="font-medium text-foreground mt-0.5">{response.ingestedSchedule.address}{response.ingestedSchedule.city ? `, ${response.ingestedSchedule.city}` : ""}</p>
+                          </div>
+                        )}
+
+                        {response.ingestedSchedule.recurringRule && (
+                          <div className="rounded-lg bg-muted/40 p-2 col-span-2">
+                            <span className="text-[9px] uppercase font-bold text-muted-foreground">Recurrencia</span>
+                            <p className="font-medium text-foreground mt-0.5">{response.ingestedSchedule.recurringRule}</p>
+                          </div>
+                        )}
+
+                        <div className="rounded-lg bg-muted/40 p-2">
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Horario</span>
+                          <p className="font-bold text-foreground mt-0.5">
+                            {response.ingestedSchedule.scheduledTime || "—"}{response.ingestedSchedule.endTime ? ` – ${response.ingestedSchedule.endTime}` : ""}
+                          </p>
+                        </div>
+
+                        <div className="rounded-lg bg-muted/40 p-2">
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Presupuesto</span>
+                          <p className="font-black text-foreground mt-0.5">{response.ingestedSchedule.budgetHours ? `${response.ingestedSchedule.budgetHours} hrs` : "—"}</p>
+                        </div>
+
+                        {response.ingestedSchedule.assignedCleaner && (
+                          <div className="rounded-lg bg-muted/40 p-2 col-span-2">
+                            <span className="text-[9px] uppercase font-bold text-muted-foreground">Cleaner Asignada</span>
+                            <p className="font-bold text-foreground mt-0.5">{response.ingestedSchedule.assignedCleaner}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Access Instructions */}
+                      {response.ingestedSchedule.accessInstructions && (
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 p-2.5 space-y-1.5">
+                          <span className="text-[9px] uppercase font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                            🔑 Acceso / Instrucciones de Entrada
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {response.ingestedSchedule.accessInstructions.suite && (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                                Suite {response.ingestedSchedule.accessInstructions.suite}
+                              </span>
+                            )}
+                            {response.ingestedSchedule.accessInstructions.floor && (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                                Piso {response.ingestedSchedule.accessInstructions.floor}
+                              </span>
+                            )}
+                            {response.ingestedSchedule.accessInstructions.elevator && (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                                🛗 Elevador
+                              </span>
+                            )}
+                            {response.ingestedSchedule.accessInstructions.parking && (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                                🅿️ {response.ingestedSchedule.accessInstructions.parking}
+                              </span>
+                            )}
+                            {response.ingestedSchedule.accessInstructions.buildingType && (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                                🏢 {response.ingestedSchedule.accessInstructions.buildingType}
+                              </span>
+                            )}
+                            {response.ingestedSchedule.accessInstructions.accessCode && (
+                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-mono font-bold text-amber-800 dark:text-amber-200">
+                                🔐 {response.ingestedSchedule.accessInstructions.accessCode}
+                              </span>
+                            )}
+                          </div>
+                          {response.ingestedSchedule.accessInstructions.elevatorNotes && (
+                            <p className="text-[10px] text-amber-700 dark:text-amber-300 italic">
+                              {response.ingestedSchedule.accessInstructions.elevatorNotes}
+                            </p>
+                          )}
+                          {response.ingestedSchedule.accessInstructions.otherNotes && (
+                            <p className="text-[10px] text-amber-700 dark:text-amber-300 italic">
+                              {response.ingestedSchedule.accessInstructions.otherNotes}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Template info */}
+                      {response.ingestedSchedule.template && (
+                        <p className="text-[10px] text-muted-foreground italic">
+                          Plantilla: {response.ingestedSchedule.template}
+                        </p>
+                      )}
+
+                      <Button
+                        size="sm"
+                        onClick={handleApplyIngestSchedule}
+                        className="w-full h-8 text-xs gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                      >
+                        <CheckCircle className="size-3.5" /> Guardar Schedule en SOP
+                      </Button>
                     </div>
                   )}
                 </div>

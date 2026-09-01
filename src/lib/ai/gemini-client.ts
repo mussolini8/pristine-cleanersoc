@@ -8,6 +8,17 @@ export type GeminiImageData = {
   };
 };
 
+export type IngestedScheduleAccessInstructions = {
+  suite?: string;
+  floor?: string;
+  elevator?: boolean;
+  elevatorNotes?: string;
+  parking?: string;
+  buildingType?: string;
+  accessCode?: string;
+  otherNotes?: string;
+};
+
 export type SopCopilotResponse = {
   intent: "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query";
   actionType?:
@@ -18,9 +29,10 @@ export type SopCopilotResponse = {
     | "dispatch_sms_quo"
     | "cleaner_audit"
     | "booking_ingest"
+    | "ingest_schedule"
     | "general_query";
   summary: string;
-  
+
   // Specific action payloads
   occurrenceOverride?: {
     accountName: string;
@@ -78,6 +90,38 @@ export type SopCopilotResponse = {
     estimatedPay?: number;
     accounts?: string[];
     notes?: string;
+  };
+
+  /**
+   * Populated when actionType = "ingest_schedule".
+   * The AI extracts all schedule and access details from a CleanGuru screenshot.
+   */
+  ingestedSchedule?: {
+    clientName: string;
+    buildingName?: string;
+    address?: string;
+    city?: string;
+    /** e.g. "Monthly", "Weekly", "Biweekly" */
+    frequency?: string;
+    /** Human-readable recurrence, e.g. "Every month on the 2nd Sat & 4th Sat" */
+    recurringRule?: string;
+    /** YYYY-MM-DD */
+    startDate?: string;
+    /** HH:MM AM/PM */
+    scheduledTime?: string;
+    /** HH:MM AM/PM */
+    endTime?: string;
+    /** Budget hours as decimal, e.g. 2.5 */
+    budgetHours?: number;
+    assignedCleaner?: string;
+    /** Template name, e.g. "OCSS Cleaning 2.5 hours" */
+    template?: string;
+    /** e.g. "Janitorial", "Commercial" */
+    category?: string;
+    /** Structured access details parsed from the "Internal" notes */
+    accessInstructions?: IngestedScheduleAccessInstructions;
+    /** Raw text from the Internal / Instructions field */
+    internalNotes?: string;
   };
 
   sopModifications?: {
@@ -143,11 +187,53 @@ Core Superpowers and Capabilities:
    - Cash / Check / Zelle: fee is $0.00.
    - pcEarnings = subTotal - providerPayment - merchantFee.
 
+8. INGEST SCHEDULE FROM IMAGE (Ingresar Schedule desde Captura):
+   - When the user uploads a screenshot of CleanGuru, BookingKoala, or any cleaning management system:
+   - Set actionType = "ingest_schedule"
+   - Extract ALL visible fields: clientName, buildingName, address, city, frequency, recurringRule, startDate, scheduledTime, endTime, budgetHours, assignedCleaner, template, category.
+   - Parse the "Internal" and "Instructions" sections carefully to populate accessInstructions:
+     * Look for suite/unit numbers → suite
+     * Look for floor numbers → floor
+     * Detect elevator mentions → elevator: true, elevatorNotes
+     * Detect parking mentions (paid parking, street parking, lot) → parking
+     * Detect building type (business center, medical, office) → buildingType
+     * Look for access codes, key codes, alarm codes → accessCode
+     * Any remaining important access notes → otherNotes
+   - Set internalNotes to the full raw text of the Internal/Instructions field.
+   - If both client name AND building name are visible, use the client name as clientName.
+   - budgetHours = hours + (minutes / 60), e.g., "2 hrs 30 min" → 2.5.
+
 Return ONLY a valid JSON object matching this schema:
 {
   "intent": "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query",
-  "actionType": "occurrence_override" | "add_staff" | "modify_schedule" | "quote_commercial" | "dispatch_sms_quo" | "cleaner_audit" | "booking_ingest" | "general_query",
+  "actionType": "occurrence_override" | "add_staff" | "modify_schedule" | "quote_commercial" | "dispatch_sms_quo" | "cleaner_audit" | "booking_ingest" | "ingest_schedule" | "general_query",
   "summary": "Clear Spanish summary explaining what action was identified and what is proposed.",
+  "ingestedSchedule": {
+    "clientName": "string",
+    "buildingName": "string",
+    "address": "string",
+    "city": "string",
+    "frequency": "string",
+    "recurringRule": "string",
+    "startDate": "YYYY-MM-DD",
+    "scheduledTime": "string",
+    "endTime": "string",
+    "budgetHours": number,
+    "assignedCleaner": "string",
+    "template": "string",
+    "category": "string",
+    "accessInstructions": {
+      "suite": "string",
+      "floor": "string",
+      "elevator": boolean,
+      "elevatorNotes": "string",
+      "parking": "string",
+      "buildingType": "string",
+      "accessCode": "string",
+      "otherNotes": "string"
+    },
+    "internalNotes": "string"
+  },
   "occurrenceOverride": {
     "accountName": "string",
     "date": "YYYY-MM-DD",
@@ -155,6 +241,7 @@ Return ONLY a valid JSON object matching this schema:
     "hours": number,
     "notes": "string"
   },
+
   "addStaff": {
     "name": "string",
     "role": "cleaner" | "lead" | "inspector" | "manager",
