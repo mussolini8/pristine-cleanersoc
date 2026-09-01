@@ -3310,10 +3310,10 @@ function renderHeader() {
     return (
       <div className="flex items-center gap-2 flex-wrap">
         <Button
-          className="bg-gradient-to-r from-emerald-600 to-teal-600 font-semibold text-white shadow-md hover:from-emerald-700 hover:to-teal-700"
+          className="p-0 overflow-hidden bg-transparent shadow-md hover:bg-transparent border-0"
           onClick={() => setIsCopilotOpen(true)}
         >
-          <Sparkles className="size-4" /> Copiloto IA (Gemini)
+          <img src="/copiloto-btn.png" alt="Copiloto IA" className="h-8 w-auto object-contain" />
         </Button>
         {view === "tasks" ? (
           <>

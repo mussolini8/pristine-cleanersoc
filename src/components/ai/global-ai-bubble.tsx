@@ -376,14 +376,10 @@ export function GlobalAiBubble() {
         <div className="fixed bottom-5 right-5 z-40 flex items-center gap-2">
           <button
             onClick={() => setIsOpen(true)}
-            className="group flex items-center gap-2.5 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 px-4 py-3 text-white shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-emerald-500/25 active:scale-95"
+            className="group flex items-center gap-2.5 rounded-full p-0 bg-transparent shadow-2xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-emerald-500/25 active:scale-95"
             title="Abrir Copiloto IA (SOP & Cuentas)"
           >
-            <div className="relative flex size-6 items-center justify-center">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-40" />
-              <Sparkles className="size-5 text-white" />
-            </div>
-            <span className="text-xs font-black tracking-wide pr-1">Copiloto SOP</span>
+            <img src="/copiloto-btn.png" alt="Copiloto IA (Gemini)" className="h-10 w-auto rounded-full object-contain" />
           </button>
         </div>
       )}
@@ -405,7 +401,7 @@ export function GlobalAiBubble() {
                 <Sparkles className="size-4" />
               </div>
               <div>
-                <h3 className="text-xs font-black text-foreground">Copiloto IA · Pristine Cleaners</h3>
+                <h3 className="text-xs font-black text-foreground">Copiloto IA · Pristiner</h3>
                 <p className="text-[10px] text-muted-foreground">Control total de cuentas, turnos y personal</p>
               </div>
             </div>
