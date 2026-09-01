@@ -47,6 +47,7 @@ import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal"
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
   buildCommercialOccurrences,
+  commercialRuleMatchesDate,
   getPayableCommercialHours,
 } from "@/lib/operations/commercial-hours";
 import {
@@ -858,7 +859,8 @@ export function SimpleOperationsClient({
   const [deduplicating, setDeduplicating] = useState(false);
   const monthlySopAutoImportAttempted = useRef(new Set<string>());
   const [monthlySopImportSummary, setMonthlySopImportSummary] = useState<MonthlySopImportSummary | null>(null);
-  const [scheduleTab, setScheduleTab] = useState<"commercial" | "qc">("commercial");
+  const [scheduleTab, setScheduleTab] = useState<"commercial" | "residential" | "qc">("commercial");
+  const [scheduleAnchor, setScheduleAnchor] = useState<Date>(() => new Date());
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
@@ -3238,19 +3240,86 @@ export function SimpleOperationsClient({
 
   function renderSchedules() {
     let events: NormalizedCalendarEvent[] = [];
+    const calendarStart = startOfWeek(scheduleAnchor);
+    const calendarDays = Array.from({ length: 7 }, (_, index) => addDays(calendarStart, index));
     
     if (scheduleTab === "commercial") {
-      events = (commercialAccounts || []).map((acc) => ({
-        id: acc.id,
-        type: "booking",
-        status: "active",
-        title: acc.name,
-        start: todayKey(),
-        end: todayKey(),
-        summary: `${acc.frequency || "Schedule"} - ${acc.cleaner_name || "Unassigned"}`,
-        businessUnit: "commercial",
-        color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
-      }));
+      for (const day of calendarDays) {
+        const dayKey = formatDateKey(day);
+        const dayOfWeek = day.getDay();
+        const matchedAccountIds = new Set<string>();
+
+        // A. From commercialScheduleRules
+        for (const rule of commercialScheduleRules || []) {
+          if (rule.active === false) continue;
+          if (Number(rule.day_of_week) !== dayOfWeek) continue;
+          if (rule.effective_start_date && dayKey < rule.effective_start_date) continue;
+          if (rule.effective_end_date && dayKey > rule.effective_end_date) continue;
+          if (rule.effective_from && dayKey < rule.effective_from) continue;
+          if (rule.effective_until && dayKey > rule.effective_until) continue;
+          if (!commercialRuleMatchesDate(rule, dayKey)) continue;
+
+          const acc = commercialAccounts.find((a) => a.id === rule.commercial_account_id);
+          const title = acc?.name || "Commercial Account";
+          const cleaner = rule.assigned_cleaner_name || acc?.cleaner_name || "Unassigned";
+          const hours = roundHours(toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours) || toNumber(acc?.hours) || 0);
+
+          events.push({
+            id: `comm-rule-${rule.id}-${dayKey}`,
+            type: "booking",
+            status: "active",
+            title: title,
+            start: dayKey,
+            end: dayKey,
+            summary: `${cleaner} · ${hours > 0 ? `${hours}h` : 'Scheduled'}${rule.notes ? ` (${rule.notes.split('(')[0].trim()})` : ''}`,
+            businessUnit: "commercial",
+            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
+          });
+          if (rule.commercial_account_id) matchedAccountIds.add(rule.commercial_account_id);
+        }
+
+        // B. From commercialHoursEntries (for event-based cleanings like The Harper, Renewable Farms, LA Model)
+        for (const entry of commercialHoursEntries || []) {
+          if (entry.work_date !== dayKey) continue;
+          if (entry.account_id && matchedAccountIds.has(entry.account_id)) continue;
+
+          events.push({
+            id: `comm-entry-${entry.id}-${dayKey}`,
+            type: "booking",
+            status: entry.status || "active",
+            title: entry.account_name || "Commercial Event",
+            start: dayKey,
+            end: dayKey,
+            summary: `${entry.team_name || "Unassigned"} · ${roundHours(toNumber(entry.scheduled_hours) || toNumber(entry.completed_hours) || 0)}h${entry.notes ? ` (${entry.notes.split('(')[0].trim()})` : ''}`,
+            businessUnit: "commercial",
+            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
+          });
+          if (entry.account_id) matchedAccountIds.add(entry.account_id);
+        }
+      }
+    } else if (scheduleTab === "residential") {
+      for (const day of calendarDays) {
+        const dayKey = formatDateKey(day);
+        const dayOfWeek = day.getDay();
+        
+        for (const acc of accounts || []) {
+          if (acc.active === false) continue;
+          const accDay = acc.day_of_week !== null && acc.day_of_week !== undefined ? Number(acc.day_of_week) : null;
+          if (accDay !== null && accDay === dayOfWeek) {
+            events.push({
+              id: `res-${acc.id}-${dayKey}`,
+              type: "booking",
+              status: "active",
+              title: acc.account_name,
+              start: dayKey,
+              end: dayKey,
+              summary: `${acc.assigned_team_name || "Unassigned"} · ${roundHours(toNumber(acc.scheduled_hours))}h · ${acc.frequency || "Weekly"}`,
+              businessUnit: "residential",
+              color: { bgClass: "bg-emerald-50 dark:bg-emerald-950/40", borderClass: "border-emerald-200 dark:border-emerald-800", textClass: "text-emerald-800 dark:text-emerald-300", badgeClass: "bg-emerald-100 text-emerald-800" }
+            });
+          }
+        }
+      }
     } else if (scheduleTab === "qc") {
       events = (tasks || []).filter((t) => t.category === "QC Inspection" || t.category === "QC" || t.title.toLowerCase().includes("qc")).map((task) => ({
         id: task.id,
@@ -3259,7 +3328,7 @@ export function SimpleOperationsClient({
         title: task.title,
         start: (task.due_date || "").split("T")[0] || todayKey(),
         end: (task.due_date || "").split("T")[0] || todayKey(),
-        summary: task.assignee || "Unassigned",
+        summary: `${task.assignee || "Unassigned"} (${task.priority || "normal"})`,
         businessUnit: "qc",
         color: { bgClass: "bg-amber-50 dark:bg-amber-950/40", borderClass: "border-amber-200 dark:border-amber-800", textClass: "text-amber-800 dark:text-amber-300", badgeClass: "bg-amber-100 text-amber-800" }
       }));
@@ -3267,17 +3336,24 @@ export function SimpleOperationsClient({
 
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2 border-b border-border/70 pb-3">
+        <div className="flex items-center gap-2 border-b border-border/70 pb-3 flex-wrap">
           <button 
             type="button"
-            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${scheduleTab === 'commercial' ? 'bg-primary text-primary-foreground' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
+            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'commercial' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
             onClick={() => setScheduleTab("commercial")}
           >
             Commercial Schedule
           </button>
           <button 
             type="button"
-            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${scheduleTab === 'qc' ? 'bg-primary text-primary-foreground' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
+            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'residential' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
+            onClick={() => setScheduleTab("residential")}
+          >
+            Residential Schedule
+          </button>
+          <button 
+            type="button"
+            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'qc' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
             onClick={() => setScheduleTab("qc")}
           >
             QC Schedule
@@ -3287,7 +3363,15 @@ export function SimpleOperationsClient({
         <OperationsCalendar 
           events={events} 
           viewMode="week" 
-          emptyMessage={scheduleTab === "commercial" ? "No commercial cleanings." : "No QC inspections."} 
+          anchor={scheduleAnchor}
+          onAnchorChange={setScheduleAnchor}
+          emptyMessage={
+            scheduleTab === "commercial" 
+              ? "No commercial cleanings scheduled this week." 
+              : scheduleTab === "residential" 
+              ? "No residential cleanings scheduled this week." 
+              : "No QC inspections scheduled this week."
+          } 
         />
       </div>
     );
