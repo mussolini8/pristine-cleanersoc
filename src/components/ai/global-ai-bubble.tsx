@@ -80,6 +80,8 @@ export function GlobalAiBubble() {
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [response, setResponse] = useState<SopCopilotResponse | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [executingAction, setExecutingAction] = useState<string | null>(null);
+  const [savedActions, setSavedActions] = useState<Record<string, boolean>>({});
   const [isCopied, setIsCopied] = useState(false);
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [smsSentSuccess, setSmsSentSuccess] = useState<string | null>(null);
@@ -211,6 +213,7 @@ export function GlobalAiBubble() {
     setLoading(true);
     setError(null);
     setActionSuccessMsg(null);
+    setSavedActions({});
 
     try {
       const storedKey = typeof window !== "undefined" ? localStorage.getItem("pristine_gemini_api_key") : "";
@@ -253,41 +256,65 @@ export function GlobalAiBubble() {
   // Actions execution
   const handleApplyOccurrence = async () => {
     if (!response?.occurrenceOverride) return;
-    const res = await applyOccurrenceOverrideAction(response.occurrenceOverride);
-    if (res.success) {
-      setActionSuccessMsg(res.message);
-    } else {
-      setError(res.message);
+    setExecutingAction("occurrence");
+    try {
+      const res = await applyOccurrenceOverrideAction(response.occurrenceOverride);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, occurrence: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
     }
   };
 
   const handleApplyAddStaff = async () => {
     if (!response?.addStaff) return;
-    const res = await applyAddStaffAction(response.addStaff);
-    if (res.success) {
-      setActionSuccessMsg(res.message);
-    } else {
-      setError(res.message);
+    setExecutingAction("staff");
+    try {
+      const res = await applyAddStaffAction(response.addStaff);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, staff: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
     }
   };
 
   const handleApplyCommercialQuote = async () => {
     if (!response?.commercialQuote) return;
-    const res = await applyCreateCommercialAccountAction(response.commercialQuote);
-    if (res.success) {
-      setActionSuccessMsg(res.message);
-    } else {
-      setError(res.message);
+    setExecutingAction("quote");
+    try {
+      const res = await applyCreateCommercialAccountAction(response.commercialQuote);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, quote: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
     }
   };
 
   const handleApplyIngestSchedule = async () => {
     if (!response?.ingestedSchedule) return;
-    const res = await applyIngestScheduleAction(response.ingestedSchedule);
-    if (res.success) {
-      setActionSuccessMsg(res.message);
-    } else {
-      setError(res.message);
+    setExecutingAction("ingest");
+    try {
+      const res = await applyIngestScheduleAction(response.ingestedSchedule);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, ingest: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
     }
   };
 
@@ -656,9 +683,26 @@ export function GlobalAiBubble() {
                       <Button
                         size="sm"
                         onClick={handleApplyOccurrence}
-                        className="w-full h-8 text-xs gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                        disabled={executingAction === "occurrence" || savedActions.occurrence}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.occurrence
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
                       >
-                        <CheckCircle className="size-3.5" /> Confirmar & Registrar Turno en SOP
+                        {executingAction === "occurrence" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Registrando turno...
+                          </>
+                        ) : savedActions.occurrence ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Turno Registrado en SOP!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Confirmar & Registrar Turno en SOP
+                          </>
+                        )}
                       </Button>
                     </div>
                   )}
@@ -684,9 +728,26 @@ export function GlobalAiBubble() {
                       <Button
                         size="sm"
                         onClick={handleApplyAddStaff}
-                        className="w-full h-8 text-xs gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                        disabled={executingAction === "staff" || savedActions.staff}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.staff
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
                       >
-                        <CheckCircle className="size-3.5" /> Confirmar & Añadir a Staff
+                        {executingAction === "staff" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Añadiendo personal...
+                          </>
+                        ) : savedActions.staff ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Personal Añadido al Sistema!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Confirmar & Añadir a Staff
+                          </>
+                        )}
                       </Button>
                     </div>
                   )}
@@ -749,7 +810,7 @@ export function GlobalAiBubble() {
                     </div>
                   )}
 
-                  {/* ACTION 4: Smart Commercial Quoter */}
+                  {/* ACTION 4: Commercial Quote */}
                   {response.commercialQuote && (
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
@@ -791,9 +852,26 @@ export function GlobalAiBubble() {
                       <Button
                         size="sm"
                         onClick={handleApplyCommercialQuote}
-                        className="w-full h-8 text-xs gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                        disabled={executingAction === "quote" || savedActions.quote}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.quote
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
                       >
-                        <CheckCircle className="size-3.5" /> Crear Cuenta Comercial con esta Cotización
+                        {executingAction === "quote" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Creando cuenta...
+                          </>
+                        ) : savedActions.quote ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Cuenta Comercial Creada!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Crear Cuenta Comercial con esta Cotización
+                          </>
+                        )}
                       </Button>
                     </div>
                   )}
@@ -823,7 +901,8 @@ export function GlobalAiBubble() {
                           Cuentas Asignadas: <strong className="text-foreground">{response.cleanerAudit.accounts.join(", ")}</strong>
                         </div>
                       )}
-                    {response.cleanerAudit.notes && (
+
+                      {response.cleanerAudit.notes && (
                         <p className="text-[11px] text-muted-foreground italic bg-muted/20 p-2 rounded-md">
                           {response.cleanerAudit.notes}
                         </p>
@@ -950,9 +1029,26 @@ export function GlobalAiBubble() {
                       <Button
                         size="sm"
                         onClick={handleApplyIngestSchedule}
-                        className="w-full h-8 text-xs gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                        disabled={executingAction === "ingest" || savedActions.ingest}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.ingest
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
                       >
-                        <CheckCircle className="size-3.5" /> Guardar Schedule en SOP
+                        {executingAction === "ingest" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Guardando en SOP...
+                          </>
+                        ) : savedActions.ingest ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Schedule Guardado en SOP con Éxito!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Guardar Schedule en SOP
+                          </>
+                        )}
                       </Button>
                     </div>
                   )}

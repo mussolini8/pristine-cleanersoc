@@ -40,6 +40,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { exportRows, exportWorkbook, exportCleanerGridReport } from "@/lib/export/workbook";
+import { ResidentialImportsPanel } from "./residential-imports-panel";
+
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
@@ -3646,7 +3648,10 @@ export function SimpleOperationsClient({
             ) : null}
           </CardContent>
         </Card>
+        <ResidentialImportsPanel />
+
       </div>
+
     );
   }
 
