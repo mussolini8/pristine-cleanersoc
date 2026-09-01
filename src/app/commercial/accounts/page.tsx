@@ -661,8 +661,19 @@ function AccountStudio({
     draft.supply_delivery_date,
     draft.revenue !== null,
     cost > 0,
+    draft.contract_start,
+    draft.contract_end,
+    draft.payment_method,
   ].filter(Boolean).length;
-  const readiness = Math.round((readyChecks / 8) * 100);
+  const readiness = Math.round((readyChecks / 11) * 100);
+
+  // Contract expiry helpers (optimization #4)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const contractEndDate = draft.contract_end ? new Date(draft.contract_end) : null;
+  const daysUntilExpiry = contractEndDate
+    ? Math.round((contractEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    : null;
 
   return (
     <form className="account-studio" onSubmit={onSubmit}>
@@ -722,7 +733,7 @@ function AccountStudio({
             </label>
             <label className="studio-field">
               <span>Est. fill date</span>
-              <input value={draft.estimated_fill_date ?? ""} onChange={(e) => onChange({ ...draft, estimated_fill_date: e.target.value || null })} placeholder="Only vacuum, 30 days..." />
+              <input type="date" lang="en-US" value={draft.estimated_fill_date ?? ""} onChange={(e) => onChange({ ...draft, estimated_fill_date: e.target.value || null })} />
             </label>
             <label className="studio-field">
               <span>Last Contact</span>
@@ -738,10 +749,15 @@ function AccountStudio({
             <label className="studio-field">
               <span>Contract end</span>
               <input type="date" lang="en-US" value={draft.contract_end ?? ""} onChange={(e) => onChange({ ...draft, contract_end: e.target.value || null })} />
+              {daysUntilExpiry !== null && (
+                <span className={`contract-expiry-badge ${daysUntilExpiry < 0 ? "expired" : daysUntilExpiry <= 30 ? "expiring-soon" : "expiring-ok"}`}>
+                  {daysUntilExpiry < 0 ? "Expired" : daysUntilExpiry === 0 ? "Expires today" : `${daysUntilExpiry}d left`}
+                </span>
+              )}
             </label>
           </div>
 
-          <div className="form-grid four">
+          <div className={`form-grid ${draft.cleaner_pay_type === "hourly" ? "four" : "three"}`}>
             <label className="studio-field">
               <span>Monthly revenue</span>
               <input min="0" step="0.01" type="number" value={draft.revenue ?? ""} onChange={(e) => onChange({ ...draft, revenue: e.target.value ? Number(e.target.value) : null })} placeholder="0.00" />
@@ -762,43 +778,59 @@ function AccountStudio({
                 <option value="hourly">Hourly</option>
               </select>
             </label>
-            <label className="studio-field">
-              <span>{draft.cleaner_pay_type === "hourly" ? "Hours to work" : "Hours"}</span>
-              <input
-                min="0"
-                step="any"
-                type="number"
-                value={draft.hours ?? ""}
-                onChange={(e) => {
-                  const hours = e.target.value ? Number(e.target.value) : null;
-                  onChange({
-                    ...draft,
-                    hours,
-                    cost: draft.cleaner_pay_type === "hourly" && hours !== null && draft.cleaner_hourly_rate !== null && draft.cleaner_hourly_rate !== undefined
-                      ? hours * draft.cleaner_hourly_rate
-                      : draft.cost,
-                  });
-                }}
-                placeholder="0"
-              />
-            </label>
-            <label className="studio-field">
-              <span>{draft.cleaner_pay_type === "hourly" ? "Pay per hour" : "Flat cost"}</span>
-              <input
-                min="0"
-                step="0.01"
-                type="number"
-                value={draft.cleaner_pay_type === "hourly" ? draft.cleaner_hourly_rate ?? "" : draft.cleaner_flat_rate ?? ""}
-                onChange={(e) => {
-                  const value = e.target.value ? Number(e.target.value) : null;
-                  const nextDraft = draft.cleaner_pay_type === "hourly"
-                    ? { ...draft, cleaner_hourly_rate: value, cost: value !== null ? numericHours(draft.hours) * value : null }
-                    : { ...draft, cleaner_flat_rate: value, cost: value };
-                  onChange(nextDraft);
-                }}
-                placeholder={draft.cleaner_pay_type === "hourly" ? "18 or 20/hr" : "0.00"}
-              />
-            </label>
+            {draft.cleaner_pay_type === "hourly" ? (
+              <>
+                <label className="studio-field">
+                  <span>Hours to work</span>
+                  <input
+                    min="0"
+                    step="any"
+                    type="number"
+                    value={draft.hours ?? ""}
+                    onChange={(e) => {
+                      const hours = e.target.value ? Number(e.target.value) : null;
+                      onChange({
+                        ...draft,
+                        hours,
+                        cost: hours !== null && draft.cleaner_hourly_rate !== null && draft.cleaner_hourly_rate !== undefined
+                          ? hours * draft.cleaner_hourly_rate
+                          : draft.cost,
+                      });
+                    }}
+                    placeholder="0"
+                  />
+                </label>
+                <label className="studio-field">
+                  <span>Pay per hour</span>
+                  <input
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    value={draft.cleaner_hourly_rate ?? ""}
+                    onChange={(e) => {
+                      const value = e.target.value ? Number(e.target.value) : null;
+                      onChange({ ...draft, cleaner_hourly_rate: value, cost: value !== null ? numericHours(draft.hours) * value : null });
+                    }}
+                    placeholder="18 or 20/hr"
+                  />
+                </label>
+              </>
+            ) : (
+              <label className="studio-field">
+                <span>Flat cost</span>
+                <input
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={draft.cleaner_flat_rate ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value ? Number(e.target.value) : null;
+                    onChange({ ...draft, cleaner_flat_rate: value, cost: value });
+                  }}
+                  placeholder="0.00"
+                />
+              </label>
+            )}
           </div>
 
           <div className="form-grid two">
@@ -854,10 +886,12 @@ function AccountStudio({
           <div>
             <p className="preview-label">Live profit preview</p>
             <p className="preview-money">${profit.toLocaleString("en-US", { maximumFractionDigits: 0 })}</p>
-            <p className={`preview-margin ${profit >= 0 ? "good" : "bad"}`}>{margin}% margin</p>
+            <p className={`preview-margin ${margin >= 35 ? "good" : margin > 0 ? "warning" : "bad"}`}>{margin}% margin</p>
           </div>
           <div className="preview-line"><span>Account</span><strong>{draft.name || "New account"}</strong></div>
           <div className="preview-line"><span>Cleaner</span><strong>{draft.cleaner_name || "Unassigned"}</strong></div>
+          <div className="preview-line"><span>Revenue</span><strong>${revenue.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
+          <div className="preview-line"><span>Cost</span><strong>${cost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
           <div className="preview-line"><span>Last QC Check</span><strong>{displayDate(draft.last_qcc_date)}</strong></div>
           <div className="preview-line"><span>Delivery</span><strong>{displayDate(draft.supply_delivery_date ?? null)}</strong></div>
           <div className="preview-meter"><span style={{ width: `${readiness}%` }} /></div>
@@ -1298,12 +1332,17 @@ export default function CommercialPage() {
         .preview-money { font-size:1.85rem; font-weight:900; color:hsl(var(--foreground)); }
         .preview-margin { font-size:.8rem; font-weight:900; }
         .preview-margin.good { color:hsl(142 76% 30%); }
+        .preview-margin.warning { color:hsl(38 92% 40%); }
         .preview-margin.bad { color:hsl(0 84% 50%); }
         .preview-line { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid hsl(var(--border)); padding-top:10px; }
         .preview-line span { font-size:.72rem; font-weight:800; color:hsl(var(--muted-foreground)); }
         .preview-line strong { text-align:right; font-size:.82rem; }
         .preview-meter { height:7px; border-radius:999px; background:hsl(var(--border)); overflow:hidden; }
         .preview-meter span { display:block; height:100%; border-radius:999px; background:hsl(var(--primary)); }
+        .contract-expiry-badge { display:inline-block; margin-top:4px; border-radius:999px; padding:2px 8px; font-size:.68rem; font-weight:900; }
+        .contract-expiry-badge.expiring-ok { background:hsl(142 76% 36%/.15); color:hsl(142 76% 28%); }
+        .contract-expiry-badge.expiring-soon { background:hsl(38 92% 50%/.15); color:hsl(38 92% 32%); }
+        .contract-expiry-badge.expired { background:hsl(0 84% 60%/.12); color:hsl(0 84% 45%); }
         .studio-error { border:1px solid hsl(0 84% 60%/.25); background:hsl(0 84% 60%/.1); color:hsl(0 84% 45%);
           border-radius:8px; padding:10px; font-size:.78rem; font-weight:800; }
         .studio-success { border:1px solid hsl(142 70% 35%/.25); background:hsl(142 70% 35%/.1); color:hsl(142 72% 28%);
