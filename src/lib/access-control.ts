@@ -22,6 +22,7 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 
 export const PROTECTED_ROUTE_ACCESS: { prefix: string; area: AccessArea }[] = [
   { prefix: "/dashboard", area: "workspace" },
+  { prefix: "/schedules", area: "workspace" },
   { prefix: "/tasks", area: "tasks" },
   { prefix: "/calendar", area: "workspace" },
   { prefix: "/residential", area: "residential" },
