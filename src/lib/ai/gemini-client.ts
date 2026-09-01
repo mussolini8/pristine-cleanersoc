@@ -346,40 +346,100 @@ Return ONLY a valid JSON object matching this schema:
 }`;
 
 const CANDIDATE_MODELS = [
-  "gemini-3.5-flash",
-  "gemini-3.7-flash",
+  "gemini-2.0-flash",
   "gemini-2.5-flash",
-  "gemini-flash-latest",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
   "gemini-2.5-pro",
 ];
 
-function robustParseJsonResponse(rawText: string): SopCopilotResponse {
+function extractSubObject(text: string, key: string): any {
+  const regex = new RegExp(`"${key}"\\s*:\\s*(\\{[\\s\\S]*?\\})\\s*(?:,\\s*"|\\n\\s*\\})`);
+  const match = text.match(regex);
+  if (match && match[1]) {
+    try {
+      return JSON.parse(match[1]);
+    } catch {
+      // Try sanitizing
+      try {
+        const sanitized = match[1].replace(/[\u0000-\u001F\u007F-\u009F]/g, " ");
+        return JSON.parse(sanitized);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function extractStringField(text: string, key: string): string {
+  const regex = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+  const match = text.match(regex);
+  return match ? match[1] : "";
+}
+
+export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
   const cleaned = rawText
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
 
+  // 1. Direct JSON.parse
   try {
     return JSON.parse(cleaned);
-  } catch {
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      try {
-        return JSON.parse(match[0]);
-      } catch {
-        // If JSON has unescaped control chars, try sanitize
-        try {
-          const sanitized = match[0]
-            .replace(/[\u0000-\u001F\u007F-\u009F]/g, (c) => `\\u${('0000' + c.charCodeAt(0).toString(16)).slice(-4)}`);
-          return JSON.parse(sanitized);
-        } catch {
-          // fallback
-        }
-      }
-    }
+  } catch {}
+
+  // 2. Extract outermost matching braces
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      return JSON.parse(match[0]);
+    } catch {}
+
+    // 3. Try removing broken trailing string repetitions before closing brace
+    try {
+      const trimmed = match[0].replace(/"\s+[^"{}[\],:]+"\s*}/g, '"}');
+      return JSON.parse(trimmed);
+    } catch {}
+
+    // 4. Try sanitizing control characters
+    try {
+      const sanitized = match[0].replace(/[\u0000-\u001F\u007F-\u009F]/g, " ");
+      return JSON.parse(sanitized);
+    } catch {}
   }
 
-  // Fallback: return raw text as valid response
+  // 5. Intelligent field-by-field extraction fallback
+  const summary = extractStringField(cleaned, "summary");
+  const intent = (extractStringField(cleaned, "intent") || "modify_sop") as any;
+  const actionType = (extractStringField(cleaned, "actionType") || "ingest_schedule") as any;
+  const appliedExplanation = extractStringField(cleaned, "appliedExplanation") || "Respuesta procesada correctamente.";
+
+  const ingestedSchedule = extractSubObject(cleaned, "ingestedSchedule");
+  const occurrenceOverride = extractSubObject(cleaned, "occurrenceOverride");
+  const addStaff = extractSubObject(cleaned, "addStaff");
+  const commercialQuote = extractSubObject(cleaned, "commercialQuote");
+  const dispatchSmsQuo = extractSubObject(cleaned, "dispatchSmsQuo");
+  const cleanerAudit = extractSubObject(cleaned, "cleanerAudit");
+  const scheduleConflictWarning = extractSubObject(cleaned, "scheduleConflictWarning");
+
+  if (ingestedSchedule || occurrenceOverride || addStaff || commercialQuote || dispatchSmsQuo || cleanerAudit || summary) {
+    return {
+      intent: intent || (ingestedSchedule ? "modify_sop" : "general_query"),
+      actionType: actionType || (ingestedSchedule ? "ingest_schedule" : "general_query"),
+      summary: summary || "Se ha extraído con éxito la información de la captura.",
+      ingestedSchedule,
+      occurrenceOverride,
+      addStaff,
+      commercialQuote,
+      dispatchSmsQuo,
+      cleanerAudit,
+      scheduleConflictWarning,
+      appliedExplanation,
+    };
+  }
+
+  // 6. Absolute Fallback: return raw text
   return {
     intent: "general_query",
     actionType: "general_query",

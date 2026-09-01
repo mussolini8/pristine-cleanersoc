@@ -244,7 +244,20 @@ export function GlobalAiBubble() {
         throw new Error(data.error || "Ocurrió un error al procesar la instrucción.");
       }
 
-      setResponse(data.data);
+      let parsedData = data.data;
+      if (parsedData?.summary && typeof parsedData.summary === "string" && parsedData.summary.trim().startsWith("{")) {
+        try {
+          const innerMatch = parsedData.summary.match(/\{[\s\S]*\}/);
+          if (innerMatch) {
+            const innerParsed = JSON.parse(innerMatch[0]);
+            parsedData = { ...parsedData, ...innerParsed };
+          }
+        } catch {
+          // Keep as is
+        }
+      }
+
+      setResponse(parsedData);
     } catch (err: any) {
       setError(err?.message || "Error al conectar con el Asistente IA.");
     } finally {
