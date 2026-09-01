@@ -202,6 +202,12 @@ export function GlobalAiBubble() {
       setIsListening(false);
     }
 
+    // Guard: max 5 images at a time
+    if (images.length > 5) {
+      setError(`Tienes ${images.length} imágenes. El límite es 5 por solicitud. Elimina algunas y vuelve a intentarlo.`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setActionSuccessMsg(null);
@@ -220,7 +226,17 @@ export function GlobalAiBubble() {
         }),
       });
 
-      const data = await res.json();
+      // Safely parse JSON — handle non-JSON (e.g. HTML 413 error pages)
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        if (res.status === 413) {
+          throw new Error("La solicitud es demasiado grande. Intenta con menos imágenes (máximo 5).");
+        }
+        throw new Error(`Error del servidor (${res.status}). Intenta con menos imágenes.`);
+      }
+
       if (!res.ok) {
         throw new Error(data.error || "Ocurrió un error al procesar la instrucción.");
       }
@@ -232,6 +248,7 @@ export function GlobalAiBubble() {
       setLoading(false);
     }
   };
+
 
   // Actions execution
   const handleApplyOccurrence = async () => {
