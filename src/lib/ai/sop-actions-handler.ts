@@ -211,115 +211,125 @@ export async function applyCreateCommercialAccountAction(
 export async function applyIngestScheduleAction(
   schedule: NonNullable<SopCopilotResponse["ingestedSchedule"]>
 ): Promise<SopActionResult> {
+  const accountName = schedule.clientName || schedule.buildingName || "Nueva Cuenta";
+
+  // Build structured notes from access instructions
+  const ai = schedule.accessInstructions;
+  const accessParts: string[] = [];
+  if (ai?.buildingType) accessParts.push(`Tipo: ${ai.buildingType}`);
+  if (ai?.suite) accessParts.push(`Suite: ${ai.suite}`);
+  if (ai?.floor) accessParts.push(`Piso: ${ai.floor}`);
+  if (ai?.elevator) accessParts.push(`Elevador: Sí${ai.elevatorNotes ? ` (${ai.elevatorNotes})` : ""}`);
+  if (ai?.parking) accessParts.push(`Estacionamiento: ${ai.parking}`);
+  if (ai?.accessCode) accessParts.push(`Código: ${ai.accessCode}`);
+  if (ai?.otherNotes) accessParts.push(ai.otherNotes);
+  const accessText = accessParts.join(" | ");
+
+  const notes = [
+    schedule.template ? `Plantilla: ${schedule.template}` : null,
+    schedule.recurringRule ? `Recurrencia: ${schedule.recurringRule}` : null,
+    schedule.startDate ? `Inicio: ${schedule.startDate}` : null,
+    schedule.assignedCleaner ? `Cleaner: ${schedule.assignedCleaner}` : null,
+    accessText || null,
+    schedule.internalNotes ? `Notas: ${schedule.internalNotes}` : null,
+  ].filter(Boolean).join("\n");
+
+  // Use the correct commercial_accounts schema
+  const accountData = {
+    name: accountName,
+    city: schedule.city || "Orange County",
+    pricing_model: "per Service",
+    cleaner_name: schedule.assignedCleaner || null,
+    hours: schedule.budgetHours || null,
+    frequency: schedule.frequency || "Monthly",
+    has_supplies: false,
+    has_keys: false,
+    supplies_notes: notes || null,
+    source_sheet: "CleanGuru Import",
+    updated_at: new Date().toISOString(),
+  };
+
+  const successMsg = `✅ "${accountName}" guardado: ${schedule.recurringRule || schedule.frequency || ""}, ${schedule.scheduledTime || ""}${schedule.endTime ? `–${schedule.endTime}` : ""}, cleaner: ${schedule.assignedCleaner || "sin asignar"}.`;
+
+  // 1. Try Supabase
   try {
     const supabase = createClient();
 
-    const accountName = schedule.clientName || schedule.buildingName || "Nueva Cuenta";
+    // Check if account already exists
+    const { data: existing, error: findErr } = await supabase
+      .from("commercial_accounts")
+      .select("id")
+      .ilike("name", `%${accountName}%`)
+      .limit(1)
+      .maybeSingle();
 
-    // Build a rich access_instructions string from the structured object
-    const ai = schedule.accessInstructions;
-    const accessParts: string[] = [];
-    if (ai?.buildingType) accessParts.push(`Tipo: ${ai.buildingType}`);
-    if (ai?.suite) accessParts.push(`Suite: ${ai.suite}`);
-    if (ai?.floor) accessParts.push(`Piso: ${ai.floor}`);
-    if (ai?.elevator) accessParts.push(`Elevador: Sí${ai.elevatorNotes ? ` (${ai.elevatorNotes})` : ""}`);
-    if (ai?.parking) accessParts.push(`Estacionamiento: ${ai.parking}`);
-    if (ai?.accessCode) accessParts.push(`Código de acceso: ${ai.accessCode}`);
-    if (ai?.otherNotes) accessParts.push(ai.otherNotes);
-    const accessInstructionsText = accessParts.join(" | ");
-
-    const scheduleNotes = [
-      schedule.template ? `Plantilla: ${schedule.template}` : null,
-      schedule.recurringRule ? `Recurrencia: ${schedule.recurringRule}` : null,
-      schedule.startDate ? `Inicio: ${schedule.startDate}` : null,
-      schedule.assignedCleaner ? `Cleaner asignada: ${schedule.assignedCleaner}` : null,
-      accessInstructionsText || null,
-      schedule.internalNotes ? `Notas internas: ${schedule.internalNotes}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const accountData = {
-      name: accountName,
-      city: schedule.city || "Orange County",
-      pricing_model: "Monthly",
-      frequency: schedule.frequency || "Monthly",
-      hours: schedule.budgetHours || null,
-      has_supplies: false,
-      has_keys: false,
-      supplies_notes: scheduleNotes,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (supabase) {
-      // Try to find existing account first
-      const { data: existing } = await supabase
-        .from("commercial_accounts")
-        .select("id")
-        .ilike("name", `%${accountName}%`)
-        .limit(1)
-        .maybeSingle();
-
-      if (existing?.id) {
-        // Update existing account
-        const { data, error } = await supabase
-          .from("commercial_accounts")
-          .update(accountData)
-          .eq("id", existing.id)
-          .select()
-          .single();
-
-        if (!error && data) {
-          return {
-            success: true,
-            message: `Schedule actualizado para "${accountName}": ${schedule.recurringRule || schedule.frequency}, ${schedule.scheduledTime}–${schedule.endTime}, cleaner: ${schedule.assignedCleaner || "sin asignar"}.`,
-            data,
-          };
-        }
-      } else {
-        // Insert new account
-        const { data, error } = await supabase
-          .from("commercial_accounts")
-          .insert({ ...accountData, created_at: new Date().toISOString() })
-          .select()
-          .single();
-
-        if (!error && data) {
-          return {
-            success: true,
-            message: `Cuenta "${accountName}" creada desde captura: ${schedule.recurringRule || schedule.frequency}, ${schedule.scheduledTime}–${schedule.endTime}, cleaner: ${schedule.assignedCleaner || "sin asignar"}.`,
-            data,
-          };
-        }
-      }
+    if (findErr) {
+      console.warn("[IngestSchedule] Supabase find error:", findErr.message);
     }
 
-    // LocalStorage fallback
+    if (existing?.id) {
+      const { data, error: updateErr } = await supabase
+        .from("commercial_accounts")
+        .update(accountData)
+        .eq("id", existing.id)
+        .select()
+        .single();
+
+      if (updateErr) {
+        console.warn("[IngestSchedule] Supabase update error:", updateErr.message);
+      } else if (data) {
+        return { success: true, message: successMsg, data };
+      }
+    } else {
+      const { data, error: insertErr } = await supabase
+        .from("commercial_accounts")
+        .insert({ ...accountData, revenue: null, cost: null, created_at: new Date().toISOString() })
+        .select()
+        .single();
+
+      if (insertErr) {
+        console.warn("[IngestSchedule] Supabase insert error:", insertErr.message);
+      } else if (data) {
+        return { success: true, message: successMsg, data };
+      }
+    }
+  } catch (supabaseErr: any) {
+    console.warn("[IngestSchedule] Supabase exception:", supabaseErr?.message);
+  }
+
+  // 2. Always-working localStorage fallback
+  try {
     const key = "pristine_commercial_accounts";
-    const existingStr = typeof localStorage !== "undefined" ? localStorage.getItem(key) || "[]" : "[]";
-    const existingList = JSON.parse(existingStr);
+    const existingStr = localStorage.getItem(key) || "[]";
+    const existingList: any[] = JSON.parse(existingStr);
+
+    // Avoid duplicates: remove existing entry with same name if any
+    const filtered = existingList.filter(
+      (e: any) => !e.name?.toLowerCase().includes(accountName.toLowerCase())
+    );
+
     const newEntry = {
       id: `acc-${Date.now()}`,
       ...accountData,
+      revenue: null,
+      cost: null,
       created_at: new Date().toISOString(),
       _source: "cleanguru_image_import",
     };
-    existingList.unshift(newEntry);
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(key, JSON.stringify(existingList));
-    }
+    filtered.unshift(newEntry);
+    localStorage.setItem(key, JSON.stringify(filtered));
 
     return {
       success: true,
-      message: `Schedule guardado localmente para "${accountName}": ${schedule.recurringRule || schedule.frequency}, ${schedule.scheduledTime}–${schedule.endTime}.`,
+      message: successMsg + " (guardado localmente)",
       data: newEntry,
     };
-  } catch (err: any) {
-    console.error("Error ingesting schedule:", err);
+  } catch (lsErr: any) {
+    console.error("[IngestSchedule] localStorage error:", lsErr?.message);
     return {
       success: false,
-      message: `No se pudo guardar el schedule: ${err.message || String(err)}`,
-      error: err.message,
+      message: `No se pudo guardar el schedule: ${lsErr?.message || "error desconocido"}`,
+      error: lsErr?.message,
     };
   }
 }
