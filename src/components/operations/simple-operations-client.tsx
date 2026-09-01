@@ -3310,10 +3310,11 @@ function renderHeader() {
     return (
       <div className="flex items-center gap-2 flex-wrap">
         <Button
-          className="p-0 overflow-hidden bg-transparent shadow-md hover:bg-transparent border-0"
+          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 px-3.5 py-2 font-bold text-white shadow-md hover:from-emerald-700 hover:to-teal-700 hover:shadow-emerald-500/20 transition-all border-0"
           onClick={() => setIsCopilotOpen(true)}
         >
-          <img src="/copiloto-btn.png" alt="Copiloto IA" className="h-8 w-auto object-contain" />
+          <img src="/pristiner-logo.png" alt="Pristiner" className="size-4 object-contain brightness-0 invert" />
+          <span>Pristiner (Copiloto IA)</span>
         </Button>
         {view === "tasks" ? (
           <>

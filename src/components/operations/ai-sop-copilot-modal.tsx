@@ -257,12 +257,12 @@ export function AiSopCopilotModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border/60 bg-muted/40 px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Sparkles className="size-5" />
+            <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-500/10 p-1.5">
+              <img src="/pristiner-logo.png" alt="Pristiner" className="size-7 object-contain" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-foreground">SOP & Sales Copilot (Gemini)</h3>
+                <h3 className="text-base font-bold text-foreground">Pristiner (Copiloto IA)</h3>
                 <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary text-[10px]">
                   Multimodal AI
                 </Badge>

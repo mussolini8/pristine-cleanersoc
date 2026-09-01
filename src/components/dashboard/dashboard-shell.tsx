@@ -64,14 +64,14 @@ export function DashboardShell({
     <div className="min-h-dvh bg-transparent">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[16rem] border-r border-border/70 bg-card/96 shadow-[18px_0_60px_-58px_hsl(215_40%_20%)] backdrop-blur-xl lg:block">
         <div className="flex h-[4.25rem] items-center justify-center border-b border-border/60 px-5">
-          <Link className="group flex min-w-0 items-center" href="/dashboard" aria-label="Pristiner operations">
+          <Link className="group flex min-w-0 items-center" href="/dashboard" aria-label="Pristine Cleaners operations">
             <Image
-              src="/pristiner-logo.png"
-              alt="Pristiner"
-              width={150}
-              height={150}
+              src="/logo-full.png"
+              alt="Pristine Cleaners"
+              width={853}
+              height={247}
               priority
-              className="h-auto h-12 w-auto transition-transform duration-200 group-hover:-translate-y-0.5"
+              className="h-auto w-[164px] transition-transform duration-200 group-hover:-translate-y-0.5"
             />
           </Link>
         </div>
@@ -116,7 +116,7 @@ export function DashboardShell({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Signed in</p>
-              <p className="truncate text-xs font-semibold text-foreground">{userEmail ?? "Pristiner"}</p>
+              <p className="truncate text-xs font-semibold text-foreground">{userEmail ?? "Pristine Cleaners"}</p>
             </div>
           </div>
         </div>
@@ -125,7 +125,7 @@ export function DashboardShell({
         <header className="sticky top-0 z-20 border-b border-border/70 bg-background/85 backdrop-blur-xl">
           <div className="flex h-[3.75rem] items-center justify-between px-4 sm:px-6">
           <div className="lg:hidden">
-            <p className="text-[11px] font-semibold text-primary">Pristiner</p>
+            <p className="text-[11px] font-semibold text-primary">Pristine Cleaners</p>
             <p className="text-sm font-semibold text-foreground">Operations SOP</p>
           </div>
           <div className="flex items-center gap-2">

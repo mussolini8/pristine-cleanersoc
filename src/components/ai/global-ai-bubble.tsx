@@ -376,10 +376,13 @@ export function GlobalAiBubble() {
         <div className="fixed bottom-5 right-5 z-40 flex items-center gap-2">
           <button
             onClick={() => setIsOpen(true)}
-            className="group flex items-center gap-2.5 rounded-full p-0 bg-transparent shadow-2xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-emerald-500/25 active:scale-95"
-            title="Abrir Copiloto IA (SOP & Cuentas)"
+            className="group flex items-center gap-2.5 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 px-4 py-2.5 text-white shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-emerald-500/25 active:scale-95 border-0"
+            title="Abrir Pristiner Copiloto IA"
           >
-            <img src="/copiloto-btn.png" alt="Copiloto IA (Gemini)" className="h-10 w-auto rounded-full object-contain" />
+            <div className="relative flex size-6 items-center justify-center">
+              <img src="/pristiner-logo.png" alt="Pristiner" className="size-5 object-contain brightness-0 invert" />
+            </div>
+            <span className="text-xs font-black tracking-wide pr-1">Pristiner Copiloto</span>
           </button>
         </div>
       )}
@@ -397,11 +400,11 @@ export function GlobalAiBubble() {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border/60 bg-muted/50 px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                <Sparkles className="size-4" />
+              <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 p-1">
+                <img src="/pristiner-logo.png" alt="Pristiner" className="size-5 object-contain" />
               </div>
               <div>
-                <h3 className="text-xs font-black text-foreground">Copiloto IA · Pristiner</h3>
+                <h3 className="text-xs font-black text-foreground">Pristiner · Copiloto IA</h3>
                 <p className="text-[10px] text-muted-foreground">Control total de cuentas, turnos y personal</p>
               </div>
             </div>

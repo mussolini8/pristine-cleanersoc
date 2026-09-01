@@ -270,10 +270,10 @@ export function SalesTrackClient() {
 
             <Button
               onClick={() => setIsCopilotOpen(true)}
-              className="gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 font-semibold text-white shadow-md hover:from-emerald-700 hover:to-teal-700"
+              className="gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 font-bold text-white shadow-md hover:from-emerald-700 hover:to-teal-700"
             >
-              <Sparkles className="size-4" />
-              Copiloto IA (Gemini)
+              <img src="/pristiner-logo.png" alt="Pristiner" className="size-4 object-contain brightness-0 invert" />
+              Pristiner (Copiloto IA)
             </Button>
             <Button
               variant="outline"
