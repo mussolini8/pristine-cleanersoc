@@ -860,6 +860,7 @@ export const importedCommercialEventEntries: ImportedCommercialEventEntry[] = [
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-07", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-08", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-14", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-15", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged - added)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-16", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-20", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-21", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
@@ -868,9 +869,10 @@ export const importedCommercialEventEntries: ImportedCommercialEventEntry[] = [
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-28", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-29", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-30", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
-  // The Harper Wedding Venue September 2026 dates (6 events)
+  // The Harper Wedding Venue September 2026 dates (7 events)
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-05", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-06", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-11", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged - added)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-12", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-18", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },
   { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-19", hours: 5.0, notes: "12 AM - 7 AM ($90 pay | $230 charged)" },

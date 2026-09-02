@@ -1354,11 +1354,11 @@ export const augustCommercialBookings: ServiceBookingRow[] = [
     teamEarningsWithoutTips: 119,
     merchantFee: 0,
     stripeFee: 0,
-    durationHours: 2,
-    actualHours: 2,
+    durationHours: 8,
+    actualHours: 8,
     bookedBy: "Commercial Contract",
     status: "completed",
-    notes: "1 visitas en agosto (Lorena Benitez). Horario: Monthly service (Lorena 100% residencial)",
+    notes: "4 visitas en agosto (Lorena Benitez). Horario: Monthly",
   }),
   // Contrato Comercial: ILG Corona Office (Sandra Hernandez) — 3x per week
   computeBookingFormulas({
