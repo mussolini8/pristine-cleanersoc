@@ -120,21 +120,25 @@ async function main() {
   const juanId = juanStaff?.[0]?.id ?? null;
 
   if (theHarper) {
-    console.log("Updating The Harper August 2026 events in commercial_hours_entries...");
+    console.log("Updating The Harper August & September 2026 events in commercial_hours_entries...");
     const augustEventDates = [
       "2026-08-01", "2026-08-02", "2026-08-07", "2026-08-08", "2026-08-14",
       "2026-08-16", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23",
       "2026-08-28", "2026-08-29", "2026-08-30",
     ];
+    const septemberEventDates = [
+      "2026-09-05", "2026-09-06", "2026-09-12", "2026-09-18", "2026-09-19", "2026-09-26"
+    ];
 
-    // Delete existing hours for the harper in August to avoid duplicates
+    // Delete existing hours for the harper in August & September to avoid duplicates
     await supabase.from("commercial_hours_entries")
       .delete()
       .eq("account_id", theHarper.id)
       .gte("work_date", "2026-08-01")
-      .lte("work_date", "2026-08-31");
+      .lte("work_date", "2026-09-30");
 
-    const entries = augustEventDates.map((date, idx) => ({
+    const allDates = [...augustEventDates, ...septemberEventDates];
+    const entries = allDates.map((date, idx) => ({
       user_id: user.id,
       account_id: theHarper.id,
       account_name: "The Harper Wedding Venue",
@@ -147,17 +151,17 @@ async function main() {
       verified_hours: 5.0,
       status: "completed",
       verified: true,
-      notes: `Event Service #${idx + 1} (5h - $90.00 payment to Juan Romero | $230.00 charged)`,
+      notes: `Cleaning Shift: Between 12AM - 7 AM (5h - $90.00 payment to Juan Romero | $230.00 charged)`,
       manual_entry: true,
-      period_start: date <= "2026-08-15" ? "2026-08-01" : "2026-08-16",
-      period_end: date <= "2026-08-15" ? "2026-08-15" : "2026-08-31",
+      period_start: date <= "2026-08-15" ? "2026-08-01" : date <= "2026-08-31" ? "2026-08-16" : date <= "2026-09-15" ? "2026-09-01" : "2026-09-16",
+      period_end: date <= "2026-08-15" ? "2026-08-15" : date <= "2026-08-31" ? "2026-08-31" : date <= "2026-09-15" ? "2026-09-15" : "2026-09-30",
       created_at: now,
       updated_at: now,
     }));
 
     const { error: insErr } = await supabase.from("commercial_hours_entries").insert(entries);
     if (insErr) console.error("Error inserting The Harper entries:", insErr);
-    else console.log(`Inserted ${entries.length} event cleaning entries for The Harper (Juan Romero).`);
+    else console.log(`Inserted ${entries.length} event cleaning entries for The Harper (August & September).`);
   }
 
   // 5. Update LA Model Unit Cleaning - exactly 1 clean on August 7th

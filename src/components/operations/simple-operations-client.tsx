@@ -44,6 +44,7 @@ import { exportRows, exportWorkbook, exportCleanerGridReport } from "@/lib/expor
 import { ResidentialImportsPanel } from "./residential-imports-panel";
 
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
+import { importedCommercialAccounts, importedCommercialEventEntries } from "@/lib/commercial-accounts-data";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
   buildCommercialOccurrences,
@@ -3277,8 +3278,9 @@ export function SimpleOperationsClient({
         const dayKey = formatDateKey(day);
         const dayOfWeek = day.getDay();
         const matchedAccountIds = new Set<string>();
+        const accountRulesMap = new Map<string, { acc: any; rules: any[] }>();
 
-        // A. From commercialScheduleRules
+        // A. Group matching commercialScheduleRules by account
         for (const rule of commercialScheduleRules || []) {
           if (rule.active === false) continue;
           if (Number(rule.day_of_week) !== dayOfWeek) continue;
@@ -3289,28 +3291,78 @@ export function SimpleOperationsClient({
           if (!commercialRuleMatchesDate(rule, dayKey)) continue;
 
           const acc = commercialAccounts.find((a) => a.id === rule.commercial_account_id);
+          const accKey = rule.commercial_account_id || acc?.name || rule.id;
+          if (!accountRulesMap.has(accKey)) {
+            accountRulesMap.set(accKey, { acc, rules: [] });
+          }
+          accountRulesMap.get(accKey)!.rules.push(rule);
+        }
+
+        // Emit 1 consolidated card per account on this day
+        for (const [accKey, { acc, rules }] of accountRulesMap.entries()) {
           const title = acc?.name || "Commercial Account";
-          const cleaner = rule.assigned_cleaner_name || acc?.cleaner_name || "Unassigned";
-          const hours = roundHours(toNumber(rule.scheduled_hours) || toNumber(rule.paid_hours) || toNumber(acc?.hours) || 0);
+          const cleaner = rules[0]?.assigned_cleaner_name || acc?.cleaner_name || "Unassigned";
+          const totalHours = roundHours(rules.reduce((sum: number, r: any) => {
+            return sum + (toNumber(r.scheduled_hours) || toNumber(r.paid_hours) || toNumber(acc?.hours) || 0);
+          }, 0));
+          const notes = rules.map((r: any) => r.notes ? r.notes.split('(')[0].trim() : '').filter(Boolean).join(' + ');
 
           events.push({
-            id: `comm-rule-${rule.id}-${dayKey}`,
+            id: `comm-rule-${accKey}-${dayKey}`,
             type: "booking",
             status: "active",
             title: title,
             start: dayKey,
             end: dayKey,
-            summary: `${cleaner} · ${hours > 0 ? `${hours}h` : 'Scheduled'}${rule.notes ? ` (${rule.notes.split('(')[0].trim()})` : ''}`,
+            summary: `${cleaner} · ${totalHours > 0 ? `${totalHours}h` : 'Scheduled'}${notes ? ` (${notes})` : ''}`,
             businessUnit: "commercial",
             color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
           });
-          if (rule.commercial_account_id) matchedAccountIds.add(rule.commercial_account_id);
+          if (acc?.id) matchedAccountIds.add(acc.id);
+          if (accKey) matchedAccountIds.add(accKey);
         }
 
-        // B. From commercialHoursEntries (for event-based cleanings like The Harper, Renewable Farms, LA Model)
+        // B. From importedCommercialAccounts schedule_rules if not already matched
+        for (const imp of importedCommercialAccounts) {
+          if (matchedAccountIds.has(imp.id) || matchedAccountIds.has(imp.name)) continue;
+          const matchingImpRules = (imp.schedule_rules || []).filter((rule: any) => {
+            if (rule.active === false) return false;
+            if (Number(rule.day_of_week) !== dayOfWeek) return false;
+            if (rule.effective_start_date && dayKey < rule.effective_start_date) return false;
+            if (rule.effective_end_date && dayKey > rule.effective_end_date) return false;
+            return commercialRuleMatchesDate(rule as any, dayKey);
+          });
+
+          if (matchingImpRules.length > 0) {
+            const cleaner = matchingImpRules[0]?.assigned_cleaner_name || imp.cleaner_name || "Unassigned";
+            const totalHours = roundHours(matchingImpRules.reduce((sum: number, r: any) => {
+              return sum + (toNumber(r.paid_hours) || toNumber(imp.hours) || 0);
+            }, 0));
+            const notes = matchingImpRules.map((r: any) => r.notes ? r.notes.split('(')[0].trim() : '').filter(Boolean).join(' + ');
+
+            events.push({
+              id: `comm-imp-${imp.id}-${dayKey}`,
+              type: "booking",
+              status: "active",
+              title: imp.name,
+              start: dayKey,
+              end: dayKey,
+              summary: `${cleaner} · ${totalHours > 0 ? `${totalHours}h` : 'Scheduled'}${notes ? ` (${notes})` : ''}`,
+              businessUnit: "commercial",
+              color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
+            });
+            matchedAccountIds.add(imp.id);
+            matchedAccountIds.add(imp.name);
+          }
+        }
+
+        // C. From commercialHoursEntries (for event-based cleanings like The Harper, Renewable Farms, LA Model)
+        const seenEventDates = new Set<string>();
         for (const entry of commercialHoursEntries || []) {
           if (entry.work_date !== dayKey) continue;
           if (entry.account_id && matchedAccountIds.has(entry.account_id)) continue;
+          const key = `${(entry.account_name || "").toLowerCase().trim()}:${entry.work_date}`;
+          seenEventDates.add(key);
 
           events.push({
             id: `comm-entry-${entry.id}-${dayKey}`,
@@ -3324,6 +3376,25 @@ export function SimpleOperationsClient({
             color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
           });
           if (entry.account_id) matchedAccountIds.add(entry.account_id);
+        }
+
+        // D. From importedCommercialEventEntries if not already in commercialHoursEntries
+        for (const ev of importedCommercialEventEntries) {
+          if (ev.work_date !== dayKey) continue;
+          const key = `${ev.account_name.toLowerCase().trim()}:${ev.work_date}`;
+          if (seenEventDates.has(key)) continue;
+
+          events.push({
+            id: `comm-ev-${ev.account_name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${dayKey}`,
+            type: "booking",
+            status: "active",
+            title: ev.account_name,
+            start: dayKey,
+            end: dayKey,
+            summary: `${ev.cleaner_name} · ${ev.hours}h${ev.shift ? ` (${ev.shift})` : ''}`,
+            businessUnit: "commercial",
+            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
+          });
         }
       }
     } else if (scheduleTab === "residential") {

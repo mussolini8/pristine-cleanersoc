@@ -209,11 +209,22 @@ function normalizeAccountKey(account: Pick<Account, "name" | "city">) {
 }
 
 function toAccount(account: ImportedCommercialAccount): Account {
+  const norm = account.name.toLowerCase().trim();
+  const isNonHourly = [
+    "green leaf",
+    "green leaf botanicals",
+    "mama's restaurant",
+    "mamas restaurant",
+    "globar",
+    "glo bar",
+    "the harper",
+  ].some((name) => norm.includes(name));
+
   return {
     ...account,
-    cleaner_pay_type: null,
-    cleaner_hourly_rate: null,
-    cleaner_flat_rate: null,
+    cleaner_pay_type: isNonHourly ? "flat" : "hourly",
+    cleaner_hourly_rate: isNonHourly ? null : 18,
+    cleaner_flat_rate: isNonHourly ? (account.cost ?? null) : null,
   };
 }
 

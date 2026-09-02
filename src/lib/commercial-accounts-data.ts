@@ -276,3 +276,47 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     source_sheet: "Manual Upload" 
   },
 ];
+
+export type ImportedCommercialEventEntry = {
+  account_name: string;
+  cleaner_name: string;
+  work_date: string;
+  shift?: string;
+  hours: number;
+  notes?: string;
+};
+
+export const importedCommercialEventEntries: ImportedCommercialEventEntry[] = [
+  // The Harper Wedding Venue - September 2026 (Cleaning Shift: Between 12AM - 7 AM)
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-05", shift: "Between 12AM - 7 AM", hours: 5, notes: "Cleaning Shift: Between 12AM - 7 AM ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-06", shift: "Between 12AM - 7 AM", hours: 5, notes: "Cleaning Shift: Between 12AM - 7 AM ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-12", shift: "Between 12AM - 7 AM", hours: 5, notes: "Cleaning Shift: Between 12AM - 7 AM ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-18", shift: "Between 12AM - 7 AM", hours: 5, notes: "Cleaning Shift: Between 12AM - 7 AM ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-19", shift: "Between 12AM - 7 AM", hours: 5, notes: "Cleaning Shift: Between 12AM - 7 AM ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-09-26", shift: "Between 12AM - 7 AM", hours: 5, notes: "Cleaning Shift: Between 12AM - 7 AM ($90 payment to Juan Romero | $230 charged)" },
+
+  // The Harper Wedding Venue - August 2026
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-01", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-02", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-07", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-08", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-14", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-16", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-20", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-21", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-22", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-23", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-28", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-29", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+  { account_name: "The Harper Wedding Venue", cleaner_name: "Juan Romero", work_date: "2026-08-30", hours: 5, notes: "Event Service ($90 payment to Juan Romero | $230 charged)" },
+
+  // Renewable Farms - August 2026
+  { account_name: "Renewable Farms", cleaner_name: "Ana Morales", work_date: "2026-08-01", hours: 3, notes: "Event ends at 10:30 PM (3h)" },
+  { account_name: "Renewable Farms", cleaner_name: "Ana Morales", work_date: "2026-08-09", hours: 3, notes: "Event ends at 2:30 PM (3h)" },
+  { account_name: "Renewable Farms", cleaner_name: "Ana Morales", work_date: "2026-08-15", hours: 3, notes: "Event ends at 10:30 PM (3h)" },
+  { account_name: "Renewable Farms", cleaner_name: "Ana Morales", work_date: "2026-08-22", hours: 3, notes: "Event ends at 10:00 PM (3h)" },
+  { account_name: "Renewable Farms", cleaner_name: "Ana Morales", work_date: "2026-08-30", hours: 3, notes: "Event ends at 8:00 PM (3h)" },
+
+  // LA Model Unit Cleaning - August 2026
+  { account_name: "LA Model Unit Cleaning", cleaner_name: "Esperanza Youseff", work_date: "2026-08-07", hours: 9.44, notes: "Single service performed on August 7, 2026 ($170.00)" },
+];
