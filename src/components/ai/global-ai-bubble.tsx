@@ -39,6 +39,7 @@ import {
   applyCreateCommercialAccountAction,
   applyIngestScheduleAction,
   applySopModificationsAction,
+  applyStaffModificationsAction,
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
 
@@ -339,13 +340,51 @@ export function GlobalAiBubble() {
   };
 
   const handleApplySopModifications = async () => {
-    if (!response?.sopModifications) return;
+    if (!response?.sopModifications && !response?.staffModifications) return;
     setExecutingAction("sop_modifications");
     try {
-      const res = await applySopModificationsAction(response.sopModifications);
+      const messages: string[] = [];
+      if (response.sopModifications) {
+        const res = await applySopModificationsAction(response.sopModifications);
+        if (res.success) {
+          messages.push(res.message);
+          setSavedActions((prev) => ({ ...prev, sop_modifications: true }));
+        } else {
+          setError(res.message);
+          return;
+        }
+      }
+
+      if (response.staffModifications && !savedActions.staff_modifications) {
+        const sres = await applyStaffModificationsAction(response.staffModifications);
+        if (sres.success) {
+          messages.push(sres.message);
+          setSavedActions((prev) => ({ ...prev, staff_modifications: true }));
+        }
+      }
+
+      if (messages.length > 0) {
+        setActionSuccessMsg(messages.join("\n\n"));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+        }
+      }
+    } finally {
+      setExecutingAction(null);
+    }
+  };
+
+  const handleApplyStaffModifications = async () => {
+    if (!response?.staffModifications) return;
+    setExecutingAction("staff_modifications");
+    try {
+      const res = await applyStaffModificationsAction(response.staffModifications);
       if (res.success) {
         setActionSuccessMsg(res.message);
-        setSavedActions((prev) => ({ ...prev, sop_modifications: true }));
+        setSavedActions((prev) => ({ ...prev, staff_modifications: true }));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+        }
       } else {
         setError(res.message);
       }
@@ -1108,19 +1147,24 @@ export function GlobalAiBubble() {
                               {mod.status && (
                                 <Badge
                                   className={
-                                    mod.status === "inactive" || mod.status === "cancelled"
+                                    mod.status === "inactive" || mod.status === "cancelled" || mod.action === "delete_account"
                                       ? "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30 text-[10px]"
                                       : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px]"
                                   }
                                 >
-                                  {mod.status === "inactive"
-                                    ? "Desactivar / Inactiva"
+                                  {mod.status === "inactive" || mod.action === "delete_account"
+                                    ? "Eliminar del Schedule"
                                     : mod.status === "cancelled"
                                     ? "Cancelada"
                                     : "Activa"}
                                 </Badge>
                               )}
                             </div>
+                            {(mod.contractEnd || mod.effectiveUntil || mod.effectiveDate) && (
+                              <p className="text-rose-600 dark:text-rose-400 font-medium text-[10px]">
+                                Efectivo desde: {mod.contractEnd || mod.effectiveUntil || mod.effectiveDate}
+                              </p>
+                            )}
                             {typeof mod.newHours === "number" && (
                               <p className="text-muted-foreground">
                                 Horas: <strong className="text-foreground">{mod.newHours} hrs</strong>
@@ -1157,6 +1201,74 @@ export function GlobalAiBubble() {
                         ) : (
                           <>
                             <CheckCircle className="size-3.5" /> Confirmar & Aplicar en SOP
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {response.staffModifications && response.staffModifications.length > 0 && !response.sopModifications && (
+                    <div className="rounded-xl border border-border/80 bg-background/60 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          <Users className="size-3.5 text-primary" /> Modificaciones de Personal / Staff
+                        </span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {response.staffModifications.length} {response.staffModifications.length === 1 ? "cambio" : "cambios"}
+                        </Badge>
+                      </div>
+
+                      <div className="space-y-2">
+                        {response.staffModifications.map((smod, idx) => (
+                          <div key={idx} className="rounded-lg bg-muted/40 p-2.5 text-[11px] space-y-1">
+                            <div className="flex items-center justify-between">
+                              <strong className="text-foreground font-semibold">{smod.cleanerName}</strong>
+                              <Badge
+                                className={
+                                  smod.action === "deactivate"
+                                    ? "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30 text-[10px]"
+                                    : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px]"
+                                }
+                              >
+                                {smod.action === "deactivate" ? "Baja de Personal" : "Alta / Activo"}
+                              </Badge>
+                            </div>
+                            {smod.effectiveDate && (
+                              <p className="text-rose-600 dark:text-rose-400 font-medium text-[10px]">
+                                Fecha efectiva: {smod.effectiveDate}
+                              </p>
+                            )}
+                            {smod.replacementCleaner && (
+                              <p className="text-muted-foreground">
+                                Reemplazo: <strong className="text-foreground">{smod.replacementCleaner}</strong>
+                              </p>
+                            )}
+                            {smod.notes && <p className="text-muted-foreground italic">{smod.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+
+                      <Button
+                        size="sm"
+                        onClick={handleApplyStaffModifications}
+                        disabled={executingAction === "staff_modifications" || savedActions.staff_modifications}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.staff_modifications
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
+                      >
+                        {executingAction === "staff_modifications" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Aplicando...
+                          </>
+                        ) : savedActions.staff_modifications ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Personal Actualizado!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar en Personal
                           </>
                         )}
                       </Button>

@@ -23,6 +23,7 @@ import {
   MoreVertical,
   PauseCircle,
   Pencil,
+  Phone,
   Plus,
   RotateCcw,
   Save,
@@ -42,6 +43,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { exportRows, exportWorkbook, exportCleanerGridReport } from "@/lib/export/workbook";
 import { ResidentialImportsPanel } from "./residential-imports-panel";
+import { getCleanerPhone } from "@/lib/cleaner-contacts";
 
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
@@ -990,8 +992,27 @@ export function SimpleOperationsClient({
       setAccounts(isMissingSchemaTableError(accountResult.error) ? [] : (accountResult.data ?? []) as unknown as ResidentialAccountRow[]);
       setWorkLogs(isMissingSchemaTableError(workLogResult.error) ? [] : (workLogResult.data ?? []) as unknown as ResidentialWorkLogRow[]);
       setWeeklyPayments(isMissingSchemaTableError(weeklyPaymentResult.error) ? [] : (weeklyPaymentResult.data ?? []) as unknown as ResidentialWeeklyPaymentRow[]);
-      setWeeklyPaymentRows(isMissingSchemaTableError(weeklyPaymentRowResult.error) ? [] : (weeklyPaymentRowResult.data ?? []) as unknown as ResidentialWeeklyPaymentLineRow[]);
-      setCommercialAccounts(isMissingSchemaTableError(commercialAccountResult.error) ? [] : (commercialAccountResult.data ?? []) as unknown as CommercialAccountRow[]);
+      const rawCommAccounts = isMissingSchemaTableError(commercialAccountResult.error) ? [] : (commercialAccountResult.data ?? []) as unknown as CommercialAccountRow[];
+      const mergedCommAccounts: CommercialAccountRow[] = [...rawCommAccounts];
+      const seenAccountKeys = new Set(rawCommAccounts.map((a) => a.name.trim().toLowerCase()));
+      for (const imp of importedCommercialAccounts) {
+        if (!seenAccountKeys.has(imp.name.trim().toLowerCase())) {
+          mergedCommAccounts.push({
+            id: imp.id,
+            name: imp.name,
+            city: imp.city ?? "Orange County",
+            cleaner_name: imp.cleaner_name ?? "Unassigned",
+            hours: imp.hours ?? 0,
+            frequency: imp.frequency ?? "Weekly",
+            revenue: imp.revenue ?? 0,
+            cost: imp.cost ?? 0,
+            pricing_model: imp.pricing_model ?? "Flat Rate",
+            supplies_notes: imp.supplies_notes ?? null,
+            payment_method: imp.payment_method ?? "ACH",
+          } as CommercialAccountRow);
+        }
+      }
+      setCommercialAccounts(mergedCommAccounts);
       setCommercialScheduleRules(isMissingSchemaTableError(commercialScheduleResult.error) ? [] : (commercialScheduleResult.data ?? []) as unknown as CommercialScheduleRuleRow[]);
       setCommercialHoursEntries(isMissingSchemaTableError(commercialHoursResult.error) ? [] : (commercialHoursResult.data ?? []) as unknown as CommercialHoursEntryRow[]);
       
@@ -1072,6 +1093,14 @@ export function SimpleOperationsClient({
       void loadData();
     }, 0);
     return () => window.clearTimeout(timeoutId);
+  }, [loadData]);
+
+  useEffect(() => {
+    const handleDataUpdated = () => {
+      void loadData();
+    };
+    window.addEventListener("pristine:data-updated", handleDataUpdated);
+    return () => window.removeEventListener("pristine:data-updated", handleDataUpdated);
   }, [loadData]);
 
   const today = todayKey();
@@ -3600,11 +3629,49 @@ export function SimpleOperationsClient({
               if (!acc) continue;
 
               // A. ELIMINAR / DESACTIVAR CUENTA
-              if (mod.action === "delete_account" || mod.status === "inactive" || mod.status === "cancelled") {
-                await supabase.from("commercial_accounts").update({ status: "inactive" }).eq("id", acc.id);
-                await supabase.from("commercial_account_schedule_rules").update({ active: false }).eq("commercial_account_id", acc.id);
+              if (
+                mod.action === "delete_account" ||
+                mod.status === "inactive" ||
+                mod.status === "cancelled" ||
+                mod.newHours === 0 ||
+                (mod.notes && /eliminad[ao]|cancelad[ao]|desactivad[ao]/i.test(mod.notes))
+              ) {
+                let cutoff = mod.contractEnd || mod.effectiveUntil || mod.effectiveDate || null;
+                if (!cutoff && mod.notes) {
+                  const m = mod.notes.match(/\b\d{4}-\d{2}-\d{2}\b/);
+                  if (m) cutoff = m[0];
+                  else if (mod.notes.toLowerCase().includes("31 de agosto") || mod.notes.toLowerCase().includes("31 ago")) cutoff = "2026-08-31";
+                  else if (mod.notes.toLowerCase().includes("1 de sep") || mod.notes.toLowerCase().includes("1 sep")) cutoff = "2026-08-31";
+                }
+                const effectiveUntil = cutoff || "2026-08-31";
+
+                await supabase.from("commercial_accounts").update({
+                  contract_end: effectiveUntil,
+                  hours: 0,
+                  supplies_notes: mod.notes ? `${acc.supplies_notes ? `${acc.supplies_notes}; ` : ""}${mod.notes}` : acc.supplies_notes,
+                }).eq("id", acc.id);
+
+                await supabase.from("commercial_account_schedule_rules").update({
+                  active: false,
+                  effective_until: effectiveUntil,
+                  effective_end_date: effectiveUntil,
+                }).eq("commercial_account_id", acc.id);
+
+                try {
+                  const raw = localStorage.getItem("pristine_deactivated_accounts") || "[]";
+                  const deactList: any[] = JSON.parse(raw);
+                  const nameNorm = acc.name.toLowerCase().trim();
+                  const existingIdx = deactList.findIndex((item: any) =>
+                    (typeof item === "string" ? item : item.name || "").toLowerCase().trim() === nameNorm
+                  );
+                  const entry = { name: acc.name, contractEnd: effectiveUntil };
+                  if (existingIdx >= 0) deactList[existingIdx] = entry;
+                  else deactList.push(entry);
+                  localStorage.setItem("pristine_deactivated_accounts", JSON.stringify(deactList));
+                } catch {}
+
                 changesCount++;
-                changeMessages.push(`Cuenta eliminada/desactivada: ${acc.name}`);
+                changeMessages.push(`Cuenta eliminada del schedule: ${acc.name} (efectivo desde: ${effectiveUntil})`);
                 continue;
               }
 
@@ -3771,17 +3838,31 @@ export function SimpleOperationsClient({
         const matchedAccountIds = new Set<string>();
         const accountRulesMap = new Map<string, { acc: any; rules: any[] }>();
 
+        let unassignedCleanersMap: Record<string, string> = {};
+        try {
+          const raw = typeof window !== "undefined" ? localStorage.getItem("pristine_cleaner_unassignments") : null;
+          if (raw) unassignedCleanersMap = JSON.parse(raw);
+        } catch {}
+
         // A. Group matching commercialScheduleRules by account
         for (const rule of commercialScheduleRules || []) {
           if (rule.active === false) continue;
           if (Number(rule.day_of_week) !== dayOfWeek) continue;
-          if (rule.effective_start_date && dayKey < rule.effective_start_date) continue;
-          if (rule.effective_end_date && dayKey > rule.effective_end_date) continue;
-          if (rule.effective_from && dayKey < rule.effective_from) continue;
-          if (rule.effective_until && dayKey > rule.effective_until) continue;
-          if (!commercialRuleMatchesDate(rule, dayKey)) continue;
 
           const acc = commercialAccounts.find((a) => a.id === rule.commercial_account_id);
+
+          // Check if account itself is inactive, cancelled, or passed its contract end date
+          if (acc) {
+            if ((acc as any).status === "inactive" || (acc as any).status === "cancelled" || (acc as any).active === false) continue;
+            if (acc.contract_end && dayKey > acc.contract_end) continue;
+          }
+
+          const effectiveFrom = rule.effective_from ?? rule.effective_start_date ?? acc?.contract_start;
+          const effectiveUntil = rule.effective_until ?? rule.effective_end_date ?? acc?.contract_end;
+          if (effectiveFrom && dayKey < effectiveFrom) continue;
+          if (effectiveUntil && dayKey > effectiveUntil) continue;
+          if (!commercialRuleMatchesDate(rule, dayKey)) continue;
+
           const accKey = rule.commercial_account_id || acc?.name || rule.id;
           if (!accountRulesMap.has(accKey)) {
             accountRulesMap.set(accKey, { acc, rules: [] });
@@ -3791,11 +3872,21 @@ export function SimpleOperationsClient({
 
         // Emit 1 consolidated card per account on this day
         for (const [accKey, { acc, rules }] of accountRulesMap.entries()) {
-          const title = acc?.name || "Commercial Account";
-          const cleaner = rules[0]?.assigned_cleaner_name || acc?.cleaner_name || "Unassigned";
           const totalHours = roundHours(rules.reduce((sum: number, r: any) => {
             return sum + (toNumber(r.scheduled_hours) || toNumber(r.paid_hours) || toNumber(acc?.hours) || 0);
           }, 0));
+
+          // Do not emit empty or 0-hour ghost cards
+          if (totalHours <= 0 && (!acc?.hours || acc.hours === 0)) continue;
+
+          const title = acc?.name || "Commercial Account";
+          let cleaner = rules[0]?.assigned_cleaner_name || acc?.cleaner_name || "Unassigned";
+          const cleanerLower = cleaner.toLowerCase().trim();
+          if (unassignedCleanersMap[cleanerLower]) {
+            cleaner = unassignedCleanersMap[cleanerLower];
+          } else if (cleanerLower.includes("susana") && dayKey > "2026-08-31") {
+            cleaner = "Unassigned";
+          }
           const notes = rules.map((r: any) => r.notes ? r.notes.split('(')[0].trim() : '').filter(Boolean).join(' + ');
 
           events.push({
@@ -3820,23 +3911,72 @@ export function SimpleOperationsClient({
           }
         }
 
+        // Retrieve local deactivations for instant client-side updates
+        let localDeactivated: string[] = [];
+        try {
+          const raw = typeof window !== "undefined" ? localStorage.getItem("pristine_deactivated_accounts") : null;
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            localDeactivated = parsed.map((item: any) =>
+              (typeof item === "string" ? item : item.name || "").toLowerCase().trim()
+            );
+          }
+        } catch {}
+
         // B. From importedCommercialAccounts schedule_rules if not already matched
         for (const imp of importedCommercialAccounts) {
           const impKey = imp.name.toLowerCase().trim();
           if (matchedAccountIds.has(imp.id) || matchedAccountIds.has(imp.name) || matchedAccountIds.has(impKey)) continue;
+
+          // Check if disabled in localStorage
+          if (localDeactivated.includes(impKey)) continue;
+
+          // Check if exists in commercialAccounts with inactive status or passed contract_end
+          const matchedDbAccount = commercialAccounts.find(
+            (a) =>
+              a.id === imp.id ||
+              a.name.toLowerCase().trim() === impKey ||
+              a.name.toLowerCase().includes(impKey) ||
+              impKey.includes(a.name.toLowerCase().trim())
+          );
+          if (matchedDbAccount) {
+            if ((matchedDbAccount as any).status === "inactive" || (matchedDbAccount as any).status === "cancelled" || (matchedDbAccount as any).active === false) {
+              continue;
+            }
+            if (matchedDbAccount.contract_end && dayKey > matchedDbAccount.contract_end) {
+              continue;
+            }
+            if (matchedDbAccount.hours === 0) {
+              continue;
+            }
+          }
+
+          // Check imported account's own contract boundaries
+          if (imp.contract_start && dayKey < imp.contract_start) continue;
+          if (imp.contract_end && dayKey > imp.contract_end) continue;
+
           const matchingImpRules = (imp.schedule_rules || []).filter((rule: any) => {
             if (rule.active === false) return false;
             if (Number(rule.day_of_week) !== dayOfWeek) return false;
             if (rule.effective_start_date && dayKey < rule.effective_start_date) return false;
             if (rule.effective_end_date && dayKey > rule.effective_end_date) return false;
+            if (rule.effective_from && dayKey < rule.effective_from) return false;
+            if (rule.effective_until && dayKey > rule.effective_until) return false;
             return commercialRuleMatchesDate(rule as any, dayKey);
           });
 
           if (matchingImpRules.length > 0) {
-            const cleaner = matchingImpRules[0]?.assigned_cleaner_name || imp.cleaner_name || "Unassigned";
+            let cleaner = matchingImpRules[0]?.assigned_cleaner_name || imp.cleaner_name || "Unassigned";
+            const cleanerLower = cleaner.toLowerCase().trim();
+            if (unassignedCleanersMap[cleanerLower]) {
+              cleaner = unassignedCleanersMap[cleanerLower];
+            } else if (cleanerLower.includes("susana") && dayKey > "2026-08-31") {
+              cleaner = "Unassigned";
+            }
             const totalHours = roundHours(matchingImpRules.reduce((sum: number, r: any) => {
               return sum + (toNumber(r.paid_hours) || toNumber(imp.hours) || 0);
             }, 0));
+            if (totalHours <= 0) continue;
             const notes = matchingImpRules.map((r: any) => r.notes ? r.notes.split('(')[0].trim() : '').filter(Boolean).join(' + ');
 
             events.push({
@@ -5792,6 +5932,8 @@ function renderHeader() {
       return [
         person.name,
         person.email,
+        getCleanerPhone(person.name),
+        person.notes,
         person.role,
         person.display_role,
         person.team_scope,
@@ -5881,6 +6023,12 @@ function renderHeader() {
                     <div className="min-w-0">
                       <h3 className="truncate font-semibold">{team.name}</h3>
                       <p className="mt-1 text-xs font-medium text-muted-foreground">{team.email || "No email on file"}</p>
+                      {getCleanerPhone(team.name) ? (
+                        <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-mono font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                          <Phone className="size-3" />
+                          <span>{getCleanerPhone(team.name)}</span>
+                        </p>
+                      ) : null}
                     </div>
                     <Badge className={statusBadgeClass(teamStatus)} variant="outline">{statusLabel(teamStatus)}</Badge>
                   </div>

@@ -33,6 +33,8 @@ export type ImportedCommercialScheduleRule = {
   notes?: string | null;
   effective_start_date?: string | null;
   effective_end_date?: string | null;
+  effective_from?: string | null;
+  effective_until?: string | null;
 };
 
 export const importedCommercialAccounts: ImportedCommercialAccount[] = [
@@ -64,11 +66,11 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
   },
   {
     id: "import-cornerstone-southern-california",
-    name: "Cornerstone Southern California",
+    name: "Cornerstone Rehab",
     city: "Santa Ana",
     pricing_model: "Flat Rate",
     cleaner_name: "Kassandra Valentin",
-    hours: 6.5,
+    hours: 7,
     frequency: "3x per week",
     revenue: 2850,
     cost: 1943.5,
@@ -84,34 +86,9 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     supplies_notes: "Alarm code 0505. Detailed dusting is super important. Multiple keys are given, one for office door, one for supply closet door. Restocking supplies is super important. Leave individual offices locked after cleaning.",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 1, paid_hours: 6.5, assigned_cleaner_name: "Kassandra Valentin", notes: "Monday 5:00 PM - 5:00 AM" },
-      { day_of_week: 3, paid_hours: 6.5, assigned_cleaner_name: "Kassandra Valentin", notes: "Wednesday 5:00 PM - 5:00 AM" },
-      { day_of_week: 5, paid_hours: 6.5, assigned_cleaner_name: "Kassandra Valentin", notes: "Friday 5:00 PM - 5:00 AM" },
-    ]
-  },
-  {
-    id: "import-dr-bagheri-office-irvine-23",
-    name: "Dr. Bagheri Office",
-    city: "Irvine",
-    pricing_model: "per Service",
-    cleaner_name: "Mirna Contreras",
-    hours: 3,
-    frequency: "1x per week",
-    revenue: 563.33,
-    cost: 299.33,
-    payment_method: "Credit Card",
-    contract_start: "2026-02-12",
-    contract_end: null,
-    last_contact_date: "2026-02-12",
-    last_qcc_date: "2026-04-14",
-    has_supplies: false,
-    has_keys: true,
-    supply_delivery_date: null,
-    estimated_fill_date: null,
-    supplies_notes: "Regular office cleaning in Irvine.",
-    source_sheet: "Accounts",
-    schedule_rules: [
-      { day_of_week: 1, paid_hours: 3, assigned_cleaner_name: "Mirna Contreras", notes: "Monday" }
+      { day_of_week: 1, paid_hours: 7, assigned_cleaner_name: "Kassandra Valentin", notes: "Monday 5:00 PM - 5:00 AM" },
+      { day_of_week: 3, paid_hours: 7, assigned_cleaner_name: "Kassandra Valentin", notes: "Wednesday 5:00 PM - 5:00 AM" },
+      { day_of_week: 5, paid_hours: 7, assigned_cleaner_name: "Kassandra Valentin", notes: "Friday 5:00 PM - 5:00 AM" },
     ]
   },
   {
@@ -151,21 +128,21 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     cost: 2093,
     payment_method: "ACH",
     contract_start: "2026-01-13",
-    contract_end: null,
+    contract_end: "2026-08-31",
     last_contact_date: "2026-02-18",
     last_qcc_date: "2026-04-14",
     has_supplies: true,
     has_keys: true,
     supply_delivery_date: null,
     estimated_fill_date: null,
-    supplies_notes: "3 Morgan, Irvine. Monday through Friday Trash. Monday full office cleaning. Be sure all toilet paper dispensers have at least 1 FULL roll. Kitchen cleaning needs coffee machine detailed cleaning.",
+    supplies_notes: "3 Morgan, Irvine. Monday through Friday Trash. Monday full office cleaning. Be sure all toilet paper dispensers have at least 1 FULL roll. Kitchen cleaning needs coffee machine detailed cleaning. Cuenta cancelada a partir del 31 de agosto de 2026.",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 1, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", notes: "Monday 11:58 PM - 4:00 AM" },
-      { day_of_week: 2, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", notes: "Tuesday 11:58 PM - 4:00 AM" },
-      { day_of_week: 3, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", notes: "Wednesday 11:58 PM - 4:00 AM" },
-      { day_of_week: 4, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", notes: "Thursday 11:58 PM - 4:00 AM" },
-      { day_of_week: 5, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", notes: "Friday 11:58 PM - 4:00 AM" },
+      { day_of_week: 1, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", effective_until: "2026-08-31", notes: "Monday 11:58 PM - 4:00 AM" },
+      { day_of_week: 2, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", effective_until: "2026-08-31", notes: "Tuesday 11:58 PM - 4:00 AM" },
+      { day_of_week: 3, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", effective_until: "2026-08-31", notes: "Wednesday 11:58 PM - 4:00 AM" },
+      { day_of_week: 4, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", effective_until: "2026-08-31", notes: "Thursday 11:58 PM - 4:00 AM" },
+      { day_of_week: 5, paid_hours: 6, assigned_cleaner_name: "Veronica Ladinos", effective_until: "2026-08-31", notes: "Friday 11:58 PM - 4:00 AM" },
     ]
   },
   {
@@ -332,7 +309,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "Kott Koatings",
     city: "Lake Forest",
     pricing_model: "per Service",
-    cleaner_name: "Susana Bautista",
+    cleaner_name: "Unassigned",
     hours: 3,
     frequency: "1x per week",
     revenue: 606.67,
@@ -349,7 +326,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     supplies_notes: "Clean front lobby, 2 bathrooms, offices left and right of lobby. Alfredo will allow in.",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 3, paid_hours: 3, assigned_cleaner_name: "Susana Bautista", notes: "Wednesday 9:00 AM - 12:00 PM" }
+      { day_of_week: 3, paid_hours: 3, assigned_cleaner_name: "Unassigned", notes: "Wednesday 9:00 AM - 12:00 PM" }
     ]
   },
   {
@@ -357,7 +334,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "Kush Fine Art",
     city: "Laguna Beach",
     pricing_model: "per Service",
-    cleaner_name: "Sandra Hernandez",
+    cleaner_name: "Ana Morales",
     hours: 3,
     frequency: "Every 21 days",
     revenue: 340,
@@ -382,7 +359,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "LSG Sky Chefs",
     city: "Costa Mesa",
     pricing_model: "Flat Rate",
-    cleaner_name: "Luz and Maria",
+    cleaner_name: "Luz and Vanessa",
     hours: 10,
     frequency: "7x per week",
     revenue: 10750,
@@ -488,7 +465,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
   },
   {
     id: "import-miracle-minds-newport-32",
-    name: "Miracle Minds",
+    name: "Miracle Minds (Miraculous Milestones)",
     city: "Newport",
     pricing_model: "flat rate",
     cleaner_name: "Luz Uribe",
@@ -517,7 +494,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "MIWA Lock CO., LTD.",
     city: "Irvine",
     pricing_model: "per Service",
-    cleaner_name: "Susana Bautista",
+    cleaner_name: "Unassigned",
     hours: 2,
     frequency: "1x per week",
     revenue: 480,
@@ -534,7 +511,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     supplies_notes: "9272 Jeronimo Road. Cleaning suites 119 and 112 at 3pm on Fridays. Contact Roy Mendiola.",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 5, paid_hours: 2, assigned_cleaner_name: "Susana Bautista", notes: "Friday 3:00 PM - 6:00 PM" }
+      { day_of_week: 5, paid_hours: 2, assigned_cleaner_name: "Unassigned", notes: "Friday 3:00 PM - 6:00 PM" }
     ]
   },
   {
@@ -724,7 +701,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "Swing Easy Golf Club Yorba Linda",
     city: "Yorba Linda",
     pricing_model: "Flat rate",
-    cleaner_name: "Sandra Hernandez",
+    cleaner_name: "Unassigned",
     hours: 3,
     frequency: "Every 14 days",
     revenue: 486,
@@ -771,7 +748,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "University Park Dental",
     city: "Irvine",
     pricing_model: "per Service",
-    cleaner_name: "Susana Bautista",
+    cleaner_name: "Unassigned",
     hours: 2.5,
     frequency: "Every 14 days (Mon)",
     revenue: 325,
@@ -788,7 +765,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     supplies_notes: "5321 University Drive Suite A. Meet Tania on Monday mornings 9:30 AM - 12:00 PM.",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 1, paid_hours: 2.5, assigned_cleaner_name: "Susana Bautista", frequency_type: "biweekly", anchor_date: "2026-07-13", notes: "Every 14 days (Monday 9:30 AM - 12:00 PM)" }
+      { day_of_week: 1, paid_hours: 2.5, assigned_cleaner_name: "Unassigned", frequency_type: "biweekly", anchor_date: "2026-07-13", notes: "Every 14 days (Monday 9:30 AM - 12:00 PM)" }
     ]
   },
   {
@@ -842,7 +819,32 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     schedule_rules: [
       { day_of_week: 4, paid_hours: 4, assigned_cleaner_name: "Luz Uribe", notes: "Thursday 6:00 AM - 11:30 AM (Finish by 8:30 AM)" }
     ]
-  }
+  },
+  {
+    id: "import-lifted-dentistry-irvine",
+    name: "Lifted Dentistry",
+    city: "Irvine",
+    pricing_model: "per service",
+    cleaner_name: "Unassigned",
+    hours: 3,
+    frequency: "Every 14 days",
+    revenue: 335,
+    cost: 149,
+    payment_method: "Zelle",
+    contract_start: "2026-08-01",
+    contract_end: null,
+    last_contact_date: null,
+    last_qcc_date: null,
+    has_supplies: false,
+    has_keys: false,
+    supply_delivery_date: null,
+    estimated_fill_date: null,
+    supplies_notes: "Every other week cleaning ($69.00 per service).",
+    source_sheet: "Accounts",
+    schedule_rules: [
+      { day_of_week: 4, paid_hours: 3, assigned_cleaner_name: "Unassigned", frequency_type: "biweekly", frequency_interval: 2, anchor_date: "2026-08-06", notes: "Every 14 days (Thursday)" }
+    ]
+  },
 ];
 
 export type ImportedCommercialEventEntry = {

@@ -235,9 +235,11 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
   }
 
   const merged: Account[] = [];
+  const seenKeys = new Set<string>();
 
   for (const remote of remoteAccounts) {
     const key = normalizeAccountKey(remote);
+    seenKeys.add(key);
     const imported = importedMap.get(key);
     merged.push({
       ...imported,
@@ -250,6 +252,13 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       cleaner_hourly_rate: remote.cleaner_hourly_rate ?? imported?.cleaner_hourly_rate ?? null,
       cleaner_flat_rate: remote.cleaner_flat_rate ?? imported?.cleaner_flat_rate ?? null,
     });
+  }
+
+  // Include all imported commercial accounts from CleanGuru not yet present in remote
+  for (const [key, imported] of importedMap) {
+    if (!seenKeys.has(key)) {
+      merged.push(imported);
+    }
   }
 
   return merged.sort((a, b) =>

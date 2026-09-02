@@ -1,5 +1,6 @@
 import type { SalesTrackItem } from "@/lib/export/sales-track-export";
 import type { ServiceBookingRow } from "@/lib/sales-tracker/types";
+import { importedCommercialAccounts } from "@/lib/commercial-accounts-data";
 
 export type GeminiImageData = {
   inlineData: {
@@ -170,6 +171,9 @@ export type SopCopilotResponse = {
     newPricing?: number;
     newCleanerCost?: number;
     status?: "active" | "inactive" | "cancelled" | "proposal";
+    contractEnd?: string; // YYYY-MM-DD
+    effectiveUntil?: string; // YYYY-MM-DD
+    effectiveDate?: string; // YYYY-MM-DD
     notes?: string;
   }[];
 
@@ -187,21 +191,46 @@ export type SopCopilotResponse = {
   appliedExplanation?: string;
 };
 
+export function getCommercialOperationalDirectory(): string {
+  const DAY_NAMES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+  const lines = importedCommercialAccounts.map((acc) => {
+    const rules = (acc.schedule_rules || [])
+      .map(
+        (r) =>
+          `${DAY_NAMES[r.day_of_week] || r.day_of_week} ${r.paid_hours}h (${
+            r.assigned_cleaner_name || acc.cleaner_name || "Sin asignar"
+          })`
+      )
+      .join(", ");
+    return `- "${acc.name}" (${acc.city}) | Cleaner: "${acc.cleaner_name || "Sin asignar"}" | Horas: ${acc.hours}h | Frecuencia: ${acc.frequency} | Turnos: [${rules}]`;
+  });
+  return lines.join("\n");
+}
+
 const SYSTEM_INSTRUCTION = `You are the Pristine Cleaners AI SOP & Master Financial Operations Copilot.
 You have FULL OPERATIONAL CONTROL over commercial accounts, residential bookings, cleaner teams/staff, schedule rules, work occurrences, quotes, Quo/SMS dispatches, and SOP operational tasks.
 
+CURRENT COMMERCIAL ACCOUNTS & CLEANERS DIRECTORY (Use exact account names from this directory):
+${getCommercialOperationalDirectory()}
+
 Core Superpowers and Capabilities:
 
-1. ELIMINAR CUENTAS O HORARIOS (Delete / Deactivate):
-   - If the user asks to delete, cancel, or deactivate an account (e.g. "elimina a Field AI", "borra la cuenta de X", "deja de limpiar Y", "quitar a X del sistema"):
+1. ELIMINAR CUENTAS O HORARIOS (Delete / Deactivate / Remove from Commercial Schedule):
+   - When the user asks to delete, cancel, eliminate, or stop cleanings for an account (e.g. "eliminar del schedule comercial las limpiezas de Field AI desde el 31 de agosto en adelante, comenzando el 1 de sep", "elimina a Field AI", "borra la cuenta de X", "deja de limpiar Y", "quitar a X del sistema"):
    - Set intent = "modify_sop", actionType = "modify_schedule"
-   - In sopModifications:
+   - ALWAYS set action = "delete_account" and status = "inactive".
+   - If a date is specified (e.g. "a partir del 31 de agosto", "desde el 1 de septiembre", "comenzando en sep"):
+     Calculate the last active date (e.g. "2026-08-31") and provide BOTH contractEnd and effectiveUntil:
      [{
        "accountName": "Field AI",
        "action": "delete_account",
        "status": "inactive",
-       "notes": "Cuenta desactivada/eliminada a petición del usuario"
+       "contractEnd": "2026-08-31",
+       "effectiveUntil": "2026-08-31",
+       "effectiveDate": "2026-08-31",
+       "notes": "Cuenta eliminada y desactivada del schedule comercial a partir del 31 de agosto / 1 de septiembre"
      }]
+   - CRITICAL: NEVER return just "newHours": 0 without setting "action": "delete_account" and "status": "inactive". Simply setting hours to 0 without deactivating causes ghost cards to persist in the schedule view.
    - If the user asks to delete a specific day schedule rule (e.g. "elimina la limpieza de los martes de X"):
    - In sopModifications:
      [{
@@ -267,17 +296,46 @@ Core Superpowers and Capabilities:
        }
      ]
 
-6. STAFF & CLEANER DEPARTURE / MANAGEMENT (Altas, Bajas y Salida de Personal):
-   - When the user mentions that a cleaner left or stopped working (e.g. "a partir del 31 de agosto Susana dejó de trabajar con nosotros / ya no trabaja / desvinculada / inactiva"):
-   - Set in staffModifications:
+6. STAFF & CLEANER DEPARTURE / MANAGEMENT / MASS UNASSIGNMENT (Bajas de Personal y Desvinculación de Cuentas):
+   - When the user mentions that a cleaner left or stopped working, or requests removing all their accounts (e.g. "Susana dejó de trabajar con nosotros Así que todas las cuentas asignadas a Susana a partir del 31 de agosto deben ser removidas de ella pero siempre manteniéndolas dentro del schedule entendido"):
+   - Set intent = "modify_sop", actionType = "modify_schedule"
+   - ALWAYS populate staffModifications:
      [
        {
          "cleanerName": "Susana Bautista",
          "action": "deactivate",
          "effectiveDate": "2026-08-31",
-         "notes": "Dejó de trabajar a partir del 31 de agosto"
+         "notes": "Baja laboral al 31 de agosto. Desvinculada de todas sus cuentas comerciales."
        }
      ]
+   - ALWAYS look up ALL accounts assigned to that cleaner in the Directory above (e.g. for Susana: "Kott Koatings", "MIWA Lock CO., LTD.", "University Park Dental") and generate a SEPARATE sopModifications entry FOR EACH INDIVIDUAL ACCOUNT:
+     [
+       {
+         "accountName": "Kott Koatings",
+         "action": "change_cleaner",
+         "cleanerName": "Unassigned",
+         "newHours": 3,
+         "notes": "Removida Susana Bautista, cuenta y turnos mantenidos activos en el schedule comercial"
+       },
+       {
+         "accountName": "MIWA Lock CO., LTD.",
+         "action": "change_cleaner",
+         "cleanerName": "Unassigned",
+         "newHours": 2,
+         "notes": "Removida Susana Bautista, cuenta y turnos mantenidos activos en el schedule comercial"
+       },
+       {
+         "accountName": "University Park Dental",
+         "action": "change_cleaner",
+         "cleanerName": "Unassigned",
+         "newHours": 2.5,
+         "notes": "Removida Susana Bautista, cuenta y turnos mantenidos activos en el schedule comercial"
+       }
+     ]
+   - STRICT AND ABSOLUTE RULES:
+     1. NEVER output placeholder or generic names like 'Todas las cuentas de Susana' or 'Cuentas de X'. You MUST look at the Directory and list each account by its exact name.
+     2. NEVER set hours to 0 when the user asks to keep accounts in the schedule ('manteniéndolas dentro del schedule'). KEEP the original hours intact (e.g. 3 hrs, 2 hrs, 2.5 hrs)!
+     3. Set cleanerName = 'Unassigned' (or 'Sin asignar') so the schedule slot remains active and ready for reassignment.
    - When the user asks to add cleaners (e.g. "Añade a Pedro como limpiador comercial a $20/hr y teléfono 949-555-0123"):
      Set addStaff or staffModifications: [{ "cleanerName": "Pedro", "action": "add", "role": "cleaner" }]
 
@@ -408,6 +466,15 @@ Return ONLY a valid JSON object matching this schema:
     "accounts": ["string"],
     "notes": "string"
   },
+  "staffModifications": [
+    {
+      "cleanerName": "string",
+      "action": "deactivate" | "add" | "activate",
+      "role": "cleaner" | "lead" | "inspector",
+      "effectiveDate": "YYYY-MM-DD",
+      "notes": "string"
+    }
+  ],
   "sopModifications": [
     {
       "accountName": "string",

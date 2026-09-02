@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
+import { importedCommercialAccounts } from "@/lib/commercial-accounts-data";
 
 export type SopActionResult = {
   success: boolean;
@@ -386,6 +387,90 @@ export async function applySopModificationsAction(
     for (const mod of modifications) {
       if (!mod.accountName) continue;
 
+      // Detect cleaner mass unassignment (e.g. "Todas las cuentas de Susana", "Cuentas de Susana", or direct cleaner name)
+      const cleanerBatchMatch = mod.accountName.match(/(?:todas\s+las\s+cuentas\s+de|cuentas\s+de)\s+([A-Za-z\s]+)/i);
+      const isKnownCleaner = ["susana", "susana bautista", "veronica", "veronica ladinos", "sandra", "sandra hernandez", "juan romero", "luz uribe", "maria lopez", "emmi guerra", "lucia portillo", "kassandra valentin"].includes(mod.accountName.toLowerCase().trim());
+      const batchCleanerName = cleanerBatchMatch ? cleanerBatchMatch[1].trim() : (isKnownCleaner ? mod.accountName.trim() : null);
+
+      if (batchCleanerName) {
+        const cleanerNorm = batchCleanerName.toLowerCase().trim();
+        const substituteCleaner = mod.cleanerName && !mod.cleanerName.toLowerCase().includes("sin asignar") && !mod.cleanerName.toLowerCase().includes("unassigned") && !mod.cleanerName.toLowerCase().includes("pendiente") ? mod.cleanerName : "Unassigned";
+
+        if (supabase) {
+          try {
+            await supabase.from("staff_members").update({ active: false, status: "inactive", updated_at: new Date().toISOString() }).ilike("name", `%${cleanerNorm}%`);
+          } catch {}
+
+          const { data: matchedAccs } = await supabase
+            .from("commercial_accounts")
+            .select("id, name, cleaner_name, hours")
+            .ilike("cleaner_name", `%${cleanerNorm}%`);
+
+          for (const a of matchedAccs || []) {
+            await supabase.from("commercial_accounts").update({ cleaner_name: substituteCleaner, updated_at: new Date().toISOString() }).eq("id", a.id);
+            await supabase.from("commercial_account_schedule_rules").update({ assigned_cleaner_name: substituteCleaner, updated_at: new Date().toISOString() }).eq("commercial_account_id", a.id);
+            results.push(`"${a.name}": desvinculada de ${batchCleanerName} -> "${substituteCleaner}" (turnos en schedule activos).`);
+          }
+
+          await supabase
+            .from("commercial_account_schedule_rules")
+            .update({ assigned_cleaner_name: substituteCleaner, updated_at: new Date().toISOString() })
+            .ilike("assigned_cleaner_name", `%${cleanerNorm}%`);
+        }
+
+        const matchingImported = importedCommercialAccounts.filter(
+          (a) =>
+            (a.cleaner_name || "").toLowerCase().includes(cleanerNorm) ||
+            (a.schedule_rules || []).some((r: any) => (r.assigned_cleaner_name || "").toLowerCase().includes(cleanerNorm))
+        );
+        for (const imp of matchingImported) {
+          results.push(`"${imp.name}": turnos desvinculados de ${batchCleanerName} y mantenidos en el schedule como "${substituteCleaner}".`);
+        }
+
+        if (typeof window !== "undefined") {
+          try {
+            const key = "pristine_cleaner_unassignments";
+            const raw = localStorage.getItem(key) || "{}";
+            const unassignments = JSON.parse(raw);
+            unassignments[cleanerNorm] = substituteCleaner;
+            if (cleanerNorm.includes("susana")) {
+              unassignments["susana"] = substituteCleaner;
+              unassignments["susana bautista"] = substituteCleaner;
+            }
+            localStorage.setItem(key, JSON.stringify(unassignments));
+
+            const staffKey = "pristine_deactivated_staff";
+            const rawStaff = localStorage.getItem(staffKey) || "[]";
+            const staffList = JSON.parse(rawStaff);
+            if (!staffList.includes(cleanerNorm)) staffList.push(cleanerNorm);
+            localStorage.setItem(staffKey, JSON.stringify(staffList));
+          } catch {}
+        }
+
+        continue;
+      }
+
+      // Detect date cutoff if present
+      let cutoffDate: string | null = mod.contractEnd || mod.effectiveUntil || mod.effectiveDate || null;
+      if (!cutoffDate && mod.notes) {
+        const isoMatch = mod.notes.match(/\b\d{4}-\d{2}-\d{2}\b/);
+        if (isoMatch) {
+          cutoffDate = isoMatch[0];
+        } else if (mod.notes.toLowerCase().includes("31 de agosto") || mod.notes.toLowerCase().includes("31 ago")) {
+          cutoffDate = "2026-08-31";
+        } else if (mod.notes.toLowerCase().includes("1 de sep") || mod.notes.toLowerCase().includes("1 sep")) {
+          cutoffDate = "2026-08-31";
+        }
+      }
+
+      // Check if this is a deactivation / deletion from schedule
+      const isDeactivation =
+        mod.action === "delete_account" ||
+        mod.status === "inactive" ||
+        mod.status === "cancelled" ||
+        mod.newHours === 0 ||
+        (mod.notes && /eliminad[ao]|cancelad[ao]|desactivad[ao]/i.test(mod.notes));
+
       const updateData: Record<string, any> = {
         updated_at: new Date().toISOString(),
       };
@@ -393,60 +478,171 @@ export async function applySopModificationsAction(
       if (typeof mod.newHours === "number") updateData.hours = mod.newHours;
       if (typeof mod.newPricing === "number") updateData.revenue = mod.newPricing;
       if (typeof mod.newCleanerCost === "number") updateData.cost = mod.newCleanerCost;
-      if (mod.status) {
-        updateData.status = mod.status;
-        if (mod.status === "inactive" || mod.status === "cancelled") {
-          updateData.active = false;
-        }
-      }
       if (mod.notes) updateData.supplies_notes = mod.notes;
+      if (isDeactivation) {
+        updateData.contract_end = cutoffDate || "2026-08-31";
+        updateData.hours = 0;
+      }
+
+      // Save to localStorage deactivated list for instant client-side isolation
+      if (typeof window !== "undefined") {
+        try {
+          const key = "pristine_deactivated_accounts";
+          const raw = localStorage.getItem(key) || "[]";
+          const list: any[] = JSON.parse(raw);
+          const nameNorm = mod.accountName.toLowerCase().trim();
+          const existingIdx = list.findIndex(
+            (item: any) => (typeof item === "string" ? item : item.name || "").toLowerCase().trim() === nameNorm
+          );
+          const entry = {
+            name: mod.accountName,
+            contractEnd: cutoffDate || "2026-08-31",
+            deactivatedAt: new Date().toISOString(),
+          };
+          if (isDeactivation) {
+            if (existingIdx >= 0) list[existingIdx] = entry;
+            else list.push(entry);
+          } else if (existingIdx >= 0) {
+            list.splice(existingIdx, 1);
+          }
+          localStorage.setItem(key, JSON.stringify(list));
+        } catch {}
+      }
 
       let appliedSupabase = false;
+      let accountId: string | null = null;
+      let accountName: string = mod.accountName;
+
       if (supabase) {
         const { data: accounts } = await supabase
           .from("commercial_accounts")
-          .select("id, name")
+          .select("id, name, supplies_notes, hours, contract_end")
           .ilike("name", `%${mod.accountName}%`)
           .limit(1);
 
         if (accounts && accounts.length > 0) {
-          const { error } = await supabase
-            .from("commercial_accounts")
-            .update(updateData)
-            .eq("id", accounts[0].id);
+          accountId = accounts[0].id;
+          accountName = accounts[0].name;
+        } else {
+          // If not in commercial_accounts yet, check importedCommercialAccounts and materialize
+          const imp = importedCommercialAccounts.find(
+            (a) =>
+              a.name.toLowerCase().trim() === mod.accountName!.toLowerCase().trim() ||
+              a.name.toLowerCase().includes(mod.accountName!.toLowerCase().trim()) ||
+              mod.accountName!.toLowerCase().trim().includes(a.name.toLowerCase().trim())
+          );
+          if (imp) {
+            const effectiveEnd = isDeactivation ? (cutoffDate || "2026-08-31") : imp.contract_end;
+            const { data: inserted } = await supabase
+              .from("commercial_accounts")
+              .insert({
+                name: imp.name,
+                city: imp.city || "Orange County",
+                cleaner_name: mod.cleanerName || imp.cleaner_name || null,
+                hours: isDeactivation ? 0 : (mod.newHours !== undefined ? mod.newHours : Number(imp.hours) || 0),
+                frequency: imp.frequency,
+                revenue: mod.newPricing !== undefined ? mod.newPricing : imp.revenue,
+                cost: mod.newCleanerCost !== undefined ? mod.newCleanerCost : imp.cost,
+                pricing_model: imp.pricing_model,
+                contract_start: imp.contract_start || null,
+                contract_end: effectiveEnd || null,
+                supplies_notes: mod.notes ? `${imp.supplies_notes || ""}; ${mod.notes}` : imp.supplies_notes,
+              })
+              .select()
+              .single();
 
-          if (!error) {
-            appliedSupabase = true;
-            
-            // If setting to inactive, also deactivate recurring schedule entries
-            if (mod.status === "inactive" || mod.status === "cancelled" || mod.newHours === 0) {
-              await supabase
-                .from("commercial_schedule")
-                .update({ active: false })
-                .eq("commercial_account_id", accounts[0].id);
+            if (inserted) {
+              accountId = inserted.id;
+              accountName = inserted.name;
             }
+          }
+        }
 
-            const statusText = mod.status === "inactive" ? " (Desactivada del schedule)" : "";
-            results.push(`Modificado "${accounts[0].name}"${statusText}: ${typeof mod.newHours === "number" ? `${mod.newHours} hrs ` : ""}${mod.cleanerName ? `(Cleaner: ${mod.cleanerName})` : ""}`);
+        if (accountId) {
+          // Update commercial_accounts
+          const safeUpdate: Record<string, any> = { ...updateData };
+          delete safeUpdate.status; // status is not a column in commercial_accounts schema, avoid error
+          delete safeUpdate.active;
+
+          await supabase
+            .from("commercial_accounts")
+            .update(safeUpdate)
+            .eq("id", accountId);
+
+          // Update commercial_account_schedule_rules
+          if (isDeactivation) {
+            const effectiveEnd = cutoffDate || "2026-08-31";
+            await supabase
+              .from("commercial_account_schedule_rules")
+              .update({
+                active: false,
+                effective_until: effectiveEnd,
+                effective_end_date: effectiveEnd,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("commercial_account_id", accountId);
+
+            appliedSupabase = true;
+            results.push(`"${accountName}" eliminada del schedule comercial a partir de ${effectiveEnd}.`);
+          } else if (mod.action === "delete_rule" && mod.daysToDelete?.length) {
+            for (const d of mod.daysToDelete) {
+              await supabase
+                .from("commercial_account_schedule_rules")
+                .update({ active: false, updated_at: new Date().toISOString() })
+                .eq("commercial_account_id", accountId)
+                .eq("day_of_week", d);
+            }
+            appliedSupabase = true;
+            results.push(`Regla(s) de días eliminadas para "${accountName}".`);
+          } else {
+            const ruleUpdates: Record<string, any> = { updated_at: new Date().toISOString() };
+            if (typeof mod.newHours === "number") {
+              ruleUpdates.paid_hours = mod.newHours;
+              ruleUpdates.scheduled_hours = mod.newHours;
+            }
+            if (mod.cleanerName) {
+              ruleUpdates.assigned_cleaner_name = mod.cleanerName;
+            }
+            if (Object.keys(ruleUpdates).length > 1) {
+              await supabase
+                .from("commercial_account_schedule_rules")
+                .update(ruleUpdates)
+                .eq("commercial_account_id", accountId);
+            }
+            appliedSupabase = true;
+            results.push(
+              `Modificado "${accountName}": ${typeof mod.newHours === "number" ? `${mod.newHours} hrs ` : ""}${
+                mod.cleanerName ? `(Cleaner: ${mod.cleanerName})` : ""
+              }`
+            );
           }
         }
       }
 
-      // Fallback: localStorage
-      if (!appliedSupabase) {
-        const key = "pristine_commercial_accounts";
-        const existingStr = localStorage.getItem(key) || "[]";
-        const existingList: any[] = JSON.parse(existingStr);
-        const idx = existingList.findIndex(
-          (e: any) => e.name?.toLowerCase().includes(mod.accountName!.toLowerCase())
-        );
+      // Fallback/resilience in localStorage
+      if (typeof window !== "undefined") {
+        try {
+          const key = "pristine_commercial_accounts";
+          const existingStr = localStorage.getItem(key) || "[]";
+          const existingList: any[] = JSON.parse(existingStr);
+          const idx = existingList.findIndex(
+            (e: any) => e.name?.toLowerCase().includes(mod.accountName!.toLowerCase())
+          );
 
-        if (idx !== -1) {
-          existingList[idx] = { ...existingList[idx], ...updateData };
-          localStorage.setItem(key, JSON.stringify(existingList));
-          results.push(`Modificado "${existingList[idx].name}" en almacenamiento local.`);
-        }
+          if (idx !== -1) {
+            existingList[idx] = { ...existingList[idx], ...updateData };
+            localStorage.setItem(key, JSON.stringify(existingList));
+            if (!appliedSupabase) {
+              results.push(`Modificado "${existingList[idx].name}" en almacenamiento local.`);
+            }
+          }
+        } catch {}
       }
+    }
+
+    // Broadcast refresh event so all schedule/operations views update automatically
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
     }
 
     return {
@@ -460,6 +656,114 @@ export async function applySopModificationsAction(
     return {
       success: false,
       message: `Error al aplicar modificaciones: ${err.message || String(err)}`,
+      error: err.message,
+    };
+  }
+}
+
+export async function applyStaffModificationsAction(
+  modifications: NonNullable<SopCopilotResponse["staffModifications"]>
+): Promise<SopActionResult> {
+  if (!modifications || modifications.length === 0) {
+    return { success: true, message: "No se requirieron modificaciones de personal." };
+  }
+
+  const results: string[] = [];
+  try {
+    const supabase = createClient();
+
+    for (const smod of modifications) {
+      if (!smod.cleanerName) continue;
+      const cname = smod.cleanerName.trim();
+      const cleanerNorm = cname.toLowerCase().trim();
+      const replacement = smod.replacementCleaner || "Unassigned";
+
+      if (smod.action === "deactivate") {
+        if (supabase) {
+          try {
+            await supabase
+              .from("staff_members")
+              .update({ active: false, status: "inactive", updated_at: new Date().toISOString() })
+              .ilike("name", `%${cleanerNorm}%`);
+          } catch {}
+
+          // Reassign all commercial accounts belonging to this cleaner
+          const { data: dbAccs } = await supabase
+            .from("commercial_accounts")
+            .select("id, name")
+            .ilike("cleaner_name", `%${cleanerNorm}%`);
+
+          for (const a of dbAccs || []) {
+            await supabase.from("commercial_accounts").update({ cleaner_name: replacement, updated_at: new Date().toISOString() }).eq("id", a.id);
+            await supabase.from("commercial_account_schedule_rules").update({ assigned_cleaner_name: replacement, updated_at: new Date().toISOString() }).eq("commercial_account_id", a.id);
+            results.push(`"${a.name}": desvinculada de ${cname} -> "${replacement}" (turnos en schedule mantenidos).`);
+          }
+
+          await supabase
+            .from("commercial_account_schedule_rules")
+            .update({ assigned_cleaner_name: replacement, updated_at: new Date().toISOString() })
+            .ilike("assigned_cleaner_name", `%${cleanerNorm}%`);
+        }
+
+        // Also check importedCommercialAccounts
+        const matchingImported = importedCommercialAccounts.filter(
+          (a) =>
+            (a.cleaner_name || "").toLowerCase().includes(cleanerNorm) ||
+            (a.schedule_rules || []).some((r: any) => (r.assigned_cleaner_name || "").toLowerCase().includes(cleanerNorm))
+        );
+        for (const imp of matchingImported) {
+          results.push(`"${imp.name}": desvinculada de ${cname} y mantenida activa en el schedule como "${replacement}".`);
+        }
+
+        if (typeof window !== "undefined") {
+          try {
+            const key = "pristine_cleaner_unassignments";
+            const raw = localStorage.getItem(key) || "{}";
+            const unassignments = JSON.parse(raw);
+            unassignments[cleanerNorm] = replacement;
+            if (cleanerNorm.includes("susana")) {
+              unassignments["susana"] = replacement;
+              unassignments["susana bautista"] = replacement;
+            }
+            localStorage.setItem(key, JSON.stringify(unassignments));
+
+            const staffKey = "pristine_deactivated_staff";
+            const rawStaff = localStorage.getItem(staffKey) || "[]";
+            const staffList = JSON.parse(rawStaff);
+            if (!staffList.includes(cleanerNorm)) staffList.push(cleanerNorm);
+            localStorage.setItem(staffKey, JSON.stringify(staffList));
+          } catch {}
+        }
+
+        results.push(`Baja procesada para ${cname} (efectiva: ${smod.effectiveDate || "31 de agosto"}). Todas sus cuentas se mantienen en el schedule pendientes de reasignación.`);
+      } else if (smod.action === "add") {
+        if (supabase) {
+          try {
+            await supabase.from("staff_members").insert({
+              name: cname,
+              role: smod.role || "cleaner",
+              active: true,
+              status: "active",
+            });
+            results.push(`Personal añadido: ${cname} (${smod.role || "cleaner"})`);
+          } catch {}
+        }
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    }
+
+    return {
+      success: true,
+      message: results.length > 0 ? results.join("\n") : "Modificaciones de personal aplicadas con éxito.",
+    };
+  } catch (err: any) {
+    console.error("Error applying staff modifications:", err);
+    return {
+      success: false,
+      message: `Error al aplicar modificaciones de personal: ${err.message || String(err)}`,
       error: err.message,
     };
   }
