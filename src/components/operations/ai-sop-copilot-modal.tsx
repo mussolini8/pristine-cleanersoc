@@ -199,7 +199,21 @@ export function AiSopCopilotModal({
         }),
       });
 
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        if (res.status === 413) {
+          throw new Error("La solicitud es demasiado grande. Intenta reducir las imágenes o el contenido.");
+        }
+        if (res.status === 504) {
+          throw new Error("El servidor de IA tardó demasiado en responder (Tiempo de espera agotado - 504). Por favor intenta de nuevo.");
+        }
+        if (res.status === 502 || res.status === 503) {
+          throw new Error(`El servicio de IA no está disponible en este momento (${res.status}). Por favor intenta en unos instantes.`);
+        }
+        throw new Error(`Error del servidor (${res.status}). Por favor intenta nuevamente.`);
+      }
 
       if (!res.ok || !data.success) {
         if (data.needsApiKey) {
@@ -229,6 +243,17 @@ export function AiSopCopilotModal({
 
     if (response.sopModifications && response.sopModifications.length > 0 && onApplySopModifications) {
       onApplySopModifications(response.sopModifications);
+    } else if (response.ingestedSchedule && onApplySopModifications) {
+      const is = response.ingestedSchedule;
+      onApplySopModifications([
+        {
+          accountName: is.clientName || is.buildingName,
+          cleanerName: is.assignedCleaner,
+          newHours: is.budgetHours,
+          newDays: is.recurringRule ? [is.recurringRule] : undefined,
+          notes: is.internalNotes || (is.accessInstructions?.accessCode ? `Code: ${is.accessInstructions.accessCode}` : undefined),
+        }
+      ]);
     }
 
     setAppliedSuccess(true);

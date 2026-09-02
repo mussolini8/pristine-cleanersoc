@@ -230,15 +230,21 @@ export function GlobalAiBubble() {
         }),
       });
 
-      // Safely parse JSON — handle non-JSON (e.g. HTML 413 error pages)
+      // Safely parse JSON — handle non-JSON (e.g. HTML 504/413 error pages from edge/server)
       let data: any;
       try {
         data = await res.json();
       } catch {
         if (res.status === 413) {
-          throw new Error("La solicitud es demasiado grande. Intenta con menos imágenes (máximo 5).");
+          throw new Error("La solicitud es demasiado grande. Intenta reducir las imágenes o el contenido.");
         }
-        throw new Error(`Error del servidor (${res.status}). Intenta con menos imágenes.`);
+        if (res.status === 504) {
+          throw new Error("El servidor de IA tardó demasiado en responder (Tiempo de espera agotado - 504). Por favor intenta de nuevo.");
+        }
+        if (res.status === 502 || res.status === 503) {
+          throw new Error(`El servicio de IA no está disponible en este momento (${res.status}). Por favor intenta en unos instantes.`);
+        }
+        throw new Error(`Error del servidor (${res.status}). Por favor intenta nuevamente.`);
       }
 
       if (!res.ok) {

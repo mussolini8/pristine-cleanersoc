@@ -61,7 +61,11 @@ export function commercialRuleMatchesDate(rule: CommercialScheduleRuleRow, dateK
     const diffWeeks = Math.floor(days / 7);
     return diffWeeks % 3 === 0;
   }
-  if (frequency === "monthly") return date.getDate() === anchor.getDate() || date.getDay() === Number(rule.day_of_week);
+  if (frequency === "monthly") {
+    const anchorWeek = Math.floor((anchor.getDate() - 1) / 7);
+    const currentWeek = Math.floor((date.getDate() - 1) / 7);
+    return date.getDate() === anchor.getDate() || (date.getDay() === Number(rule.day_of_week) && currentWeek === anchorWeek);
+  }
   
   // Handle other potential interval frequencies (e.g. custom rule with interval > 1)
   const interval = Number(rule.frequency_interval);

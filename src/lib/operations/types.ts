@@ -166,6 +166,8 @@ export type CommercialAccountRow = {
   cleaner_flat_rate?: number | string | null;
   revenue?: number | string | null;
   cost?: number | string | null;
+  pricing_model?: string | null;
+  supplies_notes?: string | null;
 };
 
 export type CommercialScheduleRuleRow = {

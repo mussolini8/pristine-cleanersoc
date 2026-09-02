@@ -219,6 +219,18 @@ Core Superpowers and Capabilities:
      }]
    - Return summary explaining in clear Spanish what was changed.
 
+10. RECURRING SCHEDULE & FREQUENCY RULES (Modificación de Horarios, Frecuencias y Días):
+   - When the user specifies or updates recurring service patterns (e.g. "Posh pooch, se hace 1 vez al mes, cada lunes, en agosto se hizo el 10 y en sep el 14, seria la tercera semana del mes" or "Cuenta X ahora es quincenal los martes"):
+   - Set intent = "modify_sop"
+   - Set actionType = "modify_schedule"
+   - Return sopModifications with:
+     [{
+       "accountName": "Posh Pooch",
+       "newDays": ["Lunes"],
+       "notes": "Frecuencia mensual: 1 vez al mes, 3ra semana del mes (Lunes). Fechas registradas: Agosto 10, Septiembre 14."
+     }]
+   - Return summary explaining clearly in Spanish the updated recurrence rule and how it applies to the schedule.
+
 Return ONLY a valid JSON object matching this schema:
 {
   "intent": "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query",
@@ -495,15 +507,10 @@ let cachedModels: { models: string[]; timestamp: number } | null = null;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 const FALLBACK_MODELS = [
-  "gemini-3.1-pro-preview",
-  "gemini-2.5-pro-preview",
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
-  "gemini-2.0-flash-001",
-  "gemini-2.0-pro-exp-02-05",
-  "gemini-1.5-flash-latest",
   "gemini-1.5-flash",
-  "gemini-1.5-pro-latest",
+  "gemini-1.5-flash-latest",
   "gemini-1.5-pro",
 ];
 
@@ -516,7 +523,7 @@ async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
   try {
     const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4500);
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
 
     const res = await fetch(listUrl, {
       signal: controller.signal,
@@ -535,21 +542,23 @@ async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
               m.supportedGenerationMethods.includes("generateContent")
           )
           .map((m: any) => m.name.replace(/^models\//, ""))
-          .filter((name: string) => name.toLowerCase().includes("gemini"));
+          .filter((name: string) => {
+            const lower = name.toLowerCase();
+            return lower.includes("gemini") && !lower.includes("embedding") && !lower.includes("aqa") && !lower.includes("imagen");
+          });
 
         if (available.length > 0) {
           const rank = (name: string): number => {
-            if (name.includes("3.1-pro")) return 1;
-            if (name.includes("2.5-pro")) return 2;
-            if (name.includes("2.0-flash-lite")) return 3;
-            if (name.includes("2.0-flash")) return 4;
-            if (name.includes("2.0-pro")) return 5;
-            if (name.includes("1.5-flash")) return 6;
-            if (name.includes("1.5-pro")) return 7;
-            return 8;
+            const lower = name.toLowerCase();
+            if (lower === "gemini-2.0-flash" || lower === "gemini-2.5-flash") return 1;
+            if (lower.includes("2.0-flash-lite") || lower.includes("flash-lite")) return 2;
+            if (lower.includes("1.5-flash")) return 3;
+            if (lower.includes("2.0-pro") || lower.includes("2.5-pro")) return 4;
+            if (lower.includes("1.5-pro")) return 5;
+            return 10;
           };
 
-          const sorted = [...available].sort((a, b) => rank(a) - rank(b));
+          const sorted = [...available].sort((a, b) => rank(a) - rank(b)).slice(0, 3);
           cachedModels = { models: sorted, timestamp: now };
           return sorted;
         }
@@ -580,7 +589,8 @@ export async function callGeminiSopCopilot({
     );
   }
 
-  const candidateModels = await getAvailableGeminiModels(resolvedKey);
+  const rawCandidateModels = await getAvailableGeminiModels(resolvedKey);
+  const candidateModels = rawCandidateModels.slice(0, 3);
 
   const imageParts = images.map((img) => ({
     inlineData: {
@@ -616,11 +626,16 @@ export async function callGeminiSopCopilot({
         },
       };
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
       const response = await fetch(url, {
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const result = await response.json();
@@ -630,9 +645,8 @@ export async function callGeminiSopCopilot({
         }
       }
 
-      // If status 400, model might not support systemInstruction or responseMimeType in this API version
-      // Attempt 2: Fallback within the same model with merged instruction in user prompt
-      if (response.status === 400 || response.status === 404) {
+      // If status 400 (e.g. systemInstruction or responseMimeType not supported on older model endpoint)
+      if (response.status === 400) {
         const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${resolvedKey}`;
         const fallbackBody = {
           contents: [
@@ -651,11 +665,16 @@ export async function callGeminiSopCopilot({
           },
         };
 
+        const fbController = new AbortController();
+        const fbTimeoutId = setTimeout(() => fbController.abort(), 12000);
+
         const fallbackResponse = await fetch(fallbackUrl, {
+          signal: fbController.signal,
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(fallbackBody),
         });
+        clearTimeout(fbTimeoutId);
 
         if (fallbackResponse.ok) {
           const fallbackResult = await fallbackResponse.json();
@@ -681,5 +700,5 @@ export async function callGeminiSopCopilot({
   }
 
   const lastErr = errorsLogged[errorsLogged.length - 1] || "Error desconocido al contactar los modelos.";
-  throw new Error(`No se pudo conectar con los modelos de Gemini disponibles. Último detalle: ${lastErr}`);
+  throw new Error(`No se pudo conectar con los modelos de Gemini disponibles. Detalle: ${lastErr}`);
 }

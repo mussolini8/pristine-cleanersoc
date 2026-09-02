@@ -3227,7 +3227,36 @@ export function SimpleOperationsClient({
         isOpen={isCopilotOpen}
         onClose={() => setIsCopilotOpen(false)}
         onApplySopModifications={(mods) => {
-          setMessage({ tone: "success", text: `Se procesaron ${mods.length} modificaciones operativas con Gemini.` });
+          let updatedCount = 0;
+          setCommercialAccounts((prev) => {
+            return prev.map((acc) => {
+              const match = mods.find((m) => m.accountName && (acc.name.toLowerCase().includes(m.accountName.toLowerCase().trim()) || m.accountName.toLowerCase().includes(acc.name.toLowerCase().trim())));
+              if (!match) return acc;
+              updatedCount++;
+              return {
+                ...acc,
+                hours: match.newHours !== undefined ? match.newHours : acc.hours,
+                cleaner_name: match.cleanerName || acc.cleaner_name,
+                revenue: match.newPricing !== undefined ? match.newPricing : acc.revenue,
+                cost: match.newCleanerCost !== undefined ? match.newCleanerCost : acc.cost,
+                supplies_notes: match.notes ? `${acc.supplies_notes ? `${acc.supplies_notes}; ` : ""}${match.notes}` : acc.supplies_notes,
+              };
+            });
+          });
+
+          setAccounts((prev) => {
+            return prev.map((acc) => {
+              const match = mods.find((m) => m.accountName && (acc.account_name.toLowerCase().includes(m.accountName.toLowerCase().trim()) || m.accountName.toLowerCase().includes(acc.account_name.toLowerCase().trim())));
+              if (!match) return acc;
+              return {
+                ...acc,
+                scheduled_hours: match.newHours !== undefined ? match.newHours : acc.scheduled_hours,
+                assigned_team_name: match.cleanerName || acc.assigned_team_name,
+              };
+            });
+          });
+
+          setMessage({ tone: "success", text: `Modificaciones del SOP aplicadas exitosamente (${mods.length} cambios procesados).` });
         }}
       />
     </DashboardShell>
