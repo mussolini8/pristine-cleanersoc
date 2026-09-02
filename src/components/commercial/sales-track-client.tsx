@@ -23,6 +23,11 @@ import {
   ListOrdered,
   ArrowUpRight,
   ShieldCheck,
+  Home,
+  Briefcase,
+  Layers,
+  Scale,
+  CheckCircle2,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { Button } from "@/components/ui/button";
@@ -46,14 +51,16 @@ import {
   calculateExecutiveKpis,
   calculateTargetModels,
   computeBookingFormulas,
+  isCommercialBooking,
 } from "@/lib/sales-tracker/calculator";
 import { initialSalesTrackerBookings } from "@/lib/sales-tracker/seed-data";
 import { augustSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-august-2026";
 
 export function SalesTrackClient() {
-  const [selectedPeriod, setSelectedPeriod] = useState<"september_2026" | "august_2026" | "july_2026">("september_2026");
+  const [selectedPeriod, setSelectedPeriod] = useState<"september_2026" | "august_2026" | "july_2026">("august_2026");
   const [currentMonthBookings, setCurrentMonthBookings] = useState<ServiceBookingRow[]>([]);
-  const [activeTab, setActiveTab] = useState<"dash" | "table" | "target" | "ledger">("dash");
+  const [scopeFilter, setScopeFilter] = useState<"all" | "residential" | "commercial">("all");
+  const [activeTab, setActiveTab] = useState<"dash" | "table" | "target" | "comparison" | "ledger">("dash");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
@@ -91,11 +98,27 @@ export function SalesTrackClient() {
     setCurrentMonthBookings([]);
   }, []);
 
-  const bookings = useMemo(() => {
+  const rawPeriodBookings = useMemo(() => {
     if (selectedPeriod === "july_2026") return initialSalesTrackerBookings;
     if (selectedPeriod === "august_2026") return augustSalesTrackerBookings;
     return currentMonthBookings;
   }, [selectedPeriod, currentMonthBookings]);
+
+  // Split into Residential vs Commercial
+  const residentialBookings = useMemo(() => {
+    return rawPeriodBookings.filter((b) => !isCommercialBooking(b));
+  }, [rawPeriodBookings]);
+
+  const commercialBookings = useMemo(() => {
+    return rawPeriodBookings.filter((b) => isCommercialBooking(b));
+  }, [rawPeriodBookings]);
+
+  // Bookings subjected to current scope filter
+  const scopedBookings = useMemo(() => {
+    if (scopeFilter === "residential") return residentialBookings;
+    if (scopeFilter === "commercial") return commercialBookings;
+    return rawPeriodBookings;
+  }, [scopeFilter, residentialBookings, commercialBookings, rawPeriodBookings]);
 
   const saveCurrentBookings = (newBookings: ServiceBookingRow[]) => {
     setCurrentMonthBookings(newBookings);
@@ -168,13 +191,18 @@ export function SalesTrackClient() {
     saveCurrentBookings(currentMonthBookings.filter((b) => b.id !== id));
   };
 
-  // Calculations
-  const kpis: ExecutiveKpis = useMemo(() => calculateExecutiveKpis(bookings), [bookings]);
-  const breakdowns: CategoryPerformance[] = useMemo(() => calculateCategoryBreakdown(bookings), [bookings]);
-  const targets: TargetRateModel[] = useMemo(() => calculateTargetModels(bookings), [bookings]);
+  // Calculations for active scope
+  const kpis: ExecutiveKpis = useMemo(() => calculateExecutiveKpis(scopedBookings), [scopedBookings]);
+  const breakdowns: CategoryPerformance[] = useMemo(() => calculateCategoryBreakdown(scopedBookings), [scopedBookings]);
+  const targets: TargetRateModel[] = useMemo(() => calculateTargetModels(scopedBookings), [scopedBookings]);
+
+  // Overall Global Stats for side comparison & top banner
+  const totalKpis: ExecutiveKpis = useMemo(() => calculateExecutiveKpis(rawPeriodBookings), [rawPeriodBookings]);
+  const resKpis: ExecutiveKpis = useMemo(() => calculateExecutiveKpis(residentialBookings), [residentialBookings]);
+  const commKpis: ExecutiveKpis = useMemo(() => calculateExecutiveKpis(commercialBookings), [commercialBookings]);
 
   const filteredBookings = useMemo(() => {
-    return bookings.filter((b) => {
+    return scopedBookings.filter((b) => {
       const matchSearch =
         search === "" ||
         b.clientName.toLowerCase().includes(search.toLowerCase()) ||
@@ -189,7 +217,7 @@ export function SalesTrackClient() {
 
       return matchSearch && matchCategory;
     });
-  }, [bookings, search, categoryFilter]);
+  }, [scopedBookings, search, categoryFilter]);
 
   const periodLabel =
     selectedPeriod === "september_2026"
@@ -202,18 +230,20 @@ export function SalesTrackClient() {
     selectedPeriod === "september_2026"
       ? "Septiembre 2026 (Mes Actual)"
       : selectedPeriod === "august_2026"
-      ? "Agosto 2026 (Cerrado)"
-      : "Julio 2026 (Histórico / Demo)";
+      ? "Agosto 2026 (Cerrado - $37.5k)"
+      : "Julio 2026 (Histórico / Demo - $34.2k)";
 
   const handleExportXLSX = () => {
-    exportComprehensiveTrackerToXLSX(`${periodLabel}-Income-Labor-Sales-Tracker`, bookings);
+    const scopeTag = scopeFilter === "all" ? "Unificado" : scopeFilter === "residential" ? "Residencial" : "Comercial";
+    exportComprehensiveTrackerToXLSX(`${periodLabel}-${scopeTag}-Income-Labor-Sales-Tracker`, scopedBookings);
   };
 
   const handleExportPDF = () => {
+    const scopeTag = scopeFilter === "all" ? "Consolidado Unificado" : scopeFilter === "residential" ? "Solo Residencial (Booking Koala)" : "Solo Comercial (Cuentas)";
     exportComprehensiveTrackerToPDF(
-      `${periodLabel}-Income-Labor-Sales-Tracker`,
-      bookings,
-      `Income, Labor & Sales Tracker Executive Report (${periodTitle})`
+      `${periodLabel}-${scopeFilter}-Income-Labor-Sales-Tracker`,
+      scopedBookings,
+      `Income, Labor & Sales Tracker (${periodTitle} - ${scopeTag})`
     );
   };
 
@@ -238,9 +268,9 @@ export function SalesTrackClient() {
                   onChange={(e) => setSelectedPeriod(e.target.value as any)}
                   className="bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
                 >
+                  <option value="august_2026">Agosto 2026 (Cerrado - $37.5k: 62 BK + 16 Comerciales)</option>
                   <option value="september_2026">Septiembre 2026 (Mes Actual en Vivo)</option>
-                  <option value="august_2026">Agosto 2026 (Cerrado / Histórico - 62 jobs)</option>
-                  <option value="july_2026">Julio 2026 (Histórico / Plantilla Demo)</option>
+                  <option value="july_2026">Julio 2026 (Histórico / Plantilla Demo - $34.2k)</option>
                 </select>
               </div>
             </div>
@@ -248,11 +278,11 @@ export function SalesTrackClient() {
               Income, Labor & Sales Tracker
             </h1>
             <p className="text-sm text-muted-foreground">
-              {selectedPeriod === "september_2026"
+              {selectedPeriod === "august_2026"
+                ? "Agosto 2026 completo ($37,532.58): 62 limpiezas Booking Koala ($23.2k) y 16 contratos comerciales activos ($14.3k)."
+                : selectedPeriod === "september_2026"
                 ? "Mes actual en curso. Listo para registrar y procesar citas y contratos en tiempo real."
-                : selectedPeriod === "august_2026"
-                ? "Mostrando datos históricos cerrados del mes de Agosto 2026 (62 servicios registrados)."
-                : "Mostrando datos históricos cerrados del mes de Julio 2026."}
+                : "Mostrando datos históricos de Julio 2026 ($34,252.70)."}
             </p>
           </div>
 
@@ -294,6 +324,157 @@ export function SalesTrackClient() {
           </div>
         </div>
 
+        {/* SUMMARY COMPARISON MINI-PANEL */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div
+            onClick={() => setScopeFilter("residential")}
+            className={`cursor-pointer rounded-2xl border p-4.5 transition-all shadow-sm ${
+              scopeFilter === "residential"
+                ? "border-blue-500 bg-blue-500/10 ring-2 ring-blue-500/20"
+                : "border-border/70 bg-card hover:border-blue-500/50"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                  <Home className="size-4" />
+                </div>
+                <span className="text-xs font-bold text-foreground">Residencial (Booking Koala)</span>
+              </div>
+              <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-600 dark:text-blue-400">
+                {residentialBookings.length} servicios
+              </Badge>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-xl font-black text-foreground">
+                ${resKpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-xs font-bold text-emerald-600">
+                {resKpis.totalGrossProfitPct.toFixed(1)}% margen
+              </span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Labor: ${resKpis.totalGrossCost.toLocaleString()}</span>
+              <span>Profit: ${resKpis.totalGrossProfit.toLocaleString()}</span>
+            </div>
+          </div>
+
+          <div
+            onClick={() => setScopeFilter("commercial")}
+            className={`cursor-pointer rounded-2xl border p-4.5 transition-all shadow-sm ${
+              scopeFilter === "commercial"
+                ? "border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20"
+                : "border-border/70 bg-card hover:border-emerald-500/50"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                  <Building2 className="size-4" />
+                </div>
+                <span className="text-xs font-bold text-foreground">Comercial (Contratos)</span>
+              </div>
+              <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
+                {commercialBookings.length} cuentas
+              </Badge>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-xl font-black text-foreground">
+                ${commKpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-xs font-bold text-emerald-600">
+                {commKpis.totalGrossProfitPct.toFixed(1)}% margen
+              </span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Labor: ${commKpis.totalGrossCost.toLocaleString()}</span>
+              <span>Profit: ${commKpis.totalGrossProfit.toLocaleString()}</span>
+            </div>
+          </div>
+
+          <div
+            onClick={() => setScopeFilter("all")}
+            className={`cursor-pointer rounded-2xl border p-4.5 transition-all shadow-sm ${
+              scopeFilter === "all"
+                ? "border-primary bg-primary/10 ring-2 ring-primary/20"
+                : "border-border/70 bg-card hover:border-primary/50"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                  <Layers className="size-4" />
+                </div>
+                <span className="text-xs font-bold text-foreground">Total Unificado (Consolidado)</span>
+              </div>
+              <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">
+                {rawPeriodBookings.length} total
+              </Badge>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-xl font-black text-primary">
+                ${totalKpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-xs font-bold text-emerald-600">
+                {totalKpis.totalGrossProfitPct.toFixed(1)}% margen
+              </span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Labor: ${totalKpis.totalGrossCost.toLocaleString()}</span>
+              <span>Ganancia Total: ${totalKpis.totalGrossProfit.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* SCOPE FILTER PILLS */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-card p-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+              <Filter className="size-3.5" /> Ámbito Activo:
+            </span>
+            <div className="flex items-center gap-1.5 bg-muted/50 p-1 rounded-lg">
+              <button
+                onClick={() => setScopeFilter("all")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
+                  scopeFilter === "all"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Layers className="size-3.5 text-primary" />
+                Todas / Unificado ({rawPeriodBookings.length})
+              </button>
+              <button
+                onClick={() => setScopeFilter("residential")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
+                  scopeFilter === "residential"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Home className="size-3.5 text-blue-500" />
+                Residencial Booking Koala ({residentialBookings.length})
+              </button>
+              <button
+                onClick={() => setScopeFilter("commercial")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
+                  scopeFilter === "commercial"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Building2 className="size-3.5 text-emerald-500" />
+                Comercial Contratos ({commercialBookings.length})
+              </button>
+            </div>
+          </div>
+
+          <div className="text-xs font-medium text-muted-foreground">
+            Visualizando <span className="font-bold text-foreground">{scopedBookings.length}</span> registros en{" "}
+            <span className="font-bold text-foreground capitalize">{scopeFilter}</span>
+          </div>
+        </div>
+
         {/* View Tabs */}
         <div className="flex items-center gap-2 border-b border-border/80 pb-3 overflow-x-auto">
           <button
@@ -330,6 +511,17 @@ export function SalesTrackClient() {
             Target (Rate Modeling)
           </button>
           <button
+            onClick={() => setActiveTab("comparison")}
+            className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition-all ${
+              activeTab === "comparison"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <Scale className="size-3.5" />
+            ⚖️ Residencial vs Comercial
+          </button>
+          <button
             onClick={() => setActiveTab("ledger")}
             className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition-all ${
               activeTab === "ledger"
@@ -338,7 +530,7 @@ export function SalesTrackClient() {
             }`}
           >
             <ListOrdered className="size-3.5" />
-            Master Ledger (Mon / Bookings)
+            Master Ledger (Detalle de Citas & Contratos)
           </button>
         </div>
 
@@ -351,7 +543,7 @@ export function SalesTrackClient() {
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Total Revenue
+                      Total Revenue ({scopeFilter})
                     </span>
                     <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                       <DollarSign className="size-4" />
@@ -363,7 +555,7 @@ export function SalesTrackClient() {
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground font-medium">
-                    {kpis.totalBookings} servicios registrados
+                    {kpis.totalBookings} servicios / contratos en este ámbito
                   </p>
                 </CardContent>
               </Card>
@@ -387,7 +579,7 @@ export function SalesTrackClient() {
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground font-medium">
-                    Margen global de la empresa
+                    Margen de beneficio neto operativo
                   </p>
                 </CardContent>
               </Card>
@@ -411,7 +603,7 @@ export function SalesTrackClient() {
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground font-medium">
-                    {kpis.totalRecurringBookings} suscripciones recurrentes
+                    {kpis.totalRecurringBookings} servicios recurrentes
                   </p>
                 </CardContent>
               </Card>
@@ -441,11 +633,11 @@ export function SalesTrackClient() {
             {/* Secondary Operational Metrics */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
-                <span className="text-[11px] font-bold uppercase text-muted-foreground">Avg. Revenue Per Clean</span>
+                <span className="text-[11px] font-bold uppercase text-muted-foreground">Avg. Revenue Per Clean/Acc</span>
                 <p className="mt-2 text-xl font-bold text-foreground">${kpis.avgRevenuePerClean.toFixed(2)}</p>
               </div>
               <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
-                <span className="text-[11px] font-bold uppercase text-muted-foreground">Avg. Profit Per Booking</span>
+                <span className="text-[11px] font-bold uppercase text-muted-foreground">Avg. Profit Per Clean/Acc</span>
                 <p className="mt-2 text-xl font-bold text-emerald-600 dark:text-emerald-400">${kpis.avgGrossProfitPerBooking.toFixed(2)}</p>
               </div>
               <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
@@ -462,7 +654,7 @@ export function SalesTrackClient() {
             <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-sm">
               <div className="flex items-center gap-2 text-base font-bold text-foreground mb-4">
                 <ShieldCheck className="size-5 text-primary" />
-                Resumen Ejecutivo y Salud Financiera ({periodTitle})
+                Resumen Ejecutivo ({periodTitle} — Ámbito: {scopeFilter.toUpperCase()})
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                 <div className="rounded-xl bg-muted/40 p-4 space-y-1">
@@ -480,7 +672,7 @@ export function SalesTrackClient() {
                     {kpis.recurringRevenuePct.toFixed(1)}% MRR
                   </div>
                   <p className="text-muted-foreground">
-                    ${kpis.mrr.toLocaleString()} provienen de clientes con frecuencia regular semanal, quincenal o comercial.
+                    ${kpis.mrr.toLocaleString()} provienen de clientes con frecuencia regular semanal, quincenal o mensual.
                   </p>
                 </div>
                 <div className="rounded-xl bg-muted/40 p-4 space-y-1">
@@ -516,7 +708,7 @@ export function SalesTrackClient() {
                   <thead className="border-b border-border/80 bg-muted/70 text-muted-foreground font-semibold">
                     <tr>
                       <th className="px-4 py-3">Tipo de Servicio</th>
-                      <th className="px-3 py-3 text-center">Jobs</th>
+                      <th className="px-3 py-3 text-center">Jobs/Cuentas</th>
                       <th className="px-3 py-3 text-right">Total Horas</th>
                       <th className="px-3 py-3 text-right">Prom. Horas</th>
                       <th className="px-4 py-3 text-right">Ingreso Total</th>
@@ -534,6 +726,7 @@ export function SalesTrackClient() {
                       const isAll = row.category === "All";
                       const isAllRecur = row.category === "All Recurring";
                       const isAllOnce = row.category === "All One-Time";
+                      const isComm = row.category === "Commercial Cleaning";
 
                       return (
                         <tr
@@ -543,10 +736,13 @@ export function SalesTrackClient() {
                               ? "bg-primary/5 font-black text-foreground"
                               : isAllRecur || isAllOnce
                               ? "bg-muted/20 font-bold"
+                              : isComm
+                              ? "bg-emerald-500/5 font-bold"
                               : ""
                           }`}
                         >
-                          <td className="px-4 py-3 font-semibold text-foreground">
+                          <td className="px-4 py-3 font-semibold text-foreground flex items-center gap-1.5">
+                            {isComm && <Building2 className="size-3.5 text-emerald-600" />}
                             {row.category}
                           </td>
                           <td className="px-3 py-3 text-center text-muted-foreground">{row.totalBookings}</td>
@@ -637,176 +833,190 @@ export function SalesTrackClient() {
               </div>
             </div>
 
-            {/* Revenue & Earnings Summary (Recurring, On-Time, Other) */}
+            {/* Dynamic Revenue Share Breakdown Cards */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden">
-                <div className="p-3.5 border-b border-border/80 bg-muted/40 flex items-center justify-between">
-                  <h4 className="font-bold text-xs text-foreground uppercase tracking-wider">
-                    Revenue & Earnings Summary (Grupos de Rendimiento)
-                  </h4>
-                </div>
-
-                <div className="overflow-x-auto text-xs">
-                  <table className="w-full text-left">
-                    <thead className="border-b border-border bg-muted/60 text-muted-foreground text-[11px] font-semibold">
-                      <tr>
-                        <th className="px-3 py-2">Grupo / Servicio</th>
-                        <th className="px-3 py-2 text-right">Revenue</th>
-                        <th className="px-3 py-2 text-right">Actual Profit %</th>
-                        <th className="px-3 py-2 text-right">Gross Earnings</th>
-                        <th className="px-3 py-2 text-right font-bold text-blue-600 dark:text-blue-400">Target Earnings (71.67%)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60">
-                      {/* GROUP 1: RECURRING (RESIDENCIAL) */}
-                      <tr className="bg-muted/20 font-bold">
-                        <td colSpan={5} className="px-3 py-1.5 text-primary text-[11px] uppercase tracking-wider">
-                          1. Recurring (Residencial)
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6">Monthly</td>
-                        <td className="px-3 py-2 text-right font-medium">$435.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">56.32%</td>
-                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$245.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$311.75</td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6">Triweekly</td>
-                        <td className="px-3 py-2 text-right font-medium">$225.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">46.67%</td>
-                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$105.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$161.25</td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6">Biweekly</td>
-                        <td className="px-3 py-2 text-right font-medium">$3,327.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">49.71%</td>
-                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$1,673.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$2,384.35</td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6">Weekly</td>
-                        <td className="px-3 py-2 text-right font-medium">$2,276.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">48.33%</td>
-                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$1,176.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$1,631.13</td>
-                      </tr>
-                      <tr className="bg-primary/5 font-black">
-                        <td className="px-3 py-2 text-foreground">TOTAL RECURRING</td>
-                        <td className="px-3 py-2 text-right">$6,263.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">51.08%</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">$3,199.00</td>
-                        <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">$4,488.48</td>
-                      </tr>
-
-                      {/* GROUP 2: ON-TIME (RESIDENCIAL EVENTUAL) */}
-                      <tr className="bg-muted/20 font-bold">
-                        <td colSpan={5} className="px-3 py-1.5 text-primary text-[11px] uppercase tracking-wider">
-                          2. On-Time / Eventual (Residencial)
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6">Deep Clean</td>
-                        <td className="px-3 py-2 text-right font-medium">$4,494.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">59.95%</td>
-                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$2,694.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$3,220.70</td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6">Move In/Out</td>
-                        <td className="px-3 py-2 text-right font-medium">$5,619.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">57.60%</td>
-                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$3,204.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$4,026.95</td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6">Standard Clean</td>
-                        <td className="px-3 py-2 text-right font-medium">$6,858.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">49.71%</td>
-                        <td className="px-3 py-2 text-right font-bold text-emerald-600">$3,409.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$4,914.90</td>
-                      </tr>
-                      <tr className="bg-primary/5 font-black">
-                        <td className="px-3 py-2 text-foreground">TOTAL ON-TIME</td>
-                        <td className="px-3 py-2 text-right">$16,971.00</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">54.84%</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">$9,307.00</td>
-                        <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">$12,162.55</td>
-                      </tr>
-
-                      {/* GROUP 3: OTHER (COMERCIAL & AIRBNB) */}
-                      <tr className="bg-muted/20 font-bold">
-                        <td colSpan={5} className="px-3 py-1.5 text-primary text-[11px] uppercase tracking-wider">
-                          3. Other (Comercial & Airbnb)
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6">Airbnb</td>
-                        <td className="px-3 py-2 text-right font-medium">$0.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">—</td>
-                        <td className="px-3 py-2 text-right font-bold">$0.00</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$0.00</td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 pl-6 font-bold text-foreground">Commercial Cleaning</td>
-                        <td className="px-3 py-2 text-right font-black text-foreground">$45,542.25</td>
-                        <td className="px-3 py-2 text-right text-emerald-600 font-bold">46.96%</td>
-                        <td className="px-3 py-2 text-right font-black text-emerald-600">$21,387.79</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">$32,638.61</td>
-                      </tr>
-                      <tr className="bg-primary/5 font-black">
-                        <td className="px-3 py-2 text-foreground">TOTAL OTHER</td>
-                        <td className="px-3 py-2 text-right">$45,542.25</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">46.96%</td>
-                        <td className="px-3 py-2 text-right text-emerald-600">$21,387.79</td>
-                        <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">$32,638.61</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Performance Revenue Share Breakdown Card */}
               <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden flex flex-col">
                 <div className="p-3.5 border-b border-border/80 bg-muted/40">
                   <h4 className="font-bold text-xs text-foreground uppercase tracking-wider">
-                    Gross Revenue Performance (% de Participación de Ventas)
+                    Revenue & Earnings por Grupos ({periodTitle})
                   </h4>
                 </div>
-                <div className="p-4 flex-1 flex flex-col justify-between space-y-3 text-xs">
-                  <div className="space-y-2">
+                <div className="p-4 space-y-4 text-xs">
+                  {/* Commercial Share */}
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-foreground">Commercial Cleaning (Comercial)</span>
-                      <span className="font-black text-emerald-600">64.4% ($45,542.25)</span>
+                      <span className="font-bold text-foreground flex items-center gap-1.5">
+                        <Building2 className="size-3.5 text-emerald-600" />
+                        Comercial (Contratos)
+                      </span>
+                      <span className="font-black text-emerald-600">
+                        ${commKpis.totalRevenue.toLocaleString()} ({totalKpis.totalRevenue > 0 ? ((commKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
+                      </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                      <div className="h-full bg-emerald-600 rounded-full" style={{ width: "64.4%" }} />
+                      <div
+                        className="h-full bg-emerald-600 rounded-full"
+                        style={{ width: `${totalKpis.totalRevenue > 0 ? (commKpis.totalRevenue / totalKpis.totalRevenue) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground">
+                      <span>Margen: {commKpis.totalGrossProfitPct.toFixed(1)}%</span>
+                      <span>Beneficio: ${commKpis.totalGrossProfit.toLocaleString()}</span>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
+                  {/* Residential Share */}
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-foreground">On-Time Residental (Standard, Move, Deep)</span>
-                      <span className="font-black text-teal-600">24.0% ($16,971.00)</span>
+                      <span className="font-bold text-foreground flex items-center gap-1.5">
+                        <Home className="size-3.5 text-blue-600" />
+                        Residencial (Booking Koala)
+                      </span>
+                      <span className="font-black text-blue-600">
+                        ${resKpis.totalRevenue.toLocaleString()} ({totalKpis.totalRevenue > 0 ? ((resKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
+                      </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                      <div className="h-full bg-teal-600 rounded-full" style={{ width: "24.0%" }} />
+                      <div
+                        className="h-full bg-blue-600 rounded-full"
+                        style={{ width: `${totalKpis.totalRevenue > 0 ? (resKpis.totalRevenue / totalKpis.totalRevenue) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground">
+                      <span>Margen: {resKpis.totalGrossProfitPct.toFixed(1)}%</span>
+                      <span>Beneficio: ${resKpis.totalGrossProfit.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm flex flex-col justify-between text-xs">
+                <h4 className="font-bold text-xs text-foreground uppercase tracking-wider mb-2">
+                  Diagnóstico Financiero y Metas
+                </h4>
+                <div className="space-y-3">
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300">
+                    <strong>🏢 Comercial:</strong> Genera la mayor base recurrente mensual ($60.5k / mes) con ingresos constantes garantizados por contratos a largo plazo.
+                  </div>
+                  <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-800 dark:text-blue-300">
+                    <strong>🏠 Residencial:</strong> Ofrece el mayor margen bruto unitario (~53.2%), destacándose servicios como Move In/Out Clean y Deep Clean.
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-border flex justify-between items-center text-[11px] text-muted-foreground">
+                  <span>Margen Global Empresa:</span>
+                  <span className="font-black text-foreground text-sm">{totalKpis.totalGrossProfitPct.toFixed(1)}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: COMPARISON (RESIDENTIAL VS COMMERCIAL SPLIT PANEL) */}
+        {activeTab === "comparison" && (
+          <div className="space-y-6 animate-in fade-in-50 duration-200">
+            <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-sm">
+              <div className="flex items-center gap-2 text-base font-bold text-foreground mb-4">
+                <Scale className="size-5 text-primary" />
+                Panel Comparativo: Residencial (Booking Koala) vs Comercial (Contratos)
+              </div>
+
+              {/* Side-by-Side Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Residential Side */}
+                <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-blue-500/20 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Home className="size-5 text-blue-600" />
+                      <h3 className="font-bold text-base text-foreground">Limpiezas Residenciales</h3>
+                    </div>
+                    <Badge className="bg-blue-600 text-white font-bold">Booking Koala</Badge>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Total Ingresos:</span>
+                      <p className="text-lg font-black text-foreground mt-1">${resKpis.totalRevenue.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Margen Bruto:</span>
+                      <p className="text-lg font-black text-emerald-600 mt-1">{resKpis.totalGrossProfitPct.toFixed(1)}%</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Ganancia Bruta:</span>
+                      <p className="text-lg font-black text-emerald-600 mt-1">${resKpis.totalGrossProfit.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Costo Mano de Obra:</span>
+                      <p className="text-lg font-black text-amber-600 mt-1">${resKpis.totalGrossCost.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Servicios Realizados:</span>
+                      <p className="text-lg font-black text-foreground mt-1">{residentialBookings.length} jobs</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Horas Limpieza:</span>
+                      <p className="text-lg font-black text-foreground mt-1">{resKpis.totalCleanHours.toFixed(1)} hrs</p>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-foreground">Recurring Residential (Weekly, Biweekly, Tri, Month)</span>
-                      <span className="font-black text-blue-600">8.9% ($6,263.00)</span>
+                  <div className="p-3 bg-card rounded-xl border border-border/60 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Promedio por Servicio:</span>
+                      <span className="font-bold text-foreground">${resKpis.avgRevenuePerClean.toFixed(2)}</span>
                     </div>
-                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                      <div className="h-full bg-blue-600 rounded-full" style={{ width: "8.9%" }} />
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Ingreso por Hora:</span>
+                      <span className="font-bold text-foreground">${resKpis.avgRevenuePerCleanHour.toFixed(2)}/hr</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Commercial Side */}
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-emerald-500/20 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="size-5 text-emerald-600" />
+                      <h3 className="font-bold text-base text-foreground">Limpiezas Comerciales</h3>
+                    </div>
+                    <Badge className="bg-emerald-600 text-white font-bold">Cuentas & Contratos</Badge>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Total Ingresos:</span>
+                      <p className="text-lg font-black text-foreground mt-1">${commKpis.totalRevenue.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Margen Bruto:</span>
+                      <p className="text-lg font-black text-emerald-600 mt-1">{commKpis.totalGrossProfitPct.toFixed(1)}%</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Ganancia Bruta:</span>
+                      <p className="text-lg font-black text-emerald-600 mt-1">${commKpis.totalGrossProfit.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Costo Mano de Obra:</span>
+                      <p className="text-lg font-black text-amber-600 mt-1">${commKpis.totalGrossCost.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Cuentas Activas:</span>
+                      <p className="text-lg font-black text-foreground mt-1">{commercialBookings.length} cuentas</p>
+                    </div>
+                    <div className="bg-card p-3 rounded-xl border border-border/60">
+                      <span className="text-muted-foreground">Horas Limpieza:</span>
+                      <p className="text-lg font-black text-foreground mt-1">{commKpis.totalCleanHours.toFixed(1)} hrs</p>
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-muted/40 text-[11px] text-muted-foreground leading-relaxed">
-                    💡 <strong>Resumen Estratégico:</strong> La mayor fuente de ingresos proviene de <strong>Commercial Cleaning</strong> ($45.5k), mientras que <strong>Deep & Move In/Out</strong> ofrecen el mayor margen porcentual individual (~58-60%).
+                  <div className="p-3 bg-card rounded-xl border border-border/60 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Promedio por Cuenta:</span>
+                      <span className="font-bold text-foreground">${commKpis.avgRevenuePerClean.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Ingreso por Hora:</span>
+                      <span className="font-bold text-foreground">${commKpis.avgRevenuePerCleanHour.toFixed(2)}/hr</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -814,7 +1024,7 @@ export function SalesTrackClient() {
           </div>
         )}
 
-        {/* TAB 4: MASTER LEDGER (MON / INDIVIDUAL BOOKINGS) */}
+        {/* TAB 5: MASTER LEDGER (MON / INDIVIDUAL BOOKINGS) */}
         {activeTab === "ledger" && (
           <div className="space-y-4 animate-in fade-in-50 duration-200">
             {/* Filter and Actions Bar */}
@@ -867,6 +1077,7 @@ export function SalesTrackClient() {
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-border/80 bg-muted/60 text-muted-foreground font-semibold">
                     <tr>
+                      <th className="px-3 py-2.5">Tipo</th>
                       <th className="px-3 py-2.5">Fecha</th>
                       <th className="px-4 py-2.5">Cliente</th>
                       <th className="px-3 py-2.5">Servicio</th>
@@ -883,33 +1094,47 @@ export function SalesTrackClient() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
-                    {filteredBookings.map((b) => (
-                      <tr key={b.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-3 py-2.5 text-muted-foreground font-mono">{b.date}</td>
-                        <td className="px-4 py-2.5 font-bold text-foreground">{b.clientName}</td>
-                        <td className="px-3 py-2.5 text-foreground">{b.service}</td>
-                        <td className="px-3 py-2.5 text-muted-foreground">{b.frequency}</td>
-                        <td className="px-3 py-2.5 font-medium text-foreground">{b.cleanerTeam}</td>
-                        <td className="px-3 py-2.5 text-muted-foreground">{b.city}</td>
-                        <td className="px-3 py-2.5 text-right font-bold text-foreground">${b.subTotal.toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right text-amber-600 dark:text-amber-400 font-semibold">${b.teamEarningsWithoutTips.toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right text-muted-foreground">{(b.laborPct * 100).toFixed(0)}%</td>
-                        <td className="px-3 py-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">${b.pcEarnings.toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">{(b.pcProfitPct * 100).toFixed(0)}%</td>
-                        <td className="px-3 py-2.5 text-center font-semibold text-foreground">{b.actualHours}h</td>
-                        {selectedPeriod === "september_2026" && (
-                          <td className="px-3 py-2.5 text-center">
-                            <button
-                              onClick={() => handleDeleteBooking(b.id)}
-                              className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
-                              title="Eliminar registro"
-                            >
-                              <Trash2 className="size-3" />
-                            </button>
+                    {filteredBookings.map((b) => {
+                      const isComm = isCommercialBooking(b);
+                      return (
+                        <tr key={b.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-3 py-2.5">
+                            {isComm ? (
+                              <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                                <Building2 className="size-3" /> Comercial
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-400">
+                                <Home className="size-3" /> Residencial
+                              </span>
+                            )}
                           </td>
-                        )}
-                      </tr>
-                    ))}
+                          <td className="px-3 py-2.5 text-muted-foreground font-mono">{b.date}</td>
+                          <td className="px-4 py-2.5 font-bold text-foreground">{b.clientName}</td>
+                          <td className="px-3 py-2.5 text-foreground">{b.service}</td>
+                          <td className="px-3 py-2.5 text-muted-foreground">{b.frequency}</td>
+                          <td className="px-3 py-2.5 font-medium text-foreground">{b.cleanerTeam}</td>
+                          <td className="px-3 py-2.5 text-muted-foreground">{b.city}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-foreground">${b.subTotal.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-right text-amber-600 dark:text-amber-400 font-semibold">${b.teamEarningsWithoutTips.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-right text-muted-foreground">{(b.laborPct * 100).toFixed(0)}%</td>
+                          <td className="px-3 py-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">${b.pcEarnings.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">{(b.pcProfitPct * 100).toFixed(0)}%</td>
+                          <td className="px-3 py-2.5 text-center font-semibold text-foreground">{b.actualHours}h</td>
+                          {selectedPeriod === "september_2026" && (
+                            <td className="px-3 py-2.5 text-center">
+                              <button
+                                onClick={() => handleDeleteBooking(b.id)}
+                                className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
+                                title="Eliminar registro"
+                              >
+                                <Trash2 className="size-3" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
