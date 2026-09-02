@@ -41,7 +41,7 @@ export type CommercialScheduleRule = {
   end_time?: string | null;
   paid_hours: number;
   assigned_cleaner_name?: string | null;
-  frequency_type?: "weekly" | "biweekly" | "monthly" | "custom" | null;
+  frequency_type?: "weekly" | "biweekly" | "monthly" | "custom" | "every_3_weeks" | "every_15_days" | null;
   frequency_interval?: number | null;
   anchor_date?: string | null;
   active?: boolean | null;

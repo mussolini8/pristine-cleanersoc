@@ -3319,12 +3319,20 @@ export function SimpleOperationsClient({
             color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
           });
           if (acc?.id) matchedAccountIds.add(acc.id);
-          if (accKey) matchedAccountIds.add(accKey);
+          if (acc?.name) {
+            matchedAccountIds.add(acc.name);
+            matchedAccountIds.add(acc.name.toLowerCase().trim());
+          }
+          if (accKey) {
+            matchedAccountIds.add(accKey);
+            matchedAccountIds.add(String(accKey).toLowerCase().trim());
+          }
         }
 
         // B. From importedCommercialAccounts schedule_rules if not already matched
         for (const imp of importedCommercialAccounts) {
-          if (matchedAccountIds.has(imp.id) || matchedAccountIds.has(imp.name)) continue;
+          const impKey = imp.name.toLowerCase().trim();
+          if (matchedAccountIds.has(imp.id) || matchedAccountIds.has(imp.name) || matchedAccountIds.has(impKey)) continue;
           const matchingImpRules = (imp.schedule_rules || []).filter((rule: any) => {
             if (rule.active === false) return false;
             if (Number(rule.day_of_week) !== dayOfWeek) return false;
@@ -3353,6 +3361,7 @@ export function SimpleOperationsClient({
             });
             matchedAccountIds.add(imp.id);
             matchedAccountIds.add(imp.name);
+            matchedAccountIds.add(impKey);
           }
         }
 
@@ -3391,7 +3400,7 @@ export function SimpleOperationsClient({
             title: ev.account_name,
             start: dayKey,
             end: dayKey,
-            summary: `${ev.cleaner_name} · ${ev.hours}h${ev.shift ? ` (${ev.shift})` : ''}`,
+            summary: `${ev.cleaner_name} · ${roundHours(ev.hours)}h${ev.notes ? ` (${ev.notes.split('(')[0].trim()})` : ''}`,
             businessUnit: "commercial",
             color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
           });

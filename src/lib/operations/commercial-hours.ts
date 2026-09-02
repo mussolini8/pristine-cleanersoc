@@ -48,7 +48,18 @@ export function commercialRuleMatchesDate(rule: CommercialScheduleRuleRow, dateK
   const date = parseDateOnly(dateKey);
   if (!date) return false;
   const frequency = commercialRuleFrequency(rule);
-  const anchor = parseDateOnly(rule.anchor_date ?? rule.effective_start_date ?? rule.effective_from ?? dateKey);
+  if (frequency === "weekly") return true;
+
+  const anchorStr = rule.anchor_date ?? rule.effective_start_date ?? rule.effective_from;
+  if (!anchorStr) {
+    if (frequency === "monthly") {
+      const currentWeek = Math.floor((date.getDate() - 1) / 7);
+      return currentWeek === 1; // 2nd week default
+    }
+    return true;
+  }
+
+  const anchor = parseDateOnly(anchorStr);
   if (!anchor) return true;
   const days = Math.floor((date.getTime() - anchor.getTime()) / 86400000);
   if (days < 0) return false;
