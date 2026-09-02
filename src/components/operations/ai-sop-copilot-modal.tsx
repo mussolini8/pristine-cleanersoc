@@ -21,6 +21,11 @@ import {
   DollarSign,
   Mic,
   MicOff,
+  RotateCcw,
+  MessageSquare,
+  Calendar,
+  ShieldAlert,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +41,8 @@ interface AiSopCopilotModalProps {
   onApplyBookings?: (bookings: ServiceBookingRow[]) => void;
   onApplySopModifications?: (modifications: NonNullable<SopCopilotResponse["sopModifications"]>) => void;
   onApplyFullCopilotResponse?: (response: SopCopilotResponse) => Promise<void> | void;
+  onUndoLastAction?: () => Promise<void> | void;
+  canUndo?: boolean;
 }
 
 function compressImage(blob: Blob): Promise<string> {
@@ -87,6 +94,8 @@ export function AiSopCopilotModal({
   onApplyBookings,
   onApplySopModifications,
   onApplyFullCopilotResponse,
+  onUndoLastAction,
+  canUndo,
 }: AiSopCopilotModalProps) {
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
@@ -99,6 +108,8 @@ export function AiSopCopilotModal({
   const [isListening, setIsListening] = useState(false);
   const [speechLang, setSpeechLang] = useState<"es-US" | "en-US">("es-US");
   const [speechSupported, setSpeechSupported] = useState(true);
+  const [isSendingSms, setIsSendingSms] = useState(false);
+  const [smsSentSuccess, setSmsSentSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const [isPending, startTransition] = useTransition();
@@ -308,6 +319,38 @@ export function AiSopCopilotModal({
     }
 
     setAppliedSuccess(true);
+  };
+
+  const handleSendSmsQuo = async () => {
+    if (!response?.dispatchSmsQuo) return;
+    const phone = response.dispatchSmsQuo.cleanerPhone || "949-570-4521";
+    const text = response.dispatchSmsQuo.smsBodyText;
+
+    setIsSendingSms(true);
+    setSmsSentSuccess(null);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/sms/send-quo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: phone,
+          message: text,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Error al enviar SMS por Quo.");
+      }
+
+      setSmsSentSuccess(data.message || `SMS enviado con éxito a ${phone} vía Quo.`);
+    } catch (err: any) {
+      setError(err?.message || "Error al conectar con el servicio de Quo.");
+    } finally {
+      setIsSendingSms(false);
+    }
   };
 
   const handleExportXLSX = () => {
@@ -646,6 +689,150 @@ export function AiSopCopilotModal({
                 </div>
               )}
 
+              {/* Cleaner Absence / Sick Leave Card */}
+              {response.absenceRange && (
+                <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-500/[0.06] p-4 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+                      <Calendar className="size-4 text-amber-600" /> Ausencia / Baja Médica / Vacaciones
+                    </span>
+                    <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-700 dark:text-amber-300 font-bold">
+                      {response.absenceRange.reason || "Baja temporal"}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div>
+                      <span className="text-muted-foreground block text-[10px] uppercase">Cleaner Titular</span>
+                      <strong className="text-foreground">{response.absenceRange.cleanerName}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-[10px] uppercase">Período</span>
+                      <strong className="text-foreground font-mono">{response.absenceRange.startDate} → {response.absenceRange.endDate}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-[10px] uppercase">Sustituto de Relevo</span>
+                      <strong className="text-emerald-600 dark:text-emerald-400">{response.absenceRange.substituteCleaner || "Por Asignar"}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Access Code / Lockbox / Alarm Update Card */}
+              {response.accessUpdate && (
+                <div className="rounded-xl border border-blue-300 dark:border-blue-800 bg-blue-500/[0.06] p-4 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-blue-800 dark:text-blue-200 flex items-center gap-1.5">
+                      <Key className="size-4 text-blue-600" /> Actualización de Códigos de Acceso & Lockbox
+                    </span>
+                    <Badge variant="outline" className="text-[10px] border-blue-400 text-blue-700 dark:text-blue-300 font-bold">
+                      {response.accessUpdate.accountName}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {response.accessUpdate.alarmCode && (
+                      <div className="rounded-lg bg-background p-2 border border-border/50">
+                        <span className="text-muted-foreground block text-[10px] uppercase">Alarma</span>
+                        <strong className="text-foreground font-mono text-sm">{response.accessUpdate.alarmCode}</strong>
+                      </div>
+                    )}
+                    {response.accessUpdate.lockboxCode && (
+                      <div className="rounded-lg bg-background p-2 border border-border/50">
+                        <span className="text-muted-foreground block text-[10px] uppercase">Lockbox</span>
+                        <strong className="text-foreground font-mono text-sm">{response.accessUpdate.lockboxCode}</strong>
+                      </div>
+                    )}
+                    {response.accessUpdate.gateCode && (
+                      <div className="rounded-lg bg-background p-2 border border-border/50">
+                        <span className="text-muted-foreground block text-[10px] uppercase">Portón / Puerta</span>
+                        <strong className="text-foreground font-mono text-sm">{response.accessUpdate.gateCode}</strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Direct Cleaner SMS / Quo Dispatch Card */}
+              {response.dispatchSmsQuo && (
+                <div className="rounded-xl border border-primary/40 bg-primary/[0.04] p-4 text-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="size-4 text-primary" />
+                      <span className="font-bold text-foreground">Despacho de Turno SMS / Quo</span>
+                    </div>
+                    <Badge variant="outline" className="border-primary/40 text-primary font-bold">
+                      {response.dispatchSmsQuo.cleanerName} ({response.dispatchSmsQuo.cleanerPhone || "949-570-4521"})
+                    </Badge>
+                  </div>
+
+                  <div className="rounded-lg border border-border/80 bg-background/80 p-3 font-mono text-[11px] whitespace-pre-wrap leading-relaxed text-foreground">
+                    {response.dispatchSmsQuo.smsBodyText}
+                  </div>
+
+                  {smsSentSuccess && (
+                    <div className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5 text-xs">
+                      <CheckCircle className="size-3.5" /> {smsSentSuccess}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleSendSmsQuo}
+                      disabled={isSendingSms || !!smsSentSuccess}
+                      className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                    >
+                      {isSendingSms ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+                      {smsSentSuccess ? "SMS Enviado vía Quo" : "Enviar SMS Directo vía Quo"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Smart Commercial Quoter & Onboarding Card */}
+              {response.commercialQuote && (
+                <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-500/[0.05] p-4 text-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
+                      <Building2 className="size-4 text-emerald-600" /> Cotización Comercial Calculada
+                    </span>
+                    <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-700 dark:text-emerald-300 font-bold">
+                      {response.commercialQuote.clientName || "Nueva Cuenta"}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                    <div className="rounded-lg bg-background p-2 border border-border/50">
+                      <span className="text-[10px] uppercase text-muted-foreground">Precio Mensual Sugerido</span>
+                      <p className="font-black text-emerald-600 dark:text-emerald-400 text-sm mt-0.5">
+                        ${response.commercialQuote.suggestedMonthlyPrice.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-background p-2 border border-border/50">
+                      <span className="text-[10px] uppercase text-muted-foreground">Horas / Visita</span>
+                      <p className="font-bold text-foreground text-sm mt-0.5">
+                        {response.commercialQuote.estimatedHoursPerVisit}h
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-background p-2 border border-border/50">
+                      <span className="text-[10px] uppercase text-muted-foreground">Costo Cleaner</span>
+                      <p className="font-bold text-amber-600 dark:text-amber-400 text-sm mt-0.5">
+                        ${response.commercialQuote.estimatedCleanerCost.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-background p-2 border border-border/50">
+                      <span className="text-[10px] uppercase text-muted-foreground">Margen Bruto</span>
+                      <p className="font-black text-emerald-600 dark:text-emerald-400 text-sm mt-0.5">
+                        {response.commercialQuote.profitMarginPct.toFixed(1)}%
+                      </p>
+                    </div>
+                  </div>
+                  {response.commercialQuote.reasoning && (
+                    <p className="text-[11px] text-muted-foreground italic border-t border-border/40 pt-2">
+                      {response.commercialQuote.reasoning}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Extracted Bookings (BookingKoala / Residential / Master Ledger) */}
               {response.extractedBookings && response.extractedBookings.length > 0 && (
                 <div className="space-y-2">
@@ -806,6 +993,17 @@ export function AiSopCopilotModal({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {canUndo && onUndoLastAction && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onUndoLastAction}
+                      className="h-8 text-xs gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                    >
+                      <RotateCcw className="size-3.5" />
+                      Deshacer Última Acción
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" onClick={onClose} className="h-8 text-xs">
                     Cerrar
                   </Button>

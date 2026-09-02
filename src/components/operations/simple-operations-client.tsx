@@ -831,6 +831,7 @@ export function SimpleOperationsClient({
   const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [copilotUndoSnapshot, setCopilotUndoSnapshot] = useState<any | null>(null);
   const [message, setMessage] = useState<{ tone: MessageTone; text: string } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -3221,9 +3222,47 @@ export function SimpleOperationsClient({
       <AiSopCopilotModal
         isOpen={isCopilotOpen}
         onClose={() => setIsCopilotOpen(false)}
+        canUndo={Boolean(copilotUndoSnapshot)}
+        onUndoLastAction={async () => {
+          if (!copilotUndoSnapshot) return;
+          try {
+            if (copilotUndoSnapshot.accounts) {
+              for (const acc of copilotUndoSnapshot.accounts) {
+                await supabase.from("commercial_accounts").update({
+                  cleaner_name: acc.cleaner_name,
+                  hours: acc.hours,
+                  revenue: acc.revenue,
+                  cost: acc.cost,
+                  status: acc.status,
+                  supplies_notes: acc.supplies_notes,
+                }).eq("id", acc.id);
+              }
+            }
+            if (copilotUndoSnapshot.staff) {
+              for (const st of copilotUndoSnapshot.staff) {
+                await supabase.from("staff_members").update({
+                  status: st.status,
+                  active: st.active,
+                }).eq("id", st.id);
+              }
+            }
+            setCopilotUndoSnapshot(null);
+            await loadData();
+            setMessage({ tone: "success", text: "Última acción del copiloto deshecha exitosamente." });
+          } catch (err: any) {
+            setMessage({ tone: "error", text: "Error al deshacer: " + (err?.message || "Error desconocido") });
+          }
+        }}
         onApplyFullCopilotResponse={async (copilotResp) => {
           let changesCount = 0;
           const changeMessages: string[] = [];
+
+          // Snapshot para Deshacer (Undo)
+          setCopilotUndoSnapshot({
+            accounts: commercialAccounts.map((a) => ({ ...a })),
+            staff: staff.map((s) => ({ ...s })),
+            timestamp: new Date().toISOString(),
+          });
 
           const parseDayOfWeek = (d: any): number | null => {
             if (typeof d === "number" && d >= 0 && d <= 6) return d;
@@ -3311,7 +3350,7 @@ export function SimpleOperationsClient({
             }
           }
 
-          // 2. Personal / Staff (Altas, Bajas, Desvinculaciones y Reasignaciones)
+          // 2. Personal / Staff (Altas, Bajas, Desvinculaciones y Cascada de Prevención de Huérfanas)
           if (copilotResp.addStaff) {
             const st = copilotResp.addStaff;
             const { error: stErr } = await supabase.from("staff_members").insert({
@@ -3350,9 +3389,33 @@ export function SimpleOperationsClient({
                     .from("commercial_account_schedule_rules")
                     .update({ assigned_cleaner_name: smod.replacementCleaner })
                     .ilike("assigned_cleaner_name", `%${cname}%`);
+                  changesCount++;
+                  changeMessages.push(`Personal desvinculado: ${cname} (Cuentas transferidas a ${smod.replacementCleaner})`);
+                } else {
+                  // Cascada de Prevención de Cuentas Huérfanas
+                  const orphaned = commercialAccounts.filter((a) =>
+                    (a.cleaner_name || "").toLowerCase().includes(cname.toLowerCase())
+                  );
+                  if (orphaned.length > 0) {
+                    for (const oAcc of orphaned) {
+                      await supabase.from("commercial_accounts").update({ cleaner_name: "Unassigned" }).eq("id", oAcc.id);
+                      await supabase.from("commercial_account_schedule_rules").update({ assigned_cleaner_name: "Unassigned" }).eq("commercial_account_id", oAcc.id);
+                      await supabase.from("operation_tasks").insert({
+                        user_id: userId ?? null,
+                        title: `⚠️ URGENTE: Asignar nuevo cleaner para ${oAcc.name} (Baja de ${cname})`,
+                        category: "Operations",
+                        status: "todo",
+                        priority: "high",
+                        due_date: new Date().toISOString().split("T")[0],
+                      });
+                    }
+                    changesCount += orphaned.length;
+                    changeMessages.push(`Personal desvinculado: ${cname}. ${orphaned.length} cuenta(s) marcadas como Sin Asignar con tareas urgentes generadas en SOP.`);
+                  } else {
+                    changesCount++;
+                    changeMessages.push(`Personal desvinculado: ${cname}`);
+                  }
                 }
-                changesCount++;
-                changeMessages.push(`Personal desvinculado: ${cname}${smod.replacementCleaner ? ` (Cuentas transferidas a ${smod.replacementCleaner})` : ''}`);
               } else if (smod.action === "activate") {
                 await supabase
                   .from("staff_members")
@@ -3372,6 +3435,105 @@ export function SimpleOperationsClient({
                 changesCount++;
                 changeMessages.push(`Nuevo personal registrado: ${cname}`);
               }
+            }
+          }
+
+          // 2.1 Ausencias, Bajas Médicas y Vacaciones por Rango de Fechas
+          if (copilotResp.absenceRange) {
+            const ar = copilotResp.absenceRange;
+            const start = new Date(ar.startDate);
+            const end = new Date(ar.endDate);
+            const subCleaner = ar.substituteCleaner || "Por Asignar";
+
+            const matchingRules = commercialScheduleRules.filter((r) =>
+              (r.assigned_cleaner_name || "").toLowerCase().includes(ar.cleanerName.toLowerCase()) && r.active !== false
+            );
+
+            let absTurnos = 0;
+            const cur = new Date(start);
+            while (cur <= end) {
+              const dayOfWeek = cur.getDay();
+              const dayRules = matchingRules.filter((r) => Number(r.day_of_week) === dayOfWeek);
+              const dateStr = cur.toISOString().split("T")[0];
+
+              for (const r of dayRules) {
+                const acc = commercialAccounts.find((a) => a.id === r.commercial_account_id);
+                const hrs = toNumber(r.scheduled_hours) || toNumber(r.paid_hours) || 3;
+                await supabase.from("commercial_hours_entries").insert({
+                  account_id: r.commercial_account_id,
+                  account_name: acc?.name || "Cuenta Comercial",
+                  work_date: dateStr,
+                  team_name: subCleaner,
+                  scheduled_hours: hrs,
+                  completed_hours: hrs,
+                  notes: `Relevo por baja/vacaciones de ${ar.cleanerName}: ${ar.reason || 'Baja temporal'}`,
+                  status: "completed",
+                  business_unit: "commercial",
+                });
+                absTurnos++;
+              }
+              cur.setDate(cur.getDate() + 1);
+            }
+            changesCount += absTurnos;
+            changeMessages.push(`Ausencia de ${ar.cleanerName} registrada: ${absTurnos} turno(s) asignados a ${subCleaner} (${ar.startDate} a ${ar.endDate})`);
+          }
+
+          // 2.2 Actualización de Códigos de Acceso, Alarmas y Lockbox
+          if (copilotResp.accessUpdate) {
+            const au = copilotResp.accessUpdate;
+            const acc = await findOrMaterializeAccount(au.accountName);
+            if (acc) {
+              const parts = [];
+              if (au.alarmCode) parts.push(`Alarma: ${au.alarmCode}`);
+              if (au.lockboxCode) parts.push(`Lockbox: ${au.lockboxCode}`);
+              if (au.gateCode) parts.push(`Portón: ${au.gateCode}`);
+              if (au.keyLocation) parts.push(`Llaves: ${au.keyLocation}`);
+              if (au.otherNotes) parts.push(au.otherNotes);
+              const combined = parts.join("; ");
+
+              const prevNotes = acc.supplies_notes ? `${acc.supplies_notes} | ` : "";
+              await supabase.from("commercial_accounts").update({
+                supplies_notes: `${prevNotes}${combined}`,
+              }).eq("id", acc.id);
+              changesCount++;
+              changeMessages.push(`Códigos de acceso actualizados para ${acc.name}: ${combined}`);
+            }
+          }
+
+          // 2.3 Cotizador Comercial Inteligente & Alta Directa en Sistema
+          if (copilotResp.commercialQuote?.shouldOnboard && copilotResp.commercialQuote.clientName) {
+            const cq = copilotResp.commercialQuote;
+            const { data: newAcc, error: nErr } = await supabase
+              .from("commercial_accounts")
+              .insert({
+                name: cq.clientName,
+                city: cq.city || "Orange County",
+                hours: cq.estimatedHoursPerVisit || 3,
+                revenue: cq.suggestedMonthlyPrice || 0,
+                cost: cq.estimatedCleanerCost || 0,
+                status: "proposal",
+                supplies_notes: cq.reasoning || null,
+              })
+              .select()
+              .single();
+
+            if (!nErr && newAcc) {
+              const days = (cq.scheduledDays || ["lunes", "miércoles", "viernes"]).map(parseDayOfWeek).filter((d): d is number => d !== null);
+              if (days.length > 0) {
+                const rules = days.map((d) => ({
+                  commercial_account_id: newAcc.id,
+                  day_of_week: d,
+                  paid_hours: cq.estimatedHoursPerVisit || 3,
+                  scheduled_hours: cq.estimatedHoursPerVisit || 3,
+                  assigned_cleaner_name: "Unassigned",
+                  active: true,
+                  frequency_type: "weekly",
+                  frequency_interval: 1,
+                }));
+                await supabase.from("commercial_account_schedule_rules").insert(rules);
+              }
+              changesCount++;
+              changeMessages.push(`Nueva cuenta comercial dada de alta como propuesta: ${cq.clientName} ($${cq.suggestedMonthlyPrice}/mes)`);
             }
           }
 

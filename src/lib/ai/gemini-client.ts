@@ -68,6 +68,23 @@ export type SopCopilotResponse = {
     notes?: string;
   }[];
 
+  absenceRange?: {
+    cleanerName: string;
+    startDate: string; // YYYY-MM-DD
+    endDate: string; // YYYY-MM-DD
+    substituteCleaner?: string;
+    reason?: string;
+  };
+
+  accessUpdate?: {
+    accountName: string;
+    alarmCode?: string;
+    lockboxCode?: string;
+    gateCode?: string;
+    keyLocation?: string;
+    otherNotes?: string;
+  };
+
   scheduleConflictWarning?: {
     hasConflict: boolean;
     warningMessage: string;
@@ -87,6 +104,8 @@ export type SopCopilotResponse = {
     estimatedCleanerCost: number;
     profitMarginPct: number;
     reasoning: string;
+    shouldOnboard?: boolean;
+    scheduledDays?: string[];
   };
 
   dispatchSmsQuo?: {
@@ -271,12 +290,34 @@ Core Superpowers and Capabilities:
    - Set actionType = "dispatch_sms_quo"
    - Draft a polite, complete SMS/Quo message including address, time, access code, tasks, and checkout photo reminder.
 
-9. SMART COMMERCIAL QUOTER (Cotizador Inteligente):
+9. SMART COMMERCIAL QUOTER & 1-CLICK ONBOARDING (Cotizador Inteligente y Alta Directa):
    - When asked to quote or price an office/commercial space (e.g. "Oficina de 4,000 sq ft en Newport Beach, 3 veces por semana, 4 baños"):
    - Set actionType = "quote_commercial"
    - Standard benchmarks: 1,200-1,500 sq ft/hr for general office; $45-$55/hr billing rate; cleaner pay $18-$22/hr.
+   - If the user asks to create or save it ("y créala en el sistema", "dame de alta esta cuenta", "regístrala"):
+     Set shouldOnboard = true and scheduledDays = ["lunes", "miércoles", "viernes"] (or specified days).
 
-10. INGEST SCHEDULE FROM IMAGE (Ingresar Schedule desde Captura de Pantalla):
+10. ABSENCES, SICK LEAVE & VACATIONS (Bajas Médicas, Faltas y Vacaciones por Rango de Fechas):
+   - When a cleaner is sick, on leave, or on vacation (e.g. "Luz está enferma del 3 al 7 de septiembre, que la cubra Sandra"):
+   - Populate absenceRange:
+     {
+       "cleanerName": "Luz Uribe",
+       "startDate": "2026-09-03",
+       "endDate": "2026-09-07",
+       "substituteCleaner": "Sandra Hernandez",
+       "reason": "Baja médica / Enfermedad"
+     }
+
+11. ACCESS CODE, ALARM & LOCKBOX UPDATES (Actualización de Códigos de Acceso, Alarmas y Lockbox):
+   - When access details change (e.g. "Cambiaron el código de alarma de MOXI3 a 9988 y el lockbox a 4321"):
+   - Populate accessUpdate:
+     {
+       "accountName": "MOXI3 Costa Mesa",
+       "alarmCode": "9988",
+       "lockboxCode": "4321"
+     }
+
+12. INGEST SCHEDULE FROM IMAGE (Ingresar Schedule desde Captura de Pantalla):
    - When the user uploads a screenshot of CleanGuru, BookingKoala, or any cleaning management system:
    - Set actionType = "ingest_schedule"
    - Extract ALL visible fields: clientName, buildingName, address, city, frequency, recurringRule, startDate, scheduledTime, endTime, budgetHours, assignedCleaner, template, category.
@@ -509,6 +550,8 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
   const occurrenceOverrides = extractSubArray(cleaned, "occurrenceOverrides");
   const addStaff = extractSubObject(cleaned, "addStaff");
   const staffModifications = extractSubArray(cleaned, "staffModifications");
+  const absenceRange = extractSubObject(cleaned, "absenceRange");
+  const accessUpdate = extractSubObject(cleaned, "accessUpdate");
   const commercialQuote = extractSubObject(cleaned, "commercialQuote");
   const dispatchSmsQuo = extractSubObject(cleaned, "dispatchSmsQuo");
   const cleanerAudit = extractSubObject(cleaned, "cleanerAudit");
@@ -524,6 +567,8 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
     occurrenceOverrides ||
     addStaff ||
     staffModifications ||
+    absenceRange ||
+    accessUpdate ||
     commercialQuote ||
     dispatchSmsQuo ||
     cleanerAudit ||
@@ -542,6 +587,8 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
       occurrenceOverrides: occurrenceOverrides || undefined,
       addStaff: addStaff || undefined,
       staffModifications: staffModifications || undefined,
+      absenceRange: absenceRange || undefined,
+      accessUpdate: accessUpdate || undefined,
       commercialQuote: commercialQuote || undefined,
       dispatchSmsQuo: dispatchSmsQuo || undefined,
       cleanerAudit: cleanerAudit || undefined,
