@@ -768,3 +768,268 @@ export async function applyStaffModificationsAction(
     };
   }
 }
+
+/**
+ * Apply Event Bookings for As-Needed or Single Event Commercial Accounts (e.g. The Harper, Weddings)
+ */
+export async function applyEventBookingsAction(
+  events: NonNullable<SopCopilotResponse["eventBookings"]>
+): Promise<SopActionResult> {
+  try {
+    const supabase = createClient();
+    if (!events || events.length === 0) {
+      return { success: false, message: "No hay eventos para registrar." };
+    }
+
+    const { data: accounts } = await supabase
+      .from("commercial_accounts")
+      .select("id, name");
+
+    let count = 0;
+    const insertedDates: string[] = [];
+
+    for (const evt of events) {
+      const match = (accounts || []).find((a: any) =>
+        a.name.toLowerCase().includes(evt.accountName.toLowerCase().trim()) ||
+        evt.accountName.toLowerCase().includes(a.name.toLowerCase().trim())
+      );
+
+      const accountId = match?.id || null;
+      const accountName = match?.name || evt.accountName;
+
+      const { error } = await supabase
+        .from("commercial_hours_entries")
+        .upsert(
+          {
+            account_id: accountId,
+            account_name: accountName,
+            work_date: evt.date,
+            team_name: evt.cleanerName || "Unassigned",
+            scheduled_hours: evt.hours || 5,
+            completed_hours: evt.hours || 5,
+            verified_hours: evt.hours || 5,
+            status: "completed",
+            verified: true,
+            manual_entry: true,
+            notes: evt.notes || `Evento registrado por Copiloto IA (${evt.cleanerName || "Sin asignar"})`,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "account_id,work_date" }
+        );
+
+      if (!error) {
+        count++;
+        insertedDates.push(`${accountName} (${evt.date})`);
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    }
+
+    return {
+      success: true,
+      message: `Se registraron ${count} evento(s) de limpieza exitosamente:\n${insertedDates.join(", ")}`,
+      data: { count, events },
+    };
+  } catch (err: any) {
+    return { success: false, message: `Error al registrar eventos: ${err.message}` };
+  }
+}
+
+/**
+ * Apply Batch QC Inspection Schedules to qc_inspection_schedules
+ */
+export async function applyQcScheduleBatchAction(
+  schedules: NonNullable<SopCopilotResponse["qcScheduleBatch"]>
+): Promise<SopActionResult> {
+  try {
+    const supabase = createClient();
+    if (!schedules || schedules.length === 0) {
+      return { success: false, message: "No hay inspecciones de QC para programar." };
+    }
+
+    const { data: existingInspectors } = await supabase
+      .from("qc_inspectors")
+      .select("*");
+
+    let count = 0;
+    const details: string[] = [];
+
+    for (const item of schedules) {
+      const normInsp = item.inspectorName.toLowerCase().trim();
+      let inspector = (existingInspectors || []).find((i: any) =>
+        i.name.toLowerCase().includes(normInsp) || normInsp.includes(i.name.toLowerCase())
+      );
+
+      if (!inspector) {
+        const isAna = normInsp.includes("ana");
+        const { data: newInsp } = await supabase
+          .from("qc_inspectors")
+          .insert({
+            name: item.inspectorName,
+            email: `${normInsp.replace(/[^a-z0-9]+/g, ".")}@pristine.local`,
+            color: isAna ? "#6366f1" : "#10b981",
+            status: "active",
+            notes: "Creado por Copiloto IA",
+          })
+          .select()
+          .single();
+        if (newInsp) inspector = newInsp;
+      }
+
+      const inspectorId = inspector?.id;
+      if (!inspectorId) continue;
+
+      await supabase
+        .from("qc_inspection_schedules")
+        .delete()
+        .eq("account_name", item.accountName)
+        .eq("specific_date", item.date);
+
+      const { error } = await supabase.from("qc_inspection_schedules").insert({
+        inspector_id: inspectorId,
+        account_name: item.accountName,
+        frequency_type: "one_off",
+        specific_date: item.date,
+        scheduled_time: item.time || "10:00:00",
+        duration_minutes: item.durationMinutes || 60,
+        notes: item.notes || `${item.accountName} QC`,
+        active: true,
+      });
+
+      if (!error) {
+        count++;
+        details.push(`${item.accountName} [${item.date} ${item.time || ""}] → ${inspector.name}`);
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    }
+
+    return {
+      success: true,
+      message: `Se programaron ${count} inspecciones de Control de Calidad exitosamente:\n${details.join("\n")}`,
+      data: { count },
+    };
+  } catch (err: any) {
+    return { success: false, message: `Error al programar inspecciones de QC: ${err.message}` };
+  }
+}
+
+/**
+ * Deduplicate and Clean Staff Directory in Database
+ */
+export async function applyCleanupStaffDuplicatesAction(
+  options?: NonNullable<SopCopilotResponse["cleanupStaffDuplicates"]>
+): Promise<SopActionResult> {
+  try {
+    const supabase = createClient();
+    const { data: staff, error } = await supabase
+      .from("staff_members")
+      .select("*")
+      .order("name");
+
+    if (error || !staff) {
+      return { success: false, message: `No se pudo leer el personal: ${error?.message}` };
+    }
+
+    const excluded = (options?.excludedCleaners || []).map((e) => e.toLowerCase().trim());
+    let deletedCount = 0;
+
+    for (const s of staff) {
+      const norm = s.name.trim().toLowerCase();
+      if (excluded.some((ex) => norm.includes(ex)) || norm.includes("john ivanpal")) {
+        await supabase.from("staff_members").delete().eq("id", s.id);
+        deletedCount++;
+      }
+    }
+
+    const byName = new Map<string, any[]>();
+    for (const s of staff) {
+      const norm = s.name.trim().toLowerCase();
+      if (norm.includes("john ivanpal") || excluded.some((ex) => norm.includes(ex))) continue;
+      if (!byName.has(norm)) byName.set(norm, []);
+      byName.get(norm)!.push(s);
+    }
+
+    for (const [, rows] of byName.entries()) {
+      if (rows.length > 1) {
+        rows.sort((a, b) => {
+          const aScore = (a.active ? 10 : 0) + (a.notes?.includes("Tel") ? 20 : 0) + (a.team_scope === "mixed" ? 5 : 0);
+          const bScore = (b.active ? 10 : 0) + (b.notes?.includes("Tel") ? 20 : 0) + (b.team_scope === "mixed" ? 5 : 0);
+          return bScore - aScore;
+        });
+        const dups = rows.slice(1);
+        for (const dup of dups) {
+          const { error: delErr } = await supabase.from("staff_members").delete().eq("id", dup.id);
+          if (!delErr) deletedCount++;
+        }
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    }
+
+    return {
+      success: true,
+      message: `Limpieza de personal completada. Se eliminaron ${deletedCount} registros duplicados o no requeridos.`,
+      data: { deletedCount },
+    };
+  } catch (err: any) {
+    return { success: false, message: `Error en la limpieza de personal: ${err.message}` };
+  }
+}
+
+/**
+ * Update Commercial Account Financials and Pricing Models
+ */
+export async function applyUpdateAccountFinancialsAction(
+  updates: NonNullable<SopCopilotResponse["updateAccountFinancials"]>
+): Promise<SopActionResult> {
+  try {
+    const supabase = createClient();
+    if (!updates || updates.length === 0) {
+      return { success: false, message: "No hay finanzas para actualizar." };
+    }
+
+    let updatedCount = 0;
+    const messages: string[] = [];
+
+    for (const upd of updates) {
+      const payload: any = { updated_at: new Date().toISOString() };
+      if (upd.revenue !== undefined) payload.revenue = upd.revenue;
+      if (upd.cost !== undefined) payload.cost = upd.cost;
+      if (upd.pricingModel) payload.pricing_model = upd.pricingModel;
+      if (upd.cleanerPayType) payload.cleaner_pay_type = upd.cleanerPayType;
+      if (upd.cleanerRate !== undefined) payload.cleaner_hourly_rate = upd.cleanerRate;
+      if (upd.frequency) payload.frequency = upd.frequency;
+
+      const { data, error } = await supabase
+        .from("commercial_accounts")
+        .update(payload)
+        .ilike("name", `%${upd.accountName}%`)
+        .select("name, revenue, cost, pricing_model");
+
+      if (!error && data && data.length > 0) {
+        updatedCount++;
+        messages.push(`${data[0].name}: Rev $${data[0].revenue}, Costo $${data[0].cost} (${data[0].pricing_model})`);
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    }
+
+    return {
+      success: true,
+      message: `Finanzas actualizadas para ${updatedCount} cuenta(s):\n${messages.join("\n")}`,
+      data: { updatedCount },
+    };
+  } catch (err: any) {
+    return { success: false, message: `Error al actualizar finanzas: ${err.message}` };
+  }
+}
+

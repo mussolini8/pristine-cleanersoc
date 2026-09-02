@@ -186,6 +186,54 @@ export type SopCopilotResponse = {
     status?: "todo" | "in_progress" | "completed";
   }[];
 
+  /**
+   * Event Bookings for As-Needed or Single Event Commercial Accounts (The Harper, Weddings, One-Offs)
+   */
+  eventBookings?: {
+    accountName: string;
+    date: string; // YYYY-MM-DD
+    startTime?: string;
+    endTime?: string;
+    hours: number;
+    cleanerName?: string;
+    revenue?: number;
+    cleanerPay?: number;
+    notes?: string;
+  }[];
+
+  /**
+   * Batch QC Inspection Schedules (Quality Control)
+   */
+  qcScheduleBatch?: {
+    accountName: string;
+    date: string; // YYYY-MM-DD
+    time?: string; // HH:MM:SS or HH:MM AM/PM
+    inspectorName: string;
+    durationMinutes?: number;
+    notes?: string;
+  }[];
+
+  /**
+   * Cleaner / Staff Deduplication and Database Maintenance
+   */
+  cleanupStaffDuplicates?: {
+    enabled: boolean;
+    excludedCleaners?: string[];
+  };
+
+  /**
+   * Real-time Commercial Account Financial and Pricing Updates
+   */
+  updateAccountFinancials?: {
+    accountName: string;
+    revenue?: number;
+    cost?: number;
+    pricingModel?: string; // "Flat Rate", "per Service", "Hourly"
+    cleanerPayType?: "flat" | "hourly";
+    cleanerRate?: number;
+    frequency?: string;
+  }[];
+
   extractedBookings?: ServiceBookingRow[];
   extractedSalesTrack?: SalesTrackItem[];
   appliedExplanation?: string;
@@ -373,8 +421,6 @@ Core Superpowers and Capabilities:
        "accountName": "MOXI3 Costa Mesa",
        "alarmCode": "9988",
        "lockboxCode": "4321"
-     }
-
 12. INGEST SCHEDULE FROM IMAGE (Ingresar Schedule desde Captura de Pantalla):
    - When the user uploads a screenshot of CleanGuru, BookingKoala, or any cleaning management system:
    - Set actionType = "ingest_schedule"
@@ -382,10 +428,26 @@ Core Superpowers and Capabilities:
    - Parse the "Internal" and "Instructions" sections carefully to populate accessInstructions (suite, floor, elevator, parking, buildingType, accessCode, otherNotes) and internalNotes.
    - budgetHours = hours + (minutes / 60), e.g., "2 hrs 30 min" → 2.5. and how it applies to the schedule.
 
+13. EVENT BOOKINGS & AS-NEEDED COMMERCIAL CLEANINGS (Eventos Únicos, Bodas y As-Needed):
+   - When the user wants to add one or more single event cleaning dates (e.g. "añade un evento a The Harper el 15 de agosto de 12am a 7am con Juan Romero, cobra $230 y paga $90", or wedding dates from a list or capture):
+   - Populate eventBookings with the exact account, dates, hours, and cleaner.
+
+14. QC INSPECTIONS BATCH SCHEDULING (Inspecciones de Control de Calidad por Lotes):
+   - When the user uploads a QC calendar screenshot or gives a list of QC inspections for a month (e.g. "este es el schedule para los qc de septiembre, Ana primero y María las que tienen más qc"):
+   - Extract account names, dates, times, and assign the appropriate inspector (Ana M. or Maria L.) into qcScheduleBatch.
+
+15. CLEANUP STAFF DUPLICATES (Mantenimiento y Deduplicación de Limpiadores):
+   - When the user asks to remove duplicate employees, fix double staff, or remove unneeded cleaners (e.g. "no quiero doble empleado, limpia los duplicados", "elimina a john ivanpal"):
+   - Populate cleanupStaffDuplicates with enabled = true and any excluded cleaner names.
+
+16. UPDATE COMMERCIAL ACCOUNT FINANCIALS (Actualizar Precios, Costos y Modelo de Cobro):
+   - When pricing, cleaner pay, or pricing model changes for any account (e.g. "Cornerstone ahora es $2,850 al mes y costo $1,943.50 flat rate"):
+   - Populate updateAccountFinancials with the exact new revenue, cost, and pricing model.
+
 Return ONLY a valid JSON object matching this schema:
 {
   "intent": "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query",
-  "actionType": "occurrence_override" | "add_staff" | "modify_schedule" | "quote_commercial" | "dispatch_sms_quo" | "cleaner_audit" | "booking_ingest" | "ingest_schedule" | "general_query",
+  "actionType": "occurrence_override" | "add_staff" | "modify_schedule" | "quote_commercial" | "dispatch_sms_quo" | "cleaner_audit" | "booking_ingest" | "ingest_schedule" | "event_booking" | "qc_schedule" | "cleanup_staff" | "update_financials" | "general_query",
   "summary": "Clear Spanish summary explaining what action was identified and what is proposed.",
   "ingestedSchedule": {
     "clientName": "string",

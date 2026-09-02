@@ -23,6 +23,7 @@ import {
   Check,
   Building2,
   Calendar,
+  ClipboardCheck,
   ShieldCheck,
   ChevronDown,
   ChevronUp,
@@ -40,10 +41,26 @@ import {
   applyIngestScheduleAction,
   applySopModificationsAction,
   applyStaffModificationsAction,
+  applyEventBookingsAction,
+  applyQcScheduleBatchAction,
+  applyCleanupStaffDuplicatesAction,
+  applyUpdateAccountFinancialsAction,
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
 
 const QUICK_PROMPTS = [
+  {
+    label: "📅 Evento / Boda",
+    text: "Añade un evento a The Harper el 15 de agosto de 12am a 7am con Juan Romero.",
+  },
+  {
+    label: "🔍 Agenda de QC",
+    text: "Programa las inspecciones de control de calidad para Ana y María.",
+  },
+  {
+    label: "🧹 Limpiar Personal",
+    text: "Deduplica el personal en la base de datos y deja sólo empleados únicos ordenados.",
+  },
   {
     label: "🔄 Turno / Reemplazo",
     text: "Field AI el 22 de agosto se realizó con el equipo de Susana y Verónica con 2.5 hrs.",
@@ -385,6 +402,70 @@ export function GlobalAiBubble() {
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("pristine:data-updated"));
         }
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
+    }
+  };
+
+  const handleApplyEventBookings = async () => {
+    if (!response?.eventBookings) return;
+    setExecutingAction("event_bookings");
+    try {
+      const res = await applyEventBookingsAction(response.eventBookings);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, event_bookings: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
+    }
+  };
+
+  const handleApplyQcScheduleBatch = async () => {
+    if (!response?.qcScheduleBatch) return;
+    setExecutingAction("qc_schedule");
+    try {
+      const res = await applyQcScheduleBatchAction(response.qcScheduleBatch);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, qc_schedule: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
+    }
+  };
+
+  const handleApplyCleanupStaff = async () => {
+    if (!response?.cleanupStaffDuplicates) return;
+    setExecutingAction("cleanup_staff");
+    try {
+      const res = await applyCleanupStaffDuplicatesAction(response.cleanupStaffDuplicates);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, cleanup_staff: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
+    }
+  };
+
+  const handleApplyFinancials = async () => {
+    if (!response?.updateAccountFinancials) return;
+    setExecutingAction("update_financials");
+    try {
+      const res = await applyUpdateAccountFinancialsAction(response.updateAccountFinancials);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, update_financials: true }));
       } else {
         setError(res.message);
       }
@@ -1269,6 +1350,205 @@ export function GlobalAiBubble() {
                         ) : (
                           <>
                             <CheckCircle className="size-3.5" /> Confirmar & Aplicar en Personal
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* ACTION: Event Bookings (The Harper, Weddings, As-Needed) */}
+                  {response.eventBookings && response.eventBookings.length > 0 && (
+                    <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                          <Calendar className="size-3.5 text-primary" /> Eventos Comerciales / As-Needed
+                        </span>
+                        <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
+                          {response.eventBookings.length} {response.eventBookings.length === 1 ? "evento" : "eventos"}
+                        </Badge>
+                      </div>
+                      <div className="space-y-1.5">
+                        {response.eventBookings.map((evt, idx) => (
+                          <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
+                            <div>
+                              <strong className="text-foreground">{evt.accountName}</strong>
+                              <p className="text-muted-foreground text-[10px]">
+                                {evt.date} · {evt.hours}h {evt.cleanerName ? `(${evt.cleanerName})` : ""}
+                              </p>
+                            </div>
+                            {evt.revenue && (
+                              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                                +${evt.revenue}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={handleApplyEventBookings}
+                        disabled={executingAction === "event_bookings" || savedActions.event_bookings}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.event_bookings
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
+                      >
+                        {executingAction === "event_bookings" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Registrando eventos...
+                          </>
+                        ) : savedActions.event_bookings ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Eventos Guardados en Calendario!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Registrar Eventos en el Calendario
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* ACTION: QC Schedule Batch */}
+                  {response.qcScheduleBatch && response.qcScheduleBatch.length > 0 && (
+                    <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                          <ClipboardCheck className="size-3.5 text-primary" /> Inspecciones de Control de Calidad (QC)
+                        </span>
+                        <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
+                          {response.qcScheduleBatch.length} {response.qcScheduleBatch.length === 1 ? "inspección" : "inspecciones"}
+                        </Badge>
+                      </div>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 no-scrollbar">
+                        {response.qcScheduleBatch.map((qc, idx) => (
+                          <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
+                            <div>
+                              <strong className="text-foreground">{qc.accountName}</strong>
+                              <p className="text-muted-foreground text-[10px]">
+                                {qc.date} {qc.time ? `a las ${qc.time}` : ""}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className="text-[10px] bg-primary/5 text-primary border-primary/20">
+                              {qc.inspectorName}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={handleApplyQcScheduleBatch}
+                        disabled={executingAction === "qc_schedule" || savedActions.qc_schedule}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.qc_schedule
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
+                      >
+                        {executingAction === "qc_schedule" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Programando QC...
+                          </>
+                        ) : savedActions.qc_schedule ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Inspecciones de QC Programadas!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Programar Inspecciones de QC
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* ACTION: Cleanup Staff Duplicates */}
+                  {response.cleanupStaffDuplicates?.enabled && (
+                    <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                          <Users className="size-3.5 text-primary" /> Limpieza de Personal y Deduplicación
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Se identificaron empleados duplicados o no requeridos. Al aplicar, se fusionarán y eliminarán los duplicados dejando perfiles únicos y limpios.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={handleApplyCleanupStaff}
+                        disabled={executingAction === "cleanup_staff" || savedActions.cleanup_staff}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.cleanup_staff
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
+                      >
+                        {executingAction === "cleanup_staff" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Limpiando personal...
+                          </>
+                        ) : savedActions.cleanup_staff ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Personal Limpio y Único!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Limpiar y Deduplicar Personal
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* ACTION: Update Account Financials */}
+                  {response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
+                    <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                          <DollarSign className="size-3.5 text-primary" /> Actualización de Precios y Finanzas
+                        </span>
+                        <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
+                          {response.updateAccountFinancials.length} {response.updateAccountFinancials.length === 1 ? "cuenta" : "cuentas"}
+                        </Badge>
+                      </div>
+                      <div className="space-y-1.5">
+                        {response.updateAccountFinancials.map((fin, idx) => (
+                          <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
+                            <div>
+                              <strong className="text-foreground">{fin.accountName}</strong>
+                              <p className="text-muted-foreground text-[10px]">
+                                {fin.pricingModel || "Tarifa"} · Costo: ${fin.cost || 0}
+                              </p>
+                            </div>
+                            <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                              ${fin.revenue || 0}/mes
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={handleApplyFinancials}
+                        disabled={executingAction === "update_financials" || savedActions.update_financials}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.update_financials
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
+                      >
+                        {executingAction === "update_financials" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Guardando finanzas...
+                          </>
+                        ) : savedActions.update_financials ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Finanzas Actualizadas!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Actualizar Precios y Finanzas
                           </>
                         )}
                       </Button>
