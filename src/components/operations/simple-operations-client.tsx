@@ -44,6 +44,7 @@ import { exportRows, exportWorkbook, exportCleanerGridReport } from "@/lib/expor
 import { ResidentialImportsPanel } from "./residential-imports-panel";
 
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
+import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
 import { importedCommercialAccounts, importedCommercialEventEntries } from "@/lib/commercial-accounts-data";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
@@ -3220,13 +3221,310 @@ export function SimpleOperationsClient({
       <AiSopCopilotModal
         isOpen={isCopilotOpen}
         onClose={() => setIsCopilotOpen(false)}
+        onApplyFullCopilotResponse={async (copilotResp) => {
+          let changesCount = 0;
+          const changeMessages: string[] = [];
+
+          const parseDayOfWeek = (d: any): number | null => {
+            if (typeof d === "number" && d >= 0 && d <= 6) return d;
+            const str = String(d).toLowerCase().trim();
+            if (str.includes("domingo") || str.includes("sun")) return 0;
+            if (str.includes("lunes") || str.includes("mon")) return 1;
+            if (str.includes("martes") || str.includes("tue")) return 2;
+            if (str.includes("miércoles") || str.includes("miercoles") || str.includes("wed")) return 3;
+            if (str.includes("jueves") || str.includes("thu")) return 4;
+            if (str.includes("viernes") || str.includes("fri")) return 5;
+            if (str.includes("sábado") || str.includes("sabado") || str.includes("sat")) return 6;
+            const num = parseInt(str, 10);
+            return isNaN(num) || num < 0 || num > 6 ? null : num;
+          };
+
+          const findOrMaterializeAccount = async (targetName: string): Promise<any | null> => {
+            const norm = targetName.toLowerCase().trim();
+            let existing = commercialAccounts.find((a: any) =>
+              a.name.toLowerCase().trim() === norm ||
+              a.name.toLowerCase().includes(norm) ||
+              norm.includes(a.name.toLowerCase().trim())
+            );
+            if (existing) return existing;
+
+            const imp = importedCommercialAccounts.find((a: any) =>
+              a.name.toLowerCase().trim() === norm ||
+              a.name.toLowerCase().includes(norm) ||
+              norm.includes(a.name.toLowerCase().trim())
+            );
+
+            if (imp) {
+              const { data: inserted, error } = await supabase
+                .from("commercial_accounts")
+                .insert({
+                  name: imp.name,
+                  address: (imp as any).address ?? null,
+                  city: imp.city ?? null,
+                  cleaner_name: imp.cleaner_name ?? null,
+                  hours: toNumber(imp.hours) || 0,
+                  revenue: imp.revenue ?? 0,
+                  cost: imp.cost ?? 0,
+                  supplies_notes: imp.supplies_notes ?? null,
+                  status: "active",
+                  cleaner_pay_type: (imp as any).cleaner_pay_type ?? "hourly",
+                  cleaner_hourly_rate: (imp as any).cleaner_hourly_rate ?? 18,
+                  cleaner_flat_rate: (imp as any).cleaner_flat_rate ?? null,
+                })
+                .select()
+                .single();
+
+              if (!error && inserted) {
+                return inserted;
+              }
+            }
+            return null;
+          };
+
+          // 1. Ocurrencia / Reemplazo puntual en fecha específica
+          if (copilotResp.occurrenceOverride) {
+            const ov = copilotResp.occurrenceOverride;
+            const acc = await findOrMaterializeAccount(ov.accountName);
+            const { error: ovErr } = await supabase
+              .from("commercial_hours_entries")
+              .insert({
+                account_id: acc?.id ?? null,
+                account_name: ov.accountName,
+                work_date: ov.date,
+                team_name: ov.cleanerTeam,
+                scheduled_hours: ov.hours,
+                completed_hours: ov.hours,
+                notes: ov.notes ?? "Reemplazo de turno vía Copiloto IA",
+                status: "completed",
+                business_unit: "commercial",
+              });
+            if (!ovErr) {
+              changesCount++;
+              changeMessages.push(`Reemplazo registrado: ${ov.accountName} el ${ov.date} (${ov.cleanerTeam} · ${ov.hours}h)`);
+            }
+          }
+
+          // 2. Personal / Staff
+          if (copilotResp.addStaff) {
+            const st = copilotResp.addStaff;
+            const { error: stErr } = await supabase.from("staff_members").insert({
+              user_id: userId ?? null,
+              name: st.name,
+              role: st.role === "cleaner" ? "Commercial Cleaner" : st.role,
+              display_role: st.role === "cleaner" ? "Commercial Cleaner" : st.role,
+              phone: st.phone ?? null,
+              email: st.email ?? `${st.name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}@pristine.local`,
+              status: "Active",
+              active: true,
+            });
+            if (!stErr) {
+              changesCount++;
+              changeMessages.push(`Nuevo personal registrado: ${st.name}`);
+            }
+          }
+
+          // 3. Ingestar schedule desde captura
+          if (copilotResp.ingestedSchedule) {
+            const is = copilotResp.ingestedSchedule;
+            const clientName = is.clientName || is.buildingName || "Nueva Cuenta Comercial";
+            let acc = await findOrMaterializeAccount(clientName);
+            if (!acc) {
+              const { data: newAcc } = await supabase
+                .from("commercial_accounts")
+                .insert({
+                  name: clientName,
+                  address: is.address ?? null,
+                  city: is.city ?? null,
+                  cleaner_name: is.assignedCleaner ?? null,
+                  hours: is.budgetHours ?? 0,
+                  status: "active",
+                  supplies_notes: is.internalNotes ?? (is.accessInstructions?.accessCode ? `Código: ${is.accessInstructions.accessCode}` : null),
+                })
+                .select()
+                .single();
+              if (newAcc) acc = newAcc;
+            }
+
+            if (acc?.id) {
+              const ruleText = (is.recurringRule || "").toLowerCase();
+              const detectedDays: number[] = [];
+              if (ruleText.includes("sun") || ruleText.includes("domingo")) detectedDays.push(0);
+              if (ruleText.includes("mon") || ruleText.includes("lunes")) detectedDays.push(1);
+              if (ruleText.includes("tue") || ruleText.includes("martes")) detectedDays.push(2);
+              if (ruleText.includes("wed") || ruleText.includes("miércoles") || ruleText.includes("miercoles")) detectedDays.push(3);
+              if (ruleText.includes("thu") || ruleText.includes("jueves")) detectedDays.push(4);
+              if (ruleText.includes("fri") || ruleText.includes("viernes")) detectedDays.push(5);
+              if (ruleText.includes("sat") || ruleText.includes("sábado") || ruleText.includes("sabado")) detectedDays.push(6);
+
+              if (detectedDays.length > 0) {
+                await supabase.from("commercial_account_schedule_rules").delete().eq("commercial_account_id", acc.id);
+                const rulesToInsert = detectedDays.map((d) => ({
+                  commercial_account_id: acc.id,
+                  day_of_week: d,
+                  paid_hours: is.budgetHours ?? 0,
+                  scheduled_hours: is.budgetHours ?? 0,
+                  assigned_cleaner_name: is.assignedCleaner ?? null,
+                  active: true,
+                  frequency_type: "weekly",
+                  frequency_interval: 1,
+                  start_time: is.scheduledTime ?? null,
+                  end_time: is.endTime ?? null,
+                  notes: is.internalNotes ?? null,
+                }));
+                await supabase.from("commercial_account_schedule_rules").insert(rulesToInsert);
+              }
+              changesCount++;
+              changeMessages.push(`Cuenta y schedule ingresados: ${clientName} (${is.budgetHours ?? 0}h · ${is.assignedCleaner ?? 'Sin asignar'})`);
+            }
+          }
+
+          // 4. Modificaciones Operativas / SOP (Eliminar, Modificar, Mover, Reagendar, Cambiar Equipo)
+          if (copilotResp.sopModifications && copilotResp.sopModifications.length > 0) {
+            for (const mod of copilotResp.sopModifications) {
+              if (!mod.accountName) continue;
+              const acc = await findOrMaterializeAccount(mod.accountName);
+              if (!acc) continue;
+
+              // A. ELIMINAR / DESACTIVAR CUENTA
+              if (mod.action === "delete_account" || mod.status === "inactive" || mod.status === "cancelled") {
+                await supabase.from("commercial_accounts").update({ status: "inactive" }).eq("id", acc.id);
+                await supabase.from("commercial_account_schedule_rules").update({ active: false }).eq("commercial_account_id", acc.id);
+                changesCount++;
+                changeMessages.push(`Cuenta eliminada/desactivada: ${acc.name}`);
+                continue;
+              }
+
+              // B. ELIMINAR REGLA DE UN DÍA ESPECÍFICO
+              if (mod.action === "delete_rule" && mod.daysToDelete?.length) {
+                for (const d of mod.daysToDelete) {
+                  const parsed = parseDayOfWeek(d);
+                  if (parsed !== null) {
+                    await supabase
+                      .from("commercial_account_schedule_rules")
+                      .delete()
+                      .eq("commercial_account_id", acc.id)
+                      .eq("day_of_week", parsed);
+                  }
+                }
+                changesCount++;
+                changeMessages.push(`Regla eliminada para ${acc.name}`);
+                continue;
+              }
+
+              // C. MOVER / REAGENDAR DÍAS
+              if ((mod.action === "reschedule" || mod.newDays?.length) && mod.newDays && mod.newDays.length > 0) {
+                const parsedDays = mod.newDays.map(parseDayOfWeek).filter((d): d is number => d !== null);
+                if (parsedDays.length > 0) {
+                  await supabase.from("commercial_account_schedule_rules").delete().eq("commercial_account_id", acc.id);
+                  const cleaner = mod.cleanerName || acc.cleaner_name;
+                  const hours = mod.newHours !== undefined ? mod.newHours : (acc.hours || 0);
+                  const newRules = parsedDays.map((d) => ({
+                    commercial_account_id: acc.id,
+                    day_of_week: d,
+                    paid_hours: hours,
+                    scheduled_hours: hours,
+                    assigned_cleaner_name: cleaner,
+                    active: true,
+                    frequency_type: "weekly",
+                    frequency_interval: 1,
+                    notes: mod.notes ?? null,
+                  }));
+                  await supabase.from("commercial_account_schedule_rules").insert(newRules);
+                }
+              }
+
+              // D. CAMBIAR EQUIPO / LIMPIADOR
+              if (mod.cleanerName) {
+                await supabase.from("commercial_accounts").update({ cleaner_name: mod.cleanerName }).eq("id", acc.id);
+                await supabase
+                  .from("commercial_account_schedule_rules")
+                  .update({ assigned_cleaner_name: mod.cleanerName })
+                  .eq("commercial_account_id", acc.id);
+              }
+
+              // E. MODIFICAR HORAS / PRECIO / NOTAS
+              const accountUpdates: Record<string, any> = {};
+              if (mod.newHours !== undefined) {
+                accountUpdates.hours = mod.newHours;
+                await supabase
+                  .from("commercial_account_schedule_rules")
+                  .update({ paid_hours: mod.newHours, scheduled_hours: mod.newHours })
+                  .eq("commercial_account_id", acc.id);
+              }
+              if (mod.newPricing !== undefined) accountUpdates.revenue = mod.newPricing;
+              if (mod.newCleanerCost !== undefined) accountUpdates.cost = mod.newCleanerCost;
+              if (mod.notes) accountUpdates.supplies_notes = mod.notes;
+
+              if (Object.keys(accountUpdates).length > 0) {
+                await supabase.from("commercial_accounts").update(accountUpdates).eq("id", acc.id);
+              }
+
+              changesCount++;
+              changeMessages.push(`Modificado: ${acc.name}${mod.cleanerName ? ` (Equipo: ${mod.cleanerName})` : ''}${mod.newHours !== undefined ? ` (${mod.newHours}h)` : ''}`);
+            }
+          }
+
+          // 5. TAREAS Y RECORDATORIOS DEL SOP
+          if (copilotResp.taskModifications && copilotResp.taskModifications.length > 0) {
+            for (const tmod of copilotResp.taskModifications) {
+              if (tmod.action === "deduplicate") {
+                await deduplicateTasks();
+                changesCount++;
+                changeMessages.push("Duplicados del SOP eliminados exitosamente.");
+                continue;
+              }
+
+              const q = (tmod.taskTitle || "").toLowerCase().trim();
+              if (!q) continue;
+
+              const matching = tasks.filter((t) => t.title.toLowerCase().includes(q));
+              if (matching.length === 0) continue;
+
+              if (tmod.action === "delete") {
+                const ids = matching.map((t) => t.id);
+                await supabase.from("operation_tasks").update({ deleted_at: new Date().toISOString() }).in("id", ids);
+                changesCount += ids.length;
+                changeMessages.push(`${ids.length} tarea(s) eliminada(s): ${tmod.taskTitle}`);
+              } else if (tmod.action === "reschedule" && tmod.newDueDate) {
+                const ids = matching.map((t) => t.id);
+                await supabase.from("operation_tasks").update({ due_date: tmod.newDueDate }).in("id", ids);
+                changesCount += ids.length;
+                changeMessages.push(`Tarea(s) reagendada(s) para ${tmod.newDueDate}: ${tmod.taskTitle}`);
+              } else if (tmod.action === "reassign" && tmod.newAssignee) {
+                const ids = matching.map((t) => t.id);
+                await supabase.from("operation_tasks").update({ assignee: tmod.newAssignee, assigned_to: tmod.newAssignee }).in("id", ids);
+                changesCount += ids.length;
+                changeMessages.push(`Tarea(s) reasignada(s) a ${tmod.newAssignee}: ${tmod.taskTitle}`);
+              } else if (tmod.action === "complete") {
+                const ids = matching.map((t) => t.id);
+                await supabase.from("operation_tasks").update({ status: "completed", completed_at: new Date().toISOString() }).in("id", ids);
+                changesCount += ids.length;
+                changeMessages.push(`Tarea(s) completada(s): ${tmod.taskTitle}`);
+              }
+            }
+          }
+
+          // Refresh everything from Supabase!
+          await loadData();
+
+          if (changesCount > 0) {
+            setMessage({
+              tone: "success",
+              text: `¡Acción completada! Se aplicaron ${changesCount} cambios directamente en el sistema: ${changeMessages.slice(0, 3).join("; ")}${changeMessages.length > 3 ? '...' : ''}`,
+            });
+          } else {
+            setMessage({
+              tone: "info",
+              text: "La consulta fue procesada pero no se requirieron cambios en la base de datos.",
+            });
+          }
+        }}
         onApplySopModifications={(mods) => {
-          let updatedCount = 0;
+          // Local optimistic state fallback
           setCommercialAccounts((prev) => {
             return prev.map((acc) => {
               const match = mods.find((m) => m.accountName && (acc.name.toLowerCase().includes(m.accountName.toLowerCase().trim()) || m.accountName.toLowerCase().includes(acc.name.toLowerCase().trim())));
               if (!match) return acc;
-              updatedCount++;
               return {
                 ...acc,
                 hours: match.newHours !== undefined ? match.newHours : acc.hours,
@@ -3237,20 +3535,6 @@ export function SimpleOperationsClient({
               };
             });
           });
-
-          setAccounts((prev) => {
-            return prev.map((acc) => {
-              const match = mods.find((m) => m.accountName && (acc.account_name.toLowerCase().includes(m.accountName.toLowerCase().trim()) || m.accountName.toLowerCase().includes(acc.account_name.toLowerCase().trim())));
-              if (!match) return acc;
-              return {
-                ...acc,
-                scheduled_hours: match.newHours !== undefined ? match.newHours : acc.scheduled_hours,
-                assigned_team_name: match.cleanerName || acc.assigned_team_name,
-              };
-            });
-          });
-
-          setMessage({ tone: "success", text: `Modificaciones del SOP aplicadas exitosamente (${mods.length} cambios procesados).` });
         }}
       />
     </DashboardShell>

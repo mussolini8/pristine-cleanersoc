@@ -35,6 +35,49 @@ interface AiSopCopilotModalProps {
   onApplySalesTrack?: (items: SalesTrackItem[]) => void;
   onApplyBookings?: (bookings: ServiceBookingRow[]) => void;
   onApplySopModifications?: (modifications: NonNullable<SopCopilotResponse["sopModifications"]>) => void;
+  onApplyFullCopilotResponse?: (response: SopCopilotResponse) => Promise<void> | void;
+}
+
+function compressImage(blob: Blob): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_DIM = 1600;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_DIM) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          }
+        } else {
+          if (height > MAX_DIM) {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL("image/jpeg", 0.85);
+          resolve(compressed);
+        } else {
+          resolve(e.target?.result as string);
+        }
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(blob);
+  });
 }
 
 export function AiSopCopilotModal({
@@ -43,6 +86,7 @@ export function AiSopCopilotModal({
   onApplySalesTrack,
   onApplyBookings,
   onApplySopModifications,
+  onApplyFullCopilotResponse,
 }: AiSopCopilotModalProps) {
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
@@ -139,8 +183,8 @@ export function AiSopCopilotModal({
     setShowApiKeyInput(false);
   };
 
-  // Support paste image anywhere in the modal
-  const handlePaste = (e: React.ClipboardEvent) => {
+  // Support paste image anywhere in the modal with auto-compression
+  const handlePaste = async (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
@@ -148,31 +192,25 @@ export function AiSopCopilotModal({
       if (items[i].type.indexOf("image") !== -1) {
         const blob = items[i].getAsFile();
         if (blob) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            if (event.target?.result) {
-              setImages((prev) => [...prev, event.target!.result as string]);
-            }
-          };
-          reader.readAsDataURL(blob);
+          const compressed = await compressImage(blob);
+          if (compressed) {
+            setImages((prev) => [...prev, compressed]);
+          }
         }
       }
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setImages((prev) => [...prev, event.target!.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    for (const file of Array.from(files)) {
+      const compressed = await compressImage(file);
+      if (compressed) {
+        setImages((prev) => [...prev, compressed]);
+      }
+    }
   };
 
   const removeImage = (index: number) => {
@@ -230,8 +268,21 @@ export function AiSopCopilotModal({
     }
   };
 
-  const handleApply = () => {
+  const handleApply = async () => {
     if (!response) return;
+
+    if (onApplyFullCopilotResponse) {
+      setLoading(true);
+      try {
+        await onApplyFullCopilotResponse(response);
+        setAppliedSuccess(true);
+      } catch (err: any) {
+        setError(err?.message || "Error al aplicar cambios en el sistema.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     if (response.extractedBookings && response.extractedBookings.length > 0 && onApplyBookings) {
       onApplyBookings(response.extractedBookings);
@@ -513,15 +564,34 @@ export function AiSopCopilotModal({
                     {response.sopModifications.map((mod, idx) => (
                       <div
                         key={idx}
-                        className="rounded-xl border border-border/80 bg-card p-3 shadow-sm text-xs space-y-1"
+                        className={`rounded-xl border p-3 shadow-sm text-xs space-y-1.5 ${
+                          mod.action === "delete_account" || mod.status === "inactive"
+                            ? "border-destructive/40 bg-destructive/[0.04]"
+                            : "border-border/80 bg-card"
+                        }`}
                       >
                         <div className="flex items-center justify-between font-bold text-foreground">
                           <span>{mod.accountName || "Cuenta Comercial"}</span>
-                          {mod.newHours && (
-                            <Badge variant="secondary" className="text-[10px]">
-                              {mod.newHours} hrs/visita
-                            </Badge>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {mod.action === "delete_account" || mod.status === "inactive" ? (
+                              <Badge variant="outline" className="text-[10px] border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-500/10">
+                                Eliminar Cuenta
+                              </Badge>
+                            ) : mod.action === "reschedule" || mod.newDays ? (
+                              <Badge variant="outline" className="text-[10px] border-blue-400 text-blue-600 dark:text-blue-400">
+                                Reagendar
+                              </Badge>
+                            ) : mod.action === "change_cleaner" ? (
+                              <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-600 dark:text-amber-400">
+                                Cambiar Equipo
+                              </Badge>
+                            ) : null}
+                            {mod.newHours !== undefined && (
+                              <Badge variant="secondary" className="text-[10px]">
+                                {mod.newHours} hrs/visita
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                         {mod.cleanerName && (
                           <div className="text-muted-foreground flex items-center gap-1">
@@ -530,15 +600,46 @@ export function AiSopCopilotModal({
                         )}
                         {mod.newDays && mod.newDays.length > 0 && (
                           <div className="text-muted-foreground">
-                            Días: <span className="text-foreground">{mod.newDays.join(", ")}</span>
+                            Días: <span className="text-foreground font-semibold">{mod.newDays.join(", ")}</span>
                           </div>
                         )}
-                        {mod.newPricing && (
+                        {mod.newPricing !== undefined && (
                           <div className="text-emerald-600 dark:text-emerald-400 font-semibold">
                             Precio: ${mod.newPricing.toFixed(2)}
                           </div>
                         )}
                         {mod.notes && <div className="text-[11px] text-muted-foreground italic">{mod.notes}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* SOP Tasks Modifications Preview */}
+              {response.taskModifications && response.taskModifications.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <CheckCircle className="size-3.5 text-purple-600" /> Tareas del SOP a Modificar ({response.taskModifications.length})
+                  </h4>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {response.taskModifications.map((tmod, idx) => (
+                      <div key={idx} className="rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-500/[0.04] p-3 text-xs space-y-1">
+                        <div className="flex items-center justify-between font-bold text-foreground">
+                          <span>{tmod.taskTitle || (tmod.action === "deduplicate" ? "Eliminar tareas duplicadas del SOP" : "Tarea SOP")}</span>
+                          <Badge variant="outline" className="text-[10px] uppercase font-bold border-purple-400 text-purple-700 dark:text-purple-300">
+                            {tmod.action}
+                          </Badge>
+                        </div>
+                        {tmod.newDueDate && (
+                          <div className="text-muted-foreground">
+                            Nueva fecha: <strong className="text-foreground font-mono">{tmod.newDueDate}</strong>
+                          </div>
+                        )}
+                        {tmod.newAssignee && (
+                          <div className="text-muted-foreground">
+                            Nuevo asignado: <strong className="text-foreground">{tmod.newAssignee}</strong>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -129,10 +129,21 @@ export type SopCopilotResponse = {
     cleanerName?: string;
     newHours?: number;
     newDays?: string[];
+    daysToDelete?: number[];
+    action?: "update" | "delete_account" | "delete_rule" | "reschedule" | "change_cleaner";
     newPricing?: number;
     newCleanerCost?: number;
     status?: "active" | "inactive" | "cancelled" | "proposal";
     notes?: string;
+  }[];
+
+  taskModifications?: {
+    taskId?: string;
+    taskTitle?: string;
+    action: "delete" | "reschedule" | "reassign" | "complete" | "deduplicate";
+    newDueDate?: string; // YYYY-MM-DD
+    newAssignee?: string;
+    status?: "todo" | "in_progress" | "completed";
   }[];
 
   extractedBookings?: ServiceBookingRow[];
@@ -141,95 +152,95 @@ export type SopCopilotResponse = {
 };
 
 const SYSTEM_INSTRUCTION = `You are the Pristine Cleaners AI SOP & Master Financial Operations Copilot.
-You have FULL OPERATIONAL CONTROL over commercial accounts, residential bookings, cleaner teams/staff, schedule rules, work occurrences, quotes, and Quo/SMS dispatches.
+You have FULL OPERATIONAL CONTROL over commercial accounts, residential bookings, cleaner teams/staff, schedule rules, work occurrences, quotes, Quo/SMS dispatches, and SOP operational tasks.
 
 Core Superpowers and Capabilities:
 
-1. WORK OCCURRENCE & SHIFT REPLACEMENTS (Ocurrencias / Reemplazos de Turno):
+1. ELIMINAR CUENTAS O HORARIOS (Delete / Deactivate):
+   - If the user asks to delete, cancel, or deactivate an account (e.g. "elimina a Field AI", "borra la cuenta de X", "deja de limpiar Y", "quitar a X del sistema"):
+   - Set intent = "modify_sop", actionType = "modify_schedule"
+   - In sopModifications:
+     [{
+       "accountName": "Field AI",
+       "action": "delete_account",
+       "status": "inactive",
+       "notes": "Cuenta desactivada/eliminada a petición del usuario"
+     }]
+   - If the user asks to delete a specific day schedule rule (e.g. "elimina la limpieza de los martes de X"):
+   - In sopModifications:
+     [{
+       "accountName": "X",
+       "action": "delete_rule",
+       "daysToDelete": [2],
+       "notes": "Regla de martes eliminada"
+     }]
+
+2. MODIFICAR, MOVER Y REAGENDAR HORARIOS (Modify, Move, Reschedule):
+   - If the user specifies new days, new hours, or moves service to different days (e.g. "mueve Kott Koatings para los miércoles", "reagenda X a los viernes", "cambia a Field AI a 4 horas"):
+   - Set intent = "modify_sop", actionType = "modify_schedule"
+   - In sopModifications:
+     [{
+       "accountName": "Kott Koatings",
+       "action": "reschedule",
+       "newDays": ["miércoles"],
+       "newHours": 3,
+       "notes": "Horario reagendado a miércoles"
+     }]
+
+3. CAMBIAR DE EQUIPO / LIMPIADOR (Change Cleaner / Team):
+   - If the user asks to reassign an account or rule to another cleaner (e.g. "cambia de equipo en LSG los lunes a María Mejía", "pasa Field AI a Verónica Ladinos", "asigna a Luz Uribe a Wren Spa"):
+   - Set intent = "modify_sop", actionType = "modify_schedule"
+   - In sopModifications:
+     [{
+       "accountName": "Field AI",
+       "action": "change_cleaner",
+       "cleanerName": "Veronica Ladinos",
+       "notes": "Limpiador reasignado a Veronica Ladinos"
+     }]
+
+4. TAREAS Y RECORDATORIOS DEL SOP (SOP Tasks & Reminders):
+   - If the user asks to delete duplicates from SOP ("elimina los duplicados del SOP", "limpia tareas repetidas"):
+   - Set intent = "modify_sop"
+   - In taskModifications:
+     [{ "action": "deduplicate" }]
+   - If the user asks to move, delete or complete a task ("elimina la tarea de GMB", "mueve la tarea de inventario para el 15 de septiembre"):
+   - In taskModifications:
+     [{
+       "taskTitle": "inventario",
+       "action": "reschedule",
+       "newDueDate": "2026-09-15"
+     }]
+
+5. WORK OCCURRENCE & SHIFT REPLACEMENTS (Ocurrencias / Reemplazos de Turno en Fecha Específica):
    - When the user mentions work done on a specific date with a substitute team (e.g. "Field AI el 22 de agosto se realizó con el equipo de Susana y Verónica con 2.5 hrs"):
    - Set actionType = "occurrence_override"
    - Extract: accountName ("Field AI"), date ("2026-08-22"), cleanerTeam ("Susana y Verónica"), hours (2.5), notes.
 
-2. STAFF & CLEANER MANAGEMENT (Gestión de Personal):
+6. STAFF & CLEANER MANAGEMENT (Gestión de Personal):
    - When the user asks to add or update cleaners (e.g. "Añade a Susana como limpiadora comercial a $20/hr y teléfono 949-555-0123"):
    - Set actionType = "add_staff"
    - Extract: name, role ("cleaner"), hourlyRate (20), phone ("949-555-0123"), notes.
 
-3. SCHEDULE CONFLICT DETECTION (Detector de Conflictos - Permisivo / Reminder):
+7. SCHEDULE CONFLICT DETECTION (Detector de Conflictos - Permisivo / Reminder):
    - If a proposed cleaner assignment creates an overlapping schedule (e.g. cleaner already assigned elsewhere at that time), provide a friendly warning in scheduleConflictWarning:
    - { hasConflict: true, warningMessage: "⚠️ Reminder: María López ya tiene asignada la cuenta Field AI los lunes a esa hora. Puedes aceptar este choque de horario o reasignar.", conflictingAccount: "Field AI" }
 
-4. CLEANER DISPATCH FOR QUO / SMS (Despacho para SMS o Quo):
+8. CLEANER DISPATCH FOR QUO / SMS (Despacho para SMS o Quo):
    - When requested to draft a cleaner notification/dispatch (e.g. "Genera el mensaje para Susana para Field AI hoy"):
    - Set actionType = "dispatch_sms_quo"
    - Draft a polite, complete SMS/Quo message including address, time, access code, tasks, and checkout photo reminder.
-   - Include cleanerPhone if known or format placeholder.
 
-5. SMART COMMERCIAL QUOTER (Cotizador Inteligente):
+9. SMART COMMERCIAL QUOTER (Cotizador Inteligente):
    - When asked to quote or price an office/commercial space (e.g. "Oficina de 4,000 sq ft en Newport Beach, 3 veces por semana, 4 baños"):
    - Set actionType = "quote_commercial"
    - Standard benchmarks: 1,200-1,500 sq ft/hr for general office; $45-$55/hr billing rate; cleaner pay $18-$22/hr.
-   - Calculate estimatedHoursPerVisit, suggestedMonthlyPrice, estimatedCleanerCost, profitMarginPct, reasoning.
 
-6. CLEANER PERFORMANCE AUDIT (Auditoría de Cleaner):
-   - When asked about a cleaner's workload or history (e.g. "Dame el resumen de Ana Morales"):
-   - Set actionType = "cleaner_audit"
-   - Summarize accounts, hours, and payroll projection.
-
-7. RESIDENTIAL VS COMMERCIAL CATEGORIZATION (CRITICAL):
-   - COMMERCIAL CLEANING (Limpiezas Comerciales / Oficinas / Cuentas Comerciales):
-     * Service Category is ALWAYS strictly "Commercial Cleaning".
-     * Commercial cleaning does NOT mix into residential frequency buckets (Weekly, Biweekly, Triweekly, Deep Clean, etc.).
-   - RESIDENTIAL / HOME CLEANING (Limpiezas de Casas):
-     * Uses residential frequencies: "Weekly", "Biweekly", "Triweekly", "Monthly", "One-Time".
-     * Uses residential service types: "Move In/Out Clean", "Deep Clean", "Standard Clean", "Airbnb Clean".
-   - Client name can appear at the start (e.g. "Sonia Kim: Booking id 11479...").
-   - Payment method CC / Credit Card / Stripe: automatically deduct 3.0% processing fee (merchantFee = subTotal * 0.03).
-   - Cash / Check / Zelle: fee is $0.00.
-   - pcEarnings = subTotal - providerPayment - merchantFee.
-
-8. INGEST SCHEDULE FROM IMAGE (Ingresar Schedule desde Captura):
+10. INGEST SCHEDULE FROM IMAGE (Ingresar Schedule desde Captura de Pantalla):
    - When the user uploads a screenshot of CleanGuru, BookingKoala, or any cleaning management system:
    - Set actionType = "ingest_schedule"
    - Extract ALL visible fields: clientName, buildingName, address, city, frequency, recurringRule, startDate, scheduledTime, endTime, budgetHours, assignedCleaner, template, category.
-   - Parse the "Internal" and "Instructions" sections carefully to populate accessInstructions:
-     * Look for suite/unit numbers → suite
-     * Look for floor numbers → floor
-     * Detect elevator mentions → elevator: true, elevatorNotes
-     * Detect parking mentions (paid parking, street parking, lot) → parking
-     * Detect building type (business center, medical, office) → buildingType
-     * Look for access codes, key codes, alarm codes → accessCode
-     * Any remaining important access notes → otherNotes
-   - Set internalNotes to the full raw text of the Internal/Instructions field.
-   - If both client name AND building name are visible, use the client name as clientName.
-   - budgetHours = hours + (minutes / 60), e.g., "2 hrs 30 min" → 2.5.
-
-9. ACCOUNT DEACTIVATION / SCHEDULE REMOVAL (Cancelación, Baja de Cuenta o Retiro del Schedule):
-   - When the user mentions that a client/account stopped working with us or should be eliminated/removed from schedule / hours payroll (e.g. "Field AI dejó de trabajar con nosotros, elimínalo del schedule para el mes de septiembre incluido del pago de horas"):
-   - Set intent = "modify_sop"
-   - Set actionType = "modify_schedule"
-   - Return sopModifications with:
-     [{
-       "accountName": "Field AI",
-       "status": "inactive",
-       "newHours": 0,
-       "newPricing": 0,
-       "newCleanerCost": 0,
-       "notes": "Cliente inactivo / retirado del schedule y nómina de horas a partir de Septiembre"
-     }]
-   - Return summary explaining in clear Spanish what was changed.
-
-10. RECURRING SCHEDULE & FREQUENCY RULES (Modificación de Horarios, Frecuencias y Días):
-   - When the user specifies or updates recurring service patterns (e.g. "Posh pooch, se hace 1 vez al mes, cada lunes, en agosto se hizo el 10 y en sep el 14, seria la tercera semana del mes" or "Cuenta X ahora es quincenal los martes"):
-   - Set intent = "modify_sop"
-   - Set actionType = "modify_schedule"
-   - Return sopModifications with:
-     [{
-       "accountName": "Posh Pooch",
-       "newDays": ["Lunes"],
-       "notes": "Frecuencia mensual: 1 vez al mes, 3ra semana del mes (Lunes). Fechas registradas: Agosto 10, Septiembre 14."
-     }]
-   - Return summary explaining clearly in Spanish the updated recurrence rule and how it applies to the schedule.
+   - Parse the "Internal" and "Instructions" sections carefully to populate accessInstructions (suite, floor, elevator, parking, buildingType, accessCode, otherNotes) and internalNotes.
+   - budgetHours = hours + (minutes / 60), e.g., "2 hrs 30 min" → 2.5. and how it applies to the schedule.
 
 Return ONLY a valid JSON object matching this schema:
 {
@@ -627,7 +638,7 @@ export async function callGeminiSopCopilot({
       };
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
 
       const response = await fetch(url, {
         signal: controller.signal,
@@ -666,7 +677,7 @@ export async function callGeminiSopCopilot({
         };
 
         const fbController = new AbortController();
-        const fbTimeoutId = setTimeout(() => fbController.abort(), 12000);
+        const fbTimeoutId = setTimeout(() => fbController.abort(), 45000);
 
         const fallbackResponse = await fetch(fallbackUrl, {
           signal: fbController.signal,
