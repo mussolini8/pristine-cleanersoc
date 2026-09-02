@@ -3281,30 +3281,37 @@ export function SimpleOperationsClient({
             return null;
           };
 
-          // 1. Ocurrencia / Reemplazo puntual en fecha específica
-          if (copilotResp.occurrenceOverride) {
-            const ov = copilotResp.occurrenceOverride;
+          // 1. Ocurrencias / Reemplazos puntuales en fecha específica (Soporte individual y múltiple)
+          const allOverrides = [
+            ...(copilotResp.occurrenceOverrides || []),
+            ...(copilotResp.occurrenceOverride ? [copilotResp.occurrenceOverride] : []),
+          ];
+
+          for (const ov of allOverrides) {
+            if (!ov.accountName || !ov.cleanerTeam) continue;
             const acc = await findOrMaterializeAccount(ov.accountName);
+            const hours = ov.hours || (acc?.hours ? toNumber(acc.hours) : 3);
+            const workDate = ov.date || new Date().toISOString().split("T")[0];
             const { error: ovErr } = await supabase
               .from("commercial_hours_entries")
               .insert({
                 account_id: acc?.id ?? null,
                 account_name: ov.accountName,
-                work_date: ov.date,
+                work_date: workDate,
                 team_name: ov.cleanerTeam,
-                scheduled_hours: ov.hours,
-                completed_hours: ov.hours,
+                scheduled_hours: hours,
+                completed_hours: hours,
                 notes: ov.notes ?? "Reemplazo de turno vía Copiloto IA",
                 status: "completed",
                 business_unit: "commercial",
               });
             if (!ovErr) {
               changesCount++;
-              changeMessages.push(`Reemplazo registrado: ${ov.accountName} el ${ov.date} (${ov.cleanerTeam} · ${ov.hours}h)`);
+              changeMessages.push(`Reemplazo registrado: ${ov.accountName} el ${workDate} (${ov.cleanerTeam} · ${hours}h)`);
             }
           }
 
-          // 2. Personal / Staff
+          // 2. Personal / Staff (Altas, Bajas, Desvinculaciones y Reasignaciones)
           if (copilotResp.addStaff) {
             const st = copilotResp.addStaff;
             const { error: stErr } = await supabase.from("staff_members").insert({
@@ -3320,6 +3327,51 @@ export function SimpleOperationsClient({
             if (!stErr) {
               changesCount++;
               changeMessages.push(`Nuevo personal registrado: ${st.name}`);
+            }
+          }
+
+          if (copilotResp.staffModifications && copilotResp.staffModifications.length > 0) {
+            for (const smod of copilotResp.staffModifications) {
+              const cname = smod.cleanerName.trim();
+              if (smod.action === "deactivate") {
+                // Desactivar cleaner en staff_members
+                await supabase
+                  .from("staff_members")
+                  .update({ status: "Inactive", active: false })
+                  .ilike("name", `%${cname}%`);
+                
+                // Si se asignó reemplazo, transferir todas las cuentas
+                if (smod.replacementCleaner) {
+                  await supabase
+                    .from("commercial_accounts")
+                    .update({ cleaner_name: smod.replacementCleaner })
+                    .ilike("cleaner_name", `%${cname}%`);
+                  await supabase
+                    .from("commercial_account_schedule_rules")
+                    .update({ assigned_cleaner_name: smod.replacementCleaner })
+                    .ilike("assigned_cleaner_name", `%${cname}%`);
+                }
+                changesCount++;
+                changeMessages.push(`Personal desvinculado: ${cname}${smod.replacementCleaner ? ` (Cuentas transferidas a ${smod.replacementCleaner})` : ''}`);
+              } else if (smod.action === "activate") {
+                await supabase
+                  .from("staff_members")
+                  .update({ status: "Active", active: true })
+                  .ilike("name", `%${cname}%`);
+                changesCount++;
+                changeMessages.push(`Personal reactivado: ${cname}`);
+              } else if (smod.action === "add") {
+                await supabase.from("staff_members").insert({
+                  user_id: userId ?? null,
+                  name: cname,
+                  role: "Commercial Cleaner",
+                  display_role: "Commercial Cleaner",
+                  status: "Active",
+                  active: true,
+                });
+                changesCount++;
+                changeMessages.push(`Nuevo personal registrado: ${cname}`);
+              }
             }
           }
 

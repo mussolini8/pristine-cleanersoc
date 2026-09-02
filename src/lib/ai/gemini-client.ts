@@ -42,6 +42,14 @@ export type SopCopilotResponse = {
     notes?: string;
   };
 
+  occurrenceOverrides?: {
+    accountName: string;
+    date?: string; // YYYY-MM-DD
+    cleanerTeam: string;
+    hours?: number;
+    notes?: string;
+  }[];
+
   addStaff?: {
     name: string;
     role: "cleaner" | "lead" | "inspector" | "manager";
@@ -50,6 +58,15 @@ export type SopCopilotResponse = {
     email?: string;
     notes?: string;
   };
+
+  staffModifications?: {
+    cleanerName: string;
+    action: "add" | "deactivate" | "activate";
+    role?: "cleaner" | "lead" | "inspector" | "manager";
+    effectiveDate?: string;
+    replacementCleaner?: string;
+    notes?: string;
+  }[];
 
   scheduleConflictWarning?: {
     hasConflict: boolean;
@@ -211,15 +228,39 @@ Core Superpowers and Capabilities:
        "newDueDate": "2026-09-15"
      }]
 
-5. WORK OCCURRENCE & SHIFT REPLACEMENTS (Ocurrencias / Reemplazos de Turno en Fecha Específica):
-   - When the user mentions work done on a specific date with a substitute team (e.g. "Field AI el 22 de agosto se realizó con el equipo de Susana y Verónica con 2.5 hrs"):
-   - Set actionType = "occurrence_override"
-   - Extract: accountName ("Field AI"), date ("2026-08-22"), cleanerTeam ("Susana y Verónica"), hours (2.5), notes.
+5. WORK OCCURRENCE & SHIFT REPLACEMENTS (Ocurrencias / Reemplazos de Turno en Fecha Específica o Pasada):
+   - When the user mentions work done on a specific date with a substitute cleaner (e.g. "Kott Koatings el miércoles la hizo Ana Morales", "el sábado 5 OCSS la hizo Sandra Hernández"):
+   - You can provide ONE or MULTIPLE replacements in occurrenceOverrides:
+     [
+       {
+         "accountName": "Kott Koatings",
+         "date": "2026-09-02",
+         "cleanerTeam": "Ana Morales",
+         "hours": 3,
+         "notes": "Reemplazo de turno el miércoles realizado por Ana Morales"
+       },
+       {
+         "accountName": "Orange County Spine and Sports Physicians",
+         "date": "2026-09-05",
+         "cleanerTeam": "Sandra Hernandez",
+         "hours": 2.5,
+         "notes": "Reemplazo de turno sábado 5 realizado por Sandra Hernandez"
+       }
+     ]
 
-6. STAFF & CLEANER MANAGEMENT (Gestión de Personal):
-   - When the user asks to add or update cleaners (e.g. "Añade a Susana como limpiadora comercial a $20/hr y teléfono 949-555-0123"):
-   - Set actionType = "add_staff"
-   - Extract: name, role ("cleaner"), hourlyRate (20), phone ("949-555-0123"), notes.
+6. STAFF & CLEANER DEPARTURE / MANAGEMENT (Altas, Bajas y Salida de Personal):
+   - When the user mentions that a cleaner left or stopped working (e.g. "a partir del 31 de agosto Susana dejó de trabajar con nosotros / ya no trabaja / desvinculada / inactiva"):
+   - Set in staffModifications:
+     [
+       {
+         "cleanerName": "Susana Bautista",
+         "action": "deactivate",
+         "effectiveDate": "2026-08-31",
+         "notes": "Dejó de trabajar a partir del 31 de agosto"
+       }
+     ]
+   - When the user asks to add cleaners (e.g. "Añade a Pedro como limpiador comercial a $20/hr y teléfono 949-555-0123"):
+     Set addStaff or staffModifications: [{ "cleanerName": "Pedro", "action": "add", "role": "cleaner" }]
 
 7. SCHEDULE CONFLICT DETECTION (Detector de Conflictos - Permisivo / Reminder):
    - If a proposed cleaner assignment creates an overlapping schedule (e.g. cleaner already assigned elsewhere at that time), provide a friendly warning in scheduleConflictWarning:
@@ -465,23 +506,29 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
 
   const ingestedSchedule = extractSubObject(cleaned, "ingestedSchedule");
   const occurrenceOverride = extractSubObject(cleaned, "occurrenceOverride");
+  const occurrenceOverrides = extractSubArray(cleaned, "occurrenceOverrides");
   const addStaff = extractSubObject(cleaned, "addStaff");
+  const staffModifications = extractSubArray(cleaned, "staffModifications");
   const commercialQuote = extractSubObject(cleaned, "commercialQuote");
   const dispatchSmsQuo = extractSubObject(cleaned, "dispatchSmsQuo");
   const cleanerAudit = extractSubObject(cleaned, "cleanerAudit");
   const scheduleConflictWarning = extractSubObject(cleaned, "scheduleConflictWarning");
   const sopModifications = extractSubArray(cleaned, "sopModifications");
+  const taskModifications = extractSubArray(cleaned, "taskModifications");
   const extractedBookings = extractSubArray(cleaned, "extractedBookings");
   const extractedSalesTrack = extractSubArray(cleaned, "extractedSalesTrack");
 
   if (
     ingestedSchedule ||
     occurrenceOverride ||
+    occurrenceOverrides ||
     addStaff ||
+    staffModifications ||
     commercialQuote ||
     dispatchSmsQuo ||
     cleanerAudit ||
     sopModifications ||
+    taskModifications ||
     extractedBookings ||
     extractedSalesTrack ||
     summary
@@ -492,12 +539,15 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
       summary: summary || "Se ha procesado la información correctamente.",
       ingestedSchedule: ingestedSchedule || undefined,
       occurrenceOverride: occurrenceOverride || undefined,
+      occurrenceOverrides: occurrenceOverrides || undefined,
       addStaff: addStaff || undefined,
+      staffModifications: staffModifications || undefined,
       commercialQuote: commercialQuote || undefined,
       dispatchSmsQuo: dispatchSmsQuo || undefined,
       cleanerAudit: cleanerAudit || undefined,
       scheduleConflictWarning: scheduleConflictWarning || undefined,
       sopModifications: sopModifications || undefined,
+      taskModifications: taskModifications || undefined,
       extractedBookings: extractedBookings || undefined,
       extractedSalesTrack: extractedSalesTrack || undefined,
       appliedExplanation,
