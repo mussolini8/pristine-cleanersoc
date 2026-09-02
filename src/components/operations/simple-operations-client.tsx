@@ -1072,14 +1072,37 @@ export function SimpleOperationsClient({
             .is("deleted_at", null)
             .order("name")
             .limit(700);
+          const dedupeStaffList = (list: StaffMemberRow[]) => {
+            const map = new Map<string, StaffMemberRow>();
+            for (const s of list) {
+              const key = s.name.trim().toLowerCase();
+              if (key.includes("john ivanpal") || key.includes("john ivan-pal")) continue;
+              if (!map.has(key) || (s.active && !map.get(key)?.active)) {
+                map.set(key, s);
+              }
+            }
+            return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+          };
+
           if (refetchedStaff) {
-            setStaff(refetchedStaff as unknown as StaffMemberRow[]);
+            setStaff(dedupeStaffList(refetchedStaff as unknown as StaffMemberRow[]));
           } else {
-            setStaff(currentStaff);
+            setStaff(dedupeStaffList(currentStaff));
           }
         }
       } else {
-        setStaff(currentStaff);
+        const dedupeStaffList = (list: StaffMemberRow[]) => {
+          const map = new Map<string, StaffMemberRow>();
+          for (const s of list) {
+            const key = s.name.trim().toLowerCase();
+            if (key.includes("john ivanpal") || key.includes("john ivan-pal")) continue;
+            if (!map.has(key) || (s.active && !map.get(key)?.active)) {
+              map.set(key, s);
+            }
+          }
+          return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+        };
+        setStaff(dedupeStaffList(currentStaff));
       }
     } catch (error) {
       setMessage({ tone: "error", text: `Operations data could not load: ${errorMessage(error)}` });

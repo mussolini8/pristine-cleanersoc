@@ -102,7 +102,7 @@ function getScheduledDaysInMonth(
         }
       }
     }
-  } else if (ft === "one_off" || ft === "one-off") {
+  } else if (ft === "one_off" || ft === "one-off" || ft === "specific_date") {
     if (schedule.specific_date) {
       const sd = new Date(schedule.specific_date + "T00:00:00");
       if (sd.getFullYear() === year && sd.getMonth() === month) {

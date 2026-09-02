@@ -190,11 +190,9 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     has_keys: false,
     supply_delivery_date: null,
     estimated_fill_date: null,
-    supplies_notes: "Monthly service. Cleaner: Lorena Benitez (100% residencial - non-hourly).",
+    supplies_notes: "Monthly service. Cleaner: Lorena Benitez (100% residencial - non-hourly). Facturada comercialmente pero operada en Booking Koala.",
     source_sheet: "Accounts",
-    schedule_rules: [
-      { day_of_week: 1, paid_hours: 2, assigned_cleaner_name: "Lorena Benitez", frequency_type: "monthly", anchor_date: "2026-08-31", notes: "Monthly service (Lorena 100% residencial)" }
-    ]
+    schedule_rules: []
   },
   {
     id: "import-ilg-corona-office-corona-19",

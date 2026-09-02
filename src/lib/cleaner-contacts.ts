@@ -13,7 +13,6 @@ export type CleanerContact = {
 
 export const CLEANER_CONTACTS: CleanerContact[] = [
   { name: "Emmi Guerra", phone: "747-218-8351", status: "Active", type: "Location-Based" },
-  { name: "john ivanpal", phone: "203-909-1380", status: "Active", type: "Location-Based" },
   { name: "Kassandra Valentin", phone: "714-715-9147", status: "Active", type: "Location-Based" },
   { name: "Lesbia Vasquez", phone: "714-312-9183", status: "Active", type: "Location-Based" },
   { name: "Lucia Portillo", phone: "714-660-8440", status: "Active", type: "Location-Based" },
@@ -27,7 +26,6 @@ export const CLEANER_CONTACTS: CleanerContact[] = [
 
 export const CLEANER_PHONE_DIRECTORY: Record<string, string> = {
   "emmi guerra": "747-218-8351",
-  "john ivanpal": "203-909-1380",
   "kassandra valentin": "714-715-9147",
   "lesbia vasquez": "714-312-9183",
   "lucia portillo": "714-660-8440",
