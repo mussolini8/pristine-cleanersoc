@@ -291,16 +291,9 @@ function normalizedTaskTitle(title: string | null | undefined) {
 }
 
 function operationTaskDedupeKey(task: OperationTaskRow) {
-  const metadata = task.metadata ?? {};
-  if (typeof metadata.dedupe_key === "string" && metadata.dedupe_key.trim()) return metadata.dedupe_key;
-  return [
-    taskSourceDocument(task) ?? "manual",
-    metadata.target_month ?? "",
-    metadata.target_year ?? "",
-    metadata.source_section ?? "",
-    dateKeyFromValue(task.due_date) ?? "",
-    normalizedTaskTitle(task.title),
-  ].join("|");
+  const dateKey = dateKeyFromValue(task.due_date) ?? "";
+  const titleKey = normalizedTaskTitle(task.title);
+  return `${titleKey}|${dateKey}`;
 }
 
 function dedupeOperationTasks(rows: OperationTaskRow[]) {

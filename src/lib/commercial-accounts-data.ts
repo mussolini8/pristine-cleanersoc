@@ -190,8 +190,8 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     supplies_notes: "Door code: 5436. Alarm code: 2891. Internal: Details around staff kitchen and baseboards, chair details in all operatory rooms. Key is given and dumpster is outside the back door to the right.",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 2, paid_hours: 3, assigned_cleaner_name: "Juan Romero", notes: "Tuesday" },
-      { day_of_week: 4, paid_hours: 3, assigned_cleaner_name: "Juan Romero", notes: "Thursday" },
+      { day_of_week: 0, paid_hours: 3, assigned_cleaner_name: "Juan Romero", notes: "Sunday 6:00 PM - 9:00 AM" },
+      { day_of_week: 3, paid_hours: 3, assigned_cleaner_name: "Juan Romero", notes: "Wednesday 6:00 PM - 9:00 AM" },
     ]
   },
   {
@@ -349,7 +349,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     supplies_notes: "Clean front lobby, 2 bathrooms, offices left and right of lobby. Alfredo will allow in.",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 2, paid_hours: 3, assigned_cleaner_name: "Susana Bautista", notes: "Tuesday 9:00 AM" }
+      { day_of_week: 3, paid_hours: 3, assigned_cleaner_name: "Susana Bautista", notes: "Wednesday 9:00 AM - 12:00 PM" }
     ]
   },
   {
