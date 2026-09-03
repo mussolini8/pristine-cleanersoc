@@ -629,7 +629,7 @@ export function AiSopCopilotModal({
                                 Cambiar Equipo
                               </Badge>
                             ) : null}
-                            {mod.newHours !== undefined && (
+                            {mod.newHours !== undefined && mod.newHours > 0 && (
                               <Badge variant="secondary" className="text-[10px]">
                                 {mod.newHours} hrs/visita
                               </Badge>

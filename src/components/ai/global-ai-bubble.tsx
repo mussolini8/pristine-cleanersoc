@@ -1246,7 +1246,7 @@ export function GlobalAiBubble() {
                                 Efectivo desde: {mod.contractEnd || mod.effectiveUntil || mod.effectiveDate}
                               </p>
                             )}
-                            {typeof mod.newHours === "number" && (
+                            {typeof mod.newHours === "number" && mod.action !== "delete_account" && mod.newHours > 0 && (
                               <p className="text-muted-foreground">
                                 Horas: <strong className="text-foreground">{mod.newHours} hrs</strong>
                               </p>

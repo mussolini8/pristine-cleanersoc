@@ -10,6 +10,23 @@ export type SopActionResult = {
 };
 
 /**
+ * Resolves colloquial aliases to official commercial account names
+ */
+export function resolveCanonicalAccountName(name: string): string {
+  if (!name) return name;
+  const norm = name.toLowerCase().trim();
+  if (norm.includes("field day") || norm.includes("field ai") || norm.includes("fiel ai") || norm.includes("fieldday")) {
+    return "Field AI";
+  }
+  if (norm === "the harper" || norm === "harper") return "The Harper";
+  if (norm.includes("kott")) return "Kott Koatings";
+  if (norm.includes("ocss") || norm.includes("spine and sport")) return "Orange County Spine and Sports Physicians";
+  if (norm.includes("wren")) return "Wren Spa";
+  if (norm.includes("lsg")) return "LSG Sky Chefs";
+  return name;
+}
+
+/**
  * Apply a work occurrence / shift replacement (e.g., Field AI on August 22nd by Susana and Veronica)
  */
 export async function applyOccurrenceOverrideAction(
@@ -18,15 +35,17 @@ export async function applyOccurrenceOverrideAction(
   try {
     const supabase = createClient();
 
+    const targetAccountName = resolveCanonicalAccountName(override.accountName);
+
     // 1. Try to find the commercial account by name
     const { data: accounts, error: accErr } = await supabase
       .from("commercial_accounts")
       .select("id, name, user_id")
-      .ilike("name", `%${override.accountName}%`)
+      .ilike("name", `%${targetAccountName}%`)
       .limit(1);
 
     const accountId = accounts && accounts.length > 0 ? accounts[0].id : null;
-    const accountName = accounts && accounts.length > 0 ? accounts[0].name : override.accountName;
+    const accountName = accounts && accounts.length > 0 ? accounts[0].name : targetAccountName;
 
     // 2. Prepare entry data mapping to commercial_hours_entries schema
     const entryData = {
@@ -463,25 +482,25 @@ export async function applySopModificationsAction(
         }
       }
 
+      const canonicalAccName = resolveCanonicalAccountName(mod.accountName);
+
       // Check if this is a deactivation / deletion from schedule
       const isDeactivation =
         mod.action === "delete_account" ||
         mod.status === "inactive" ||
         mod.status === "cancelled" ||
-        mod.newHours === 0 ||
         (mod.notes && /eliminad[ao]|cancelad[ao]|desactivad[ao]/i.test(mod.notes));
 
       const updateData: Record<string, any> = {
         updated_at: new Date().toISOString(),
       };
       if (mod.cleanerName !== undefined) updateData.cleaner_name = mod.cleanerName;
-      if (typeof mod.newHours === "number") updateData.hours = mod.newHours;
+      if (typeof mod.newHours === "number" && !isDeactivation) updateData.hours = mod.newHours;
       if (typeof mod.newPricing === "number") updateData.revenue = mod.newPricing;
       if (typeof mod.newCleanerCost === "number") updateData.cost = mod.newCleanerCost;
       if (mod.notes) updateData.supplies_notes = mod.notes;
       if (isDeactivation) {
         updateData.contract_end = cutoffDate || "2026-08-31";
-        updateData.hours = 0;
       }
 
       // Save to localStorage deactivated list for instant client-side isolation
@@ -490,12 +509,12 @@ export async function applySopModificationsAction(
           const key = "pristine_deactivated_accounts";
           const raw = localStorage.getItem(key) || "[]";
           const list: any[] = JSON.parse(raw);
-          const nameNorm = mod.accountName.toLowerCase().trim();
+          const nameNorm = canonicalAccName.toLowerCase().trim();
           const existingIdx = list.findIndex(
             (item: any) => (typeof item === "string" ? item : item.name || "").toLowerCase().trim() === nameNorm
           );
           const entry = {
-            name: mod.accountName,
+            name: canonicalAccName,
             contractEnd: cutoffDate || "2026-08-31",
             deactivatedAt: new Date().toISOString(),
           };
@@ -511,13 +530,13 @@ export async function applySopModificationsAction(
 
       let appliedSupabase = false;
       let accountId: string | null = null;
-      let accountName: string = mod.accountName;
+      let accountName: string = canonicalAccName;
 
       if (supabase) {
         const { data: accounts } = await supabase
           .from("commercial_accounts")
           .select("id, name, supplies_notes, hours, contract_end")
-          .ilike("name", `%${mod.accountName}%`)
+          .or(`name.ilike.%${canonicalAccName}%,name.ilike.%${mod.accountName}%`)
           .limit(1);
 
         if (accounts && accounts.length > 0) {
@@ -527,9 +546,9 @@ export async function applySopModificationsAction(
           // If not in commercial_accounts yet, check importedCommercialAccounts and materialize
           const imp = importedCommercialAccounts.find(
             (a) =>
-              a.name.toLowerCase().trim() === mod.accountName!.toLowerCase().trim() ||
-              a.name.toLowerCase().includes(mod.accountName!.toLowerCase().trim()) ||
-              mod.accountName!.toLowerCase().trim().includes(a.name.toLowerCase().trim())
+              a.name.toLowerCase().trim() === canonicalAccName.toLowerCase().trim() ||
+              a.name.toLowerCase().includes(canonicalAccName.toLowerCase().trim()) ||
+              canonicalAccName.toLowerCase().trim().includes(a.name.toLowerCase().trim())
           );
           if (imp) {
             const effectiveEnd = isDeactivation ? (cutoffDate || "2026-08-31") : imp.contract_end;
@@ -539,7 +558,7 @@ export async function applySopModificationsAction(
                 name: imp.name,
                 city: imp.city || "Orange County",
                 cleaner_name: mod.cleanerName || imp.cleaner_name || null,
-                hours: isDeactivation ? 0 : (mod.newHours !== undefined ? mod.newHours : Number(imp.hours) || 0),
+                hours: mod.newHours !== undefined && !isDeactivation ? mod.newHours : Number(imp.hours) || 0,
                 frequency: imp.frequency,
                 revenue: mod.newPricing !== undefined ? mod.newPricing : imp.revenue,
                 cost: mod.newCleanerCost !== undefined ? mod.newCleanerCost : imp.cost,
@@ -575,15 +594,33 @@ export async function applySopModificationsAction(
             await supabase
               .from("commercial_account_schedule_rules")
               .update({
-                active: false,
+                active: true,
                 effective_until: effectiveEnd,
                 effective_end_date: effectiveEnd,
                 updated_at: new Date().toISOString(),
               })
               .eq("commercial_account_id", accountId);
 
+            // Clean up any future QC inspection schedules
+            try {
+              await supabase
+                .from("qc_inspection_schedules")
+                .delete()
+                .ilike("account_name", `%${accountName}%`)
+                .gte("specific_date", effectiveEnd);
+            } catch {}
+
+            // Clean up any future commercial hours entries
+            try {
+              await supabase
+                .from("commercial_hours_entries")
+                .delete()
+                .ilike("account_name", `%${accountName}%`)
+                .gt("work_date", effectiveEnd);
+            } catch {}
+
             appliedSupabase = true;
-            results.push(`"${accountName}" eliminada del schedule comercial a partir de ${effectiveEnd}.`);
+            results.push(`"${accountName}" completó su ciclo con fecha final ${effectiveEnd}. Visitas previas preservadas y desprogramada a partir de septiembre.`);
           } else if (mod.action === "delete_rule" && mod.daysToDelete?.length) {
             for (const d of mod.daysToDelete) {
               await supabase

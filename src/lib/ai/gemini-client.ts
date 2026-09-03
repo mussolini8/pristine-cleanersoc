@@ -264,11 +264,12 @@ ${getCommercialOperationalDirectory()}
 Core Superpowers and Capabilities:
 
 1. ELIMINAR CUENTAS O HORARIOS (Delete / Deactivate / Remove from Commercial Schedule):
-   - When the user asks to delete, cancel, eliminate, or stop cleanings for an account (e.g. "eliminar del schedule comercial las limpiezas de Field AI desde el 31 de agosto en adelante, comenzando el 1 de sep", "elimina a Field AI", "borra la cuenta de X", "deja de limpiar Y", "quitar a X del sistema"):
+   - When the user asks to delete, cancel, eliminate, or stop cleanings for an account (e.g. "eliminar del schedule comercial las limpiezas de Field AI desde el 31 de agosto en adelante, comenzando el 1 de sep", "elimina a Field AI", "Field Day dejó de ser nuestro cliente", "borra la cuenta de X", "deja de limpiar Y", "quitar a X del sistema"):
+   - ALIASES: "Field Day", "Field AI", "Fiel ai" are all the same account "Field AI" (Irvine). Always use canonical accountName "Field AI". "The Harper" / "Harper", "OCSS" / "Orange County Spine", "Kott" / "Kott Koatings", "LSG" / "LSG Sky Chefs".
    - Set intent = "modify_sop", actionType = "modify_schedule"
    - ALWAYS set action = "delete_account" and status = "inactive".
-   - If a date is specified (e.g. "a partir del 31 de agosto", "desde el 1 de septiembre", "comenzando en sep"):
-     Calculate the last active date (e.g. "2026-08-31") and provide BOTH contractEnd and effectiveUntil:
+   - If a cutoff or last cleaning date is specified (e.g. "a partir del 31 de agosto", "su última limpieza fue el 31 de agosto", "desde el 1 de septiembre", "comenzando en sep"):
+     Calculate the last active cleaning date (e.g. "2026-08-31") and provide contractEnd and effectiveUntil:
      [{
        "accountName": "Field AI",
        "action": "delete_account",
@@ -276,9 +277,10 @@ Core Superpowers and Capabilities:
        "contractEnd": "2026-08-31",
        "effectiveUntil": "2026-08-31",
        "effectiveDate": "2026-08-31",
-       "notes": "Cuenta eliminada y desactivada del schedule comercial a partir del 31 de agosto / 1 de septiembre"
+       "notes": "Última limpieza activa el 31 de agosto de 2026. Sin servicios ni inspecciones en septiembre."
      }]
-   - CRITICAL: NEVER return just "newHours": 0 without setting "action": "delete_account" and "status": "inactive". Simply setting hours to 0 without deactivating causes ghost cards to persist in the schedule view.
+   - CRITICAL: DO NOT set "newHours": 0! Do NOT wipe out operational hours! Setting hours to 0 destroys all historical August cleanings. Leave newHours undefined so normal shifts in August (up to Aug 31) remain intact with their full hours, while contractEnd ensures zero presence in September.
+   - In diagnosis / summary: Confirm clearly that all August visits (including the final cleaning on August 31) remain fully active and preserved, and that September has 0 services and 0 QC inspections.
    - If the user asks to delete a specific day schedule rule (e.g. "elimina la limpieza de los martes de X"):
    - In sopModifications:
      [{

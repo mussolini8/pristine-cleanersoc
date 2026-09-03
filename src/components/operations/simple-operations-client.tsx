@@ -1009,6 +1009,8 @@ export function SimpleOperationsClient({
             pricing_model: imp.pricing_model ?? "Flat Rate",
             supplies_notes: imp.supplies_notes ?? null,
             payment_method: imp.payment_method ?? "ACH",
+            contract_start: imp.contract_start ?? null,
+            contract_end: imp.contract_end ?? null,
           } as CommercialAccountRow);
         }
       }
@@ -3670,15 +3672,23 @@ export function SimpleOperationsClient({
 
                 await supabase.from("commercial_accounts").update({
                   contract_end: effectiveUntil,
-                  hours: 0,
                   supplies_notes: mod.notes ? `${acc.supplies_notes ? `${acc.supplies_notes}; ` : ""}${mod.notes}` : acc.supplies_notes,
                 }).eq("id", acc.id);
 
                 await supabase.from("commercial_account_schedule_rules").update({
-                  active: false,
+                  active: true,
                   effective_until: effectiveUntil,
                   effective_end_date: effectiveUntil,
                 }).eq("commercial_account_id", acc.id);
+
+                // Clean up any future QC schedules after effectiveUntil
+                try {
+                  await supabase
+                    .from("qc_inspection_schedules")
+                    .delete()
+                    .ilike("account_name", `%${acc.name}%`)
+                    .gte("specific_date", effectiveUntil);
+                } catch {}
 
                 try {
                   const raw = localStorage.getItem("pristine_deactivated_accounts") || "[]";
@@ -3690,11 +3700,15 @@ export function SimpleOperationsClient({
                   const entry = { name: acc.name, contractEnd: effectiveUntil };
                   if (existingIdx >= 0) deactList[existingIdx] = entry;
                   else deactList.push(entry);
+                  if (nameNorm.includes("field")) {
+                    deactList.push({ name: "Field AI", contractEnd: effectiveUntil });
+                    deactList.push({ name: "Field Day", contractEnd: effectiveUntil });
+                  }
                   localStorage.setItem("pristine_deactivated_accounts", JSON.stringify(deactList));
                 } catch {}
 
                 changesCount++;
-                changeMessages.push(`Cuenta eliminada del schedule: ${acc.name} (efectivo desde: ${effectiveUntil})`);
+                changeMessages.push(`Cuenta finalizada el ${effectiveUntil}: ${acc.name} (visitas previas preservadas, desprogramada en septiembre)`);
                 continue;
               }
 
@@ -3869,19 +3883,22 @@ export function SimpleOperationsClient({
 
         // A. Group matching commercialScheduleRules by account
         for (const rule of commercialScheduleRules || []) {
-          if (rule.active === false) continue;
           if (Number(rule.day_of_week) !== dayOfWeek) continue;
 
           const acc = commercialAccounts.find((a) => a.id === rule.commercial_account_id);
 
-          // Check if account itself is inactive, cancelled, or passed its contract end date
-          if (acc) {
-            if ((acc as any).status === "inactive" || (acc as any).status === "cancelled" || (acc as any).active === false) continue;
-            if (acc.contract_end && dayKey > acc.contract_end) continue;
-          }
-
           const effectiveFrom = rule.effective_from ?? rule.effective_start_date ?? acc?.contract_start;
           const effectiveUntil = rule.effective_until ?? rule.effective_end_date ?? acc?.contract_end;
+
+          // If a rule is marked active: false, only skip it if it has no effectiveUntil or dayKey is strictly after effectiveUntil
+          if (rule.active === false && (!effectiveUntil || dayKey > effectiveUntil)) continue;
+
+          // Check if account passed its contract end date
+          if (acc) {
+            if (acc.contract_end && dayKey > acc.contract_end) continue;
+            if (!acc.contract_end && ((acc as any).status === "inactive" || (acc as any).status === "cancelled" || (acc as any).active === false)) continue;
+          }
+
           if (effectiveFrom && dayKey < effectiveFrom) continue;
           if (effectiveUntil && dayKey > effectiveUntil) continue;
           if (!commercialRuleMatchesDate(rule, dayKey)) continue;
@@ -3935,14 +3952,22 @@ export function SimpleOperationsClient({
         }
 
         // Retrieve local deactivations for instant client-side updates
-        let localDeactivated: string[] = [];
+        const localDeactivatedMap = new Map<string, string | null>();
         try {
           const raw = typeof window !== "undefined" ? localStorage.getItem("pristine_deactivated_accounts") : null;
           if (raw) {
             const parsed = JSON.parse(raw);
-            localDeactivated = parsed.map((item: any) =>
-              (typeof item === "string" ? item : item.name || "").toLowerCase().trim()
-            );
+            for (const item of parsed) {
+              const name = (typeof item === "string" ? item : item.name || "").toLowerCase().trim();
+              const cutoff = typeof item === "object" && item ? (item.contractEnd || item.effectiveUntil || null) : null;
+              if (name) {
+                localDeactivatedMap.set(name, cutoff);
+                if (name.includes("field")) {
+                  localDeactivatedMap.set("field ai", cutoff);
+                  localDeactivatedMap.set("field day", cutoff);
+                }
+              }
+            }
           }
         } catch {}
 
@@ -3951,8 +3976,11 @@ export function SimpleOperationsClient({
           const impKey = imp.name.toLowerCase().trim();
           if (matchedAccountIds.has(imp.id) || matchedAccountIds.has(imp.name) || matchedAccountIds.has(impKey)) continue;
 
-          // Check if disabled in localStorage
-          if (localDeactivated.includes(impKey)) continue;
+          // Check if disabled in localStorage with date cutoff
+          const localCutoff = localDeactivatedMap.get(impKey);
+          if (localCutoff !== undefined) {
+            if (!localCutoff || dayKey > localCutoff) continue;
+          }
 
           // Check if exists in commercialAccounts with inactive status or passed contract_end
           const matchedDbAccount = commercialAccounts.find(
@@ -3963,13 +3991,13 @@ export function SimpleOperationsClient({
               impKey.includes(a.name.toLowerCase().trim())
           );
           if (matchedDbAccount) {
-            if ((matchedDbAccount as any).status === "inactive" || (matchedDbAccount as any).status === "cancelled" || (matchedDbAccount as any).active === false) {
-              continue;
-            }
             if (matchedDbAccount.contract_end && dayKey > matchedDbAccount.contract_end) {
               continue;
             }
-            if (matchedDbAccount.hours === 0) {
+            if (!matchedDbAccount.contract_end && ((matchedDbAccount as any).status === "inactive" || (matchedDbAccount as any).status === "cancelled" || (matchedDbAccount as any).active === false)) {
+              continue;
+            }
+            if (matchedDbAccount.hours === 0 && (!imp.hours || imp.hours === 0)) {
               continue;
             }
           }

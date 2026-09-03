@@ -57,7 +57,7 @@ export async function loadOperationsData(supabase: SupabaseClient) {
     supabase.from("residential_weekly_payment_rows").select(RESIDENTIAL_WEEKLY_PAYMENT_ROW_COLUMNS).is("deleted_at", null).order("work_date", { ascending: true }).order("created_at", { ascending: true }).limit(2000),
     supabase.from("staff_members").select(STAFF_COLUMNS).is("deleted_at", null).order("name").limit(700),
     supabase.from("commercial_accounts").select(COMMERCIAL_ACCOUNT_COLUMNS).order("name").limit(1000),
-    supabase.from("commercial_account_schedule_rules").select(COMMERCIAL_SCHEDULE_COLUMNS).eq("active", true).order("day_of_week").limit(2000),
+    supabase.from("commercial_account_schedule_rules").select(COMMERCIAL_SCHEDULE_COLUMNS).or("active.eq.true,effective_until.not.is.null,effective_end_date.not.is.null").order("day_of_week").limit(2000),
     supabase.from("commercial_hours_entries").select(COMMERCIAL_HOURS_COLUMNS).is("deleted_at", null).order("work_date", { ascending: true }).limit(2000),
   ]);
 
