@@ -7617,29 +7617,7 @@ export const augustCommercialBookings: ServiceBookingRow[] = [
     status: "completed",
     notes: "Visita 2 de 2 en agosto (Unassigned). Every 14 days (Thursday)",
   }),
-  // LA Model Unit Cleaning (2026-08-11)
-  computeBookingFormulas({
-    id: "comm-aug-la-model-01",
-    date: "2026-08-11",
-    clientName: "LA Model Unit Cleaning",
-    service: "Commercial Cleaning",
-    serviceCategory: "Commercial Cleaning",
-    frequency: "As needed (Events)",
-    city: "Los Angeles",
-    cleanerTeam: "Sandra Hernandez",
-    subTotal: 340,
-    salesTax: 0,
-    processingFee: 0,
-    tip: 0,
-    teamEarningsWithoutTips: 170,
-    merchantFee: 0,
-    stripeFee: 0,
-    durationHours: 3,
-    actualHours: 3,
-    bookedBy: "Commercial Contract",
-    status: "completed",
-    notes: "Event clean (Sandra Hernandez). $170.00 labor amount per service",
-  }),
+
   // Renewable Farms — Evento #1 (2026-08-08)
   computeBookingFormulas({
     id: "comm-aug-renewable-farms-01",
@@ -10157,29 +10135,7 @@ export const augustSalesTrackerBookings: ServiceBookingRow[] = [
     status: "completed",
     notes: "Visita 7 de 21 en agosto (Lucia Portillo). Tuesday 6:00 AM",
   }),
-  // LA Model Unit Cleaning (2026-08-11)
-  computeBookingFormulas({
-    id: "comm-aug-la-model-01",
-    date: "2026-08-11",
-    clientName: "LA Model Unit Cleaning",
-    service: "Commercial Cleaning",
-    serviceCategory: "Commercial Cleaning",
-    frequency: "As needed (Events)",
-    city: "Los Angeles",
-    cleanerTeam: "Sandra Hernandez",
-    subTotal: 340,
-    salesTax: 0,
-    processingFee: 0,
-    tip: 0,
-    teamEarningsWithoutTips: 170,
-    merchantFee: 0,
-    stripeFee: 0,
-    durationHours: 3,
-    actualHours: 3,
-    bookedBy: "Commercial Contract",
-    status: "completed",
-    notes: "Event clean (Sandra Hernandez). $170.00 labor amount per service",
-  }),
+
   // 08/12/2026 — Britt Cottrill — Standard Clean
   computeBookingFormulas({
     id: "aug-11438",

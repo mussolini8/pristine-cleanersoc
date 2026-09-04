@@ -31,7 +31,6 @@ export function resolveCanonicalAccountName(name: string): string {
   if (norm.includes("swing easy") || norm.includes("swing golf")) return "Swing Easy Golf Club";
   if (norm.includes("green leaf") || norm.includes("greenleaf")) return "Green Leaf Botanicals";
   if (norm.includes("sierra")) return "Sierra Analytical";
-  if (norm.includes("la model") || norm.includes("model unit")) return "LA Model Unit Cleaning";
   if (norm.includes("kush")) return "Kush Fine Art";
   if (norm.includes("posh pooch") || norm.includes("pooch")) return "Posh Pooch";
   if (norm.includes("renewable")) return "Renewable Farms";
@@ -40,10 +39,8 @@ export function resolveCanonicalAccountName(name: string): string {
   if (norm.includes("ilg westlake")) return "ILG Westlake";
   if (norm.includes("ilg valencia")) return "ILG Valencia Office";
   if (norm.includes("elevate aerial") || norm.includes("elevate hb")) return "Elevate Aerial HB";
-  if (norm.includes("revive")) return "Revive Real Estate";
   if (norm.includes("vntr")) return "VNTR Fitness";
   if (norm.includes("miwa")) return "MIWA Office";
-  if (norm.includes("flex fitness") || norm.includes("flex oc")) return "Flex Fitness OC";
   if (norm.includes("13demarzo") || norm.includes("13 de marzo")) return "13demarzo";
   if (norm.includes("globar")) return "GLOBAR Medspa";
   if (norm.includes("cornerstone")) return "Cornerstone Rehab";
