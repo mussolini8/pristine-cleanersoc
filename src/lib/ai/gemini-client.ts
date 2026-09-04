@@ -83,8 +83,19 @@ export type SopCopilotResponse = {
     lockboxCode?: string;
     gateCode?: string;
     keyLocation?: string;
+    specialInstructions?: string;
     otherNotes?: string;
   };
+
+  accessUpdates?: {
+    accountName: string;
+    alarmCode?: string;
+    lockboxCode?: string;
+    gateCode?: string;
+    keyLocation?: string;
+    specialInstructions?: string;
+    otherNotes?: string;
+  }[];
 
   scheduleConflictWarning?: {
     hasConflict: boolean;
@@ -166,14 +177,22 @@ export type SopCopilotResponse = {
     cleanerName?: string;
     newHours?: number;
     newDays?: string[];
+    daysOfWeek?: number[];
     daysToDelete?: number[];
-    action?: "update" | "delete_account" | "delete_rule" | "reschedule" | "change_cleaner";
+    action?: "update" | "delete_account" | "delete_rule" | "reschedule" | "change_cleaner" | "activate_account" | "access_update";
     newPricing?: number;
     newCleanerCost?: number;
+    ratePerService?: number; // Labor Amount Per Service (including insurances)
+    lockboxCode?: string;
+    alarmCode?: string;
+    specialInstructions?: string;
     status?: "active" | "inactive" | "cancelled" | "proposal";
+    contractStart?: string; // YYYY-MM-DD
     contractEnd?: string; // YYYY-MM-DD
     effectiveUntil?: string; // YYYY-MM-DD
     effectiveDate?: string; // YYYY-MM-DD
+    anchorDate?: string; // YYYY-MM-DD
+    frequency?: string;
     notes?: string;
   }[];
 
@@ -231,6 +250,7 @@ export type SopCopilotResponse = {
     pricingModel?: string; // "Flat Rate", "per Service", "Hourly"
     cleanerPayType?: "flat" | "hourly";
     cleanerRate?: number;
+    ratePerService?: number; // Labor Amount Per Service (including insurances)
     frequency?: string;
   }[];
 
@@ -250,7 +270,7 @@ export function getCommercialOperationalDirectory(): string {
           })`
       )
       .join(", ");
-    return `- "${acc.name}" (${acc.city}) | Cleaner: "${acc.cleaner_name || "Sin asignar"}" | Horas: ${acc.hours}h | Frecuencia: ${acc.frequency} | Turnos: [${rules}]`;
+    return `- "${acc.name}" (${acc.city}) | Cleaner: "${acc.cleaner_name || "Sin asignar"}" | Horas: ${acc.hours}h | Frecuencia: ${acc.frequency} | Labor/Serv: ${acc.rate_per_service != null ? `$${acc.rate_per_service}` : "N/A"} | Turnos: [${rules}]`;
   });
   return lines.join("\n");
 }
@@ -417,12 +437,18 @@ Core Superpowers and Capabilities:
      }
 
 11. ACCESS CODE, ALARM & LOCKBOX UPDATES (Actualización de Códigos de Acceso, Alarmas y Lockbox):
-   - When access details change (e.g. "Cambiaron el código de alarma de MOXI3 a 9988 y el lockbox a 4321"):
+   - When access details or codes are provided (e.g. "Para Moxi3 costa mesa: Lockbox code 3400. Alarm code: 1480. Saturday training room and 1st/3rd Sat pilates mats deep clean (+2h)"):
+   - Set intent = "modify_sop"
    - Populate accessUpdate:
      {
        "accountName": "MOXI3 Costa Mesa",
-       "alarmCode": "9988",
-       "lockboxCode": "4321"
+       "alarmCode": "1480",
+       "lockboxCode": "3400",
+       "specialInstructions": "Saturday training room and 1st/3rd Sat pilates mats deep clean (+2h)",
+       "otherNotes": "Lockbox: 3400 | Alarma: 1480 | Saturday training room and 1st/3rd Sat pilates mats deep clean (+2h)"
+     }
+   - Also include in sopModifications with lockboxCode: "3400", alarmCode: "1480", notes: "Lockbox: 3400, Alarma: 1480".
+
 12. INGEST SCHEDULE FROM IMAGE (Ingresar Schedule desde Captura de Pantalla):
    - When the user uploads a screenshot of CleanGuru, BookingKoala, or any cleaning management system:
    - Set actionType = "ingest_schedule"
@@ -442,15 +468,93 @@ Core Superpowers and Capabilities:
    - When the user asks to remove duplicate employees, fix double staff, or remove unneeded cleaners (e.g. "no quiero doble empleado, limpia los duplicados", "elimina a john ivanpal"):
    - Populate cleanupStaffDuplicates with enabled = true and any excluded cleaner names.
 
-16. UPDATE COMMERCIAL ACCOUNT FINANCIALS (Actualizar Precios, Costos y Modelo de Cobro):
-   - When pricing, cleaner pay, or pricing model changes for any account (e.g. "Cornerstone ahora es $2,850 al mes y costo $1,943.50 flat rate"):
-   - Populate updateAccountFinancials with the exact new revenue, cost, and pricing model.
+16. UPDATE COMMERCIAL ACCOUNT FINANCIALS & LABOR PER SERVICE (Actualizar Precios, Costos y Labor Amount Per Service):
+   - When the user pastes or provides labor rates per service, whether for one account or a long list of 30+ accounts (e.g. "Mama's Restaurant $200.00", "Miracle Minds $63.25", "ese monto es Labor Amount Per Service (including insurances)", "POR Servicio"):
+   - Set intent = "modify_sop", actionType = "update_financials"
+   - Populate updateAccountFinancials for EACH AND EVERY account specified:
+     [
+       {
+         "accountName": "Mama's Restaurant",
+         "ratePerService": 200.00,
+         "cleanerPayType": "flat",
+         "pricingModel": "per Service"
+       },
+       {
+         "accountName": "Swing Easy Golf Club",
+         "ratePerService": 69.00,
+         "cleanerPayType": "flat",
+         "pricingModel": "per Service"
+       }
+     ]
+   - Always match canonical account names from the Directory.
+   - In summary: confirm all accounts received their exact labor amount per service.
+
+17. SCHEDULE CADENCE, FREQUENCY, DAYS OF WEEK & REACTIVATION (Días de Limpieza, Frecuencia y Activación):
+   - When the user specifies days of the week, frequencies, or says an account is missing (e.g. "Miracle Minds tiene agendados 3 dais a la semana, revisa las capturas ahi esta todo", "no veo esta cuenta en ningunlado: University Park Dental Irvine per Service - 2.25 $51.75 Every 2 weeks"):
+   - Set intent = "modify_sop", actionType = "modify_schedule"
+   - Populate sopModifications:
+     [
+       {
+         "accountName": "Miracle Minds",
+         "action": "update",
+         "status": "active",
+         "frequency": "3x per week",
+         "newDays": ["martes", "jueves", "viernes"],
+         "daysOfWeek": [2, 4, 5],
+         "newHours": 2.5,
+         "ratePerService": 63.25,
+         "notes": "3 días a la semana (Martes, Jueves, Viernes) $63.25/servicio"
+       },
+       {
+         "accountName": "University Park Dental",
+         "action": "activate_account",
+         "status": "active",
+         "contractEnd": "2027-12-31",
+         "frequency": "Every 2 weeks",
+         "newHours": 2.25,
+         "ratePerService": 51.75,
+         "anchorDate": "2026-09-14",
+         "notes": "Cuenta activa en el schedule cada dos semanas (Biweekly) comenzando el 14 de sep a $51.75/servicio"
+       }
+     ]
 
 Return ONLY a valid JSON object matching this schema:
 {
   "intent": "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query",
   "actionType": "occurrence_override" | "add_staff" | "modify_schedule" | "quote_commercial" | "dispatch_sms_quo" | "cleaner_audit" | "booking_ingest" | "ingest_schedule" | "event_booking" | "qc_schedule" | "cleanup_staff" | "update_financials" | "general_query",
   "summary": "Clear Spanish summary explaining what action was identified and what is proposed.",
+  "accessUpdate": {
+    "accountName": "string",
+    "alarmCode": "string",
+    "lockboxCode": "string",
+    "gateCode": "string",
+    "keyLocation": "string",
+    "specialInstructions": "string",
+    "otherNotes": "string"
+  },
+  "accessUpdates": [
+    {
+      "accountName": "string",
+      "alarmCode": "string",
+      "lockboxCode": "string",
+      "gateCode": "string",
+      "keyLocation": "string",
+      "specialInstructions": "string",
+      "otherNotes": "string"
+    }
+  ],
+  "updateAccountFinancials": [
+    {
+      "accountName": "string",
+      "revenue": number,
+      "cost": number,
+      "pricingModel": "per Service" | "Flat Rate" | "Hourly",
+      "cleanerPayType": "flat" | "hourly",
+      "cleanerRate": number,
+      "ratePerService": number,
+      "frequency": "string"
+    }
+  ],
   "ingestedSchedule": {
     "clientName": "string",
     "buildingName": "string",
@@ -545,8 +649,17 @@ Return ONLY a valid JSON object matching this schema:
       "cleanerName": "string",
       "newHours": number,
       "newDays": ["string"],
+      "daysOfWeek": [2, 4, 5],
       "newPricing": number,
       "newCleanerCost": number,
+      "ratePerService": number,
+      "lockboxCode": "string",
+      "alarmCode": "string",
+      "action": "update" | "delete_account" | "delete_rule" | "reschedule" | "change_cleaner" | "activate_account",
+      "status": "active" | "inactive",
+      "anchorDate": "YYYY-MM-DD",
+      "frequency": "string",
+      "contractEnd": "YYYY-MM-DD",
       "notes": "string"
     }
   ],
@@ -683,6 +796,11 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
   const staffModifications = extractSubArray(cleaned, "staffModifications");
   const absenceRange = extractSubObject(cleaned, "absenceRange");
   const accessUpdate = extractSubObject(cleaned, "accessUpdate");
+  const accessUpdates = extractSubArray(cleaned, "accessUpdates");
+  const updateAccountFinancials = extractSubArray(cleaned, "updateAccountFinancials");
+  const eventBookings = extractSubArray(cleaned, "eventBookings");
+  const qcScheduleBatch = extractSubArray(cleaned, "qcScheduleBatch");
+  const cleanupStaffDuplicates = extractSubObject(cleaned, "cleanupStaffDuplicates");
   const commercialQuote = extractSubObject(cleaned, "commercialQuote");
   const dispatchSmsQuo = extractSubObject(cleaned, "dispatchSmsQuo");
   const cleanerAudit = extractSubObject(cleaned, "cleanerAudit");
@@ -700,6 +818,11 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
     staffModifications ||
     absenceRange ||
     accessUpdate ||
+    accessUpdates ||
+    updateAccountFinancials ||
+    eventBookings ||
+    qcScheduleBatch ||
+    cleanupStaffDuplicates ||
     commercialQuote ||
     dispatchSmsQuo ||
     cleanerAudit ||
@@ -720,6 +843,11 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
       staffModifications: staffModifications || undefined,
       absenceRange: absenceRange || undefined,
       accessUpdate: accessUpdate || undefined,
+      accessUpdates: accessUpdates || undefined,
+      updateAccountFinancials: updateAccountFinancials || undefined,
+      eventBookings: eventBookings || undefined,
+      qcScheduleBatch: qcScheduleBatch || undefined,
+      cleanupStaffDuplicates: cleanupStaffDuplicates || undefined,
       commercialQuote: commercialQuote || undefined,
       dispatchSmsQuo: dispatchSmsQuo || undefined,
       cleanerAudit: cleanerAudit || undefined,

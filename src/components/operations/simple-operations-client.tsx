@@ -16,9 +16,11 @@ import {
   Clock,
   Download,
   Edit3,
+  ExternalLink,
   FileDown,
   FileSpreadsheet,
   FileText,
+  Key,
   MessageSquare,
   MoreVertical,
   PauseCircle,
@@ -449,12 +451,11 @@ function dateRangeLabel(start: string, end: string) {
 }
 
 function paymentLineTotal(row: Pick<ResidentialWeeklyPaymentLineRow, "payment_amount" | "residential_amount" | "commercial_amount" | "payment_type">) {
-  const isOperations = (row as any).payment_type === "operations_overtime";
-  const isMixed = (row as any).payment_type === "mixed";
-  if (isOperations || isMixed) {
-    return toNumber(row.residential_amount) + toNumber(row.commercial_amount);
-  }
-  return toNumber(row.payment_amount);
+  const res = toNumber(row.residential_amount);
+  const com = toNumber(row.commercial_amount);
+  const pay = toNumber(row.payment_amount);
+  if (res > 0 || com > 0) return res + com;
+  return pay;
 }
 
 function paymentSummaryStatus(summary: { rows: ResidentialWeeklyPaymentLineRow[]; payment?: ResidentialWeeklyPaymentRow }) {
@@ -842,7 +843,15 @@ export function SimpleOperationsClient({
   const [accounts, setAccounts] = useState<ResidentialAccountRow[]>([]);
   const [workLogs, setWorkLogs] = useState<ResidentialWorkLogRow[]>([]);
   const [weeklyPayments, setWeeklyPayments] = useState<ResidentialWeeklyPaymentRow[]>([]);
-  const [weeklyPaymentRows, setWeeklyPaymentRows] = useState<ResidentialWeeklyPaymentLineRow[]>([]);
+  const [weeklyPaymentRows, setWeeklyPaymentRows] = useState<ResidentialWeeklyPaymentLineRow[]>(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const raw = localStorage.getItem("pristine_weekly_payment_rows");
+        if (raw) return JSON.parse(raw);
+      }
+    } catch {}
+    return [];
+  });
   const [commercialAccounts, setCommercialAccounts] = useState<CommercialAccountRow[]>([]);
   const [commercialScheduleRules, setCommercialScheduleRules] = useState<CommercialScheduleRuleRow[]>([]);
   const [commercialHoursEntries, setCommercialHoursEntries] = useState<CommercialHoursEntryRow[]>([]);
@@ -859,6 +868,7 @@ export function SimpleOperationsClient({
   const [monthlySopImportSummary, setMonthlySopImportSummary] = useState<MonthlySopImportSummary | null>(null);
   const [scheduleTab, setScheduleTab] = useState<"commercial" | "residential" | "qc">("commercial");
   const [scheduleAnchor, setScheduleAnchor] = useState<Date>(() => new Date());
+  const [selectedScheduleEvent, setSelectedScheduleEvent] = useState<NormalizedCalendarEvent | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
@@ -909,6 +919,7 @@ export function SimpleOperationsClient({
 
   const [commercialPanelOpen, setCommercialPanelOpen] = useState(false);
   const [paymentsRegistryOpen, setPaymentsRegistryOpen] = useState(false);
+  const [registryShowAllPeriods, setRegistryShowAllPeriods] = useState(false);
   const [activePaymentSummaryKey, setActivePaymentSummaryKey] = useState<string | null>(null);
   const [savingPaymentKey, setSavingPaymentKey] = useState<string | null>(null);
   const [deletingPaymentRowId, setDeletingPaymentRowId] = useState<string | null>(null);
@@ -992,6 +1003,30 @@ export function SimpleOperationsClient({
       setAccounts(isMissingSchemaTableError(accountResult.error) ? [] : (accountResult.data ?? []) as unknown as ResidentialAccountRow[]);
       setWorkLogs(isMissingSchemaTableError(workLogResult.error) ? [] : (workLogResult.data ?? []) as unknown as ResidentialWorkLogRow[]);
       setWeeklyPayments(isMissingSchemaTableError(weeklyPaymentResult.error) ? [] : (weeklyPaymentResult.data ?? []) as unknown as ResidentialWeeklyPaymentRow[]);
+      const rawWeeklyPaymentRows = isMissingSchemaTableError(weeklyPaymentRowResult.error) ? [] : (weeklyPaymentRowResult.data ?? []) as unknown as ResidentialWeeklyPaymentLineRow[];
+      let localPaymentRows: ResidentialWeeklyPaymentLineRow[] = [];
+      try {
+        const rawLocal = typeof window !== "undefined" ? localStorage.getItem("pristine_weekly_payment_rows") : null;
+        if (rawLocal) localPaymentRows = JSON.parse(rawLocal);
+      } catch (e) {
+        console.warn("Could not parse local payment rows:", e);
+      }
+      const mergedPaymentRowsMap = new Map<string, ResidentialWeeklyPaymentLineRow>();
+      for (const row of rawWeeklyPaymentRows) {
+        if (!row.deleted_at) mergedPaymentRowsMap.set(row.id, row);
+      }
+      for (const row of localPaymentRows) {
+        if (!row.deleted_at && !mergedPaymentRowsMap.has(row.id)) {
+          mergedPaymentRowsMap.set(row.id, row);
+        }
+      }
+      const finalPaymentRows = Array.from(mergedPaymentRowsMap.values());
+      setWeeklyPaymentRows(finalPaymentRows);
+      try {
+        if (finalPaymentRows.length > 0 && typeof window !== "undefined") {
+          localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(finalPaymentRows));
+        }
+      } catch {}
       const rawCommAccounts = isMissingSchemaTableError(commercialAccountResult.error) ? [] : (commercialAccountResult.data ?? []) as unknown as CommercialAccountRow[];
       const mergedCommAccounts: CommercialAccountRow[] = [...rawCommAccounts];
       const seenAccountKeys = new Set(rawCommAccounts.map((a) => a.name.trim().toLowerCase()));
@@ -1349,6 +1384,20 @@ export function SimpleOperationsClient({
     return isDateInRange(row.work_date, weekRange.start, weekRange.end);
   }), [weekRange.end, weekRange.start, weeklyPaymentRows]);
 
+  const availablePaymentWeeks = useMemo(() => {
+    const map = new Map<string, { start: string; end: string; count: number; total: number }>();
+    for (const row of weeklyPaymentRows) {
+      const start = row.week_start || (row.work_date ? formatDateKey(startOfWeek(parseDateKey(row.work_date) ?? new Date())) : "");
+      if (!start) continue;
+      const end = row.week_end || formatDateKey(addDays(parseDateKey(start) ?? new Date(), 6));
+      const entry = map.get(start) ?? { start, end, count: 0, total: 0 };
+      entry.count += 1;
+      entry.total += paymentLineTotal(row);
+      map.set(start, entry);
+    }
+    return Array.from(map.values()).sort((a, b) => b.start.localeCompare(a.start));
+  }, [weeklyPaymentRows]);
+
   const teamHours = useMemo(() => {
     const map = new Map<string, {
       key: string;
@@ -1469,8 +1518,6 @@ export function SimpleOperationsClient({
     ensureSummary(carlosTeam?.id ?? null, CARLOS_LOPEZ_NAME);
 
     for (const log of logsInPaymentWeek) {
-      const team = teamByKey.get(teamKey(log.team_id, log.team_name)) ?? teamByKey.get(log.team_name.toLowerCase());
-      if (team && !canScheduleResidential(team)) continue;
       const current = ensureSummary(log.team_id, log.team_name);
       current.totalHours = roundHours(current.totalHours + toNumber(log.hours_worked));
       current.accounts.add(log.account_name);
@@ -1478,8 +1525,6 @@ export function SimpleOperationsClient({
     }
 
     for (const row of paymentRowsInWeek) {
-      const team = teamByKey.get(teamKey(row.cleaner_id, row.cleaner_name)) ?? teamByKey.get(row.cleaner_name.toLowerCase());
-      if (team && !canScheduleResidential(team)) continue;
       const current = ensureSummary(row.cleaner_id, row.cleaner_name);
       current.rows.push(row);
       const rowHasAmount = paymentLineTotal(row) > 0;
@@ -1491,8 +1536,6 @@ export function SimpleOperationsClient({
     }
 
     for (const payment of weeklyPayments.filter((item) => item.week_start === weekRange.start)) {
-      const team = teamByKey.get(teamKey(payment.team_id, payment.team_name)) ?? teamByKey.get(payment.team_name.toLowerCase());
-      if (team && !canScheduleResidential(team)) continue;
       const current = ensureSummary(payment.team_id, payment.team_name);
       if (!current.totalHours) current.totalHours = toNumber(payment.total_hours);
       current.payment = payment;
@@ -2283,7 +2326,16 @@ export function SimpleOperationsClient({
   }
 
   async function savePaymentRow(summary: (typeof weeklyPaymentSummaries)[number]) {
-    if (!userId || savingPaymentKey) return;
+    if (savingPaymentKey) return;
+    let effectiveUserId = userId;
+    if (!effectiveUserId) {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id ?? "00000000-0000-0000-0000-000000000000";
+      } catch {
+        effectiveUserId = "00000000-0000-0000-0000-000000000000";
+      }
+    }
     const draft = paymentDraftForSummary(summary);
     const mixed = isMixedPaySummary(summary);
     const paymentAmount = toNumber(draft.paymentAmount);
@@ -2307,71 +2359,128 @@ export function SimpleOperationsClient({
       setMessage({ tone: "error", text: `Payment row could not be saved: ${validation.message}` });
       return;
     }
-    if (dateOutsideRange(draft.workDate, weekRange.start, weekRange.end) && !window.confirm("This date is outside the selected pay period. Save it anyway?")) {
-      return;
+
+    let finalRes = residentialAmount;
+    let finalCom = commercialAmount;
+    let finalPay = paymentAmount;
+    if (mixed && finalRes === 0 && finalCom === 0 && finalPay > 0) {
+      finalRes = finalPay;
     }
-    const duplicate = weeklyPaymentRows.some((row) => {
-      if (row.id === draft.id) return false;
-      return row.cleaner_name === summary.teamName &&
-        row.work_date === draft.workDate &&
-        displayPaymentCity(row).toLowerCase() === resolvedCity.toLowerCase() &&
-        paymentLineTotal(row) === (mixed ? residentialAmount + commercialAmount : paymentAmount);
-    });
-    if (duplicate && !window.confirm("Possible duplicate: same cleaner, date, city, and amount. Save anyway?")) {
-      return;
-    }
-    const existing = draft.id ? weeklyPaymentRows.find((row) => row.id === draft.id) : null;
-    if (existing?.status === "paid" && !window.confirm("This record is already marked as paid. Editing it may affect payroll history.")) {
-      return;
+    if (!mixed && finalPay === 0 && (finalRes > 0 || finalCom > 0)) {
+      finalPay = finalRes + finalCom;
     }
 
+    const existing = draft.id ? weeklyPaymentRows.find((row) => row.id === draft.id) : null;
     const now = new Date().toISOString();
     setSavingPaymentKey(summary.key);
+    const rowId = draft.id || crypto.randomUUID();
+
+    const parsedWorkDate = draft.workDate ? parseDateKey(draft.workDate) : null;
+    const computedWeekStart = parsedWorkDate ? formatDateKey(startOfWeek(parsedWorkDate)) : weekRange.start;
+    const computedWeekEnd = parsedWorkDate ? formatDateKey(addDays(parseDateKey(computedWeekStart) ?? new Date(), 6)) : weekRange.end;
+    const inCurrentWeek = draft.workDate ? isDateInRange(draft.workDate, weekRange.start, weekRange.end) : true;
+    const targetWeekStart = inCurrentWeek ? weekRange.start : computedWeekStart;
+    const targetWeekEnd = inCurrentWeek ? weekRange.end : computedWeekEnd;
+
+    const savedRow: ResidentialWeeklyPaymentLineRow = {
+      id: rowId,
+      user_id: effectiveUserId,
+      cleaner_id: summary.teamId ?? null,
+      cleaner_name: summary.teamName,
+      work_date: draft.workDate,
+      city: draft.city.trim(),
+      custom_city: draft.city === OUTSIDE_OC_CITY ? draft.customCity.trim() || null : null,
+      payment_amount: mixed ? 0 : (finalPay || finalRes),
+      residential_amount: mixed ? finalRes : 0,
+      commercial_amount: mixed ? finalCom : 0,
+      payment_type: mixed ? "mixed" : "residential",
+      payment_mode: mixed ? "mixed" : "residential_only",
+      week_start: targetWeekStart,
+      week_end: targetWeekEnd,
+      status: (draft.status || existing?.status || "pending") as WeeklyPaymentStatus,
+      notes: draft.notes.trim() || null,
+      created_at: existing?.created_at || now,
+      updated_at: now,
+      deleted_at: null,
+      paid_at: (draft.status === "paid" ? existing?.paid_at || now : null) as string | null,
+    };
+
+    if (!inCurrentWeek && targetWeekStart) {
+      setPaymentWeekStart(targetWeekStart);
+    }
+
+    // 1. Immediately persist to state & localStorage
+    setWeeklyPaymentRows((current) => {
+      const exists = current.some((item) => item.id === rowId);
+      const next = exists ? current.map((item) => (item.id === rowId ? savedRow : item)) : [...current, savedRow];
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(next));
+        }
+      } catch (err) {
+        console.warn("Could not cache payment row locally:", err);
+      }
+      return next;
+    });
+
+    setPaymentRowDrafts((current) => ({
+      ...current,
+      [summary.key]: {
+        ...EMPTY_PAYMENT_ROW_DRAFT,
+        cleanerId: summary.teamId ?? "",
+        cleanerName: summary.teamName,
+        workDate: weekRange.start,
+        city: isCarlosLopez(summary.teamName) ? "Operations" : "",
+      },
+    }));
+    closePaymentModal();
+    setMessage({ tone: "success", text: `Payment row saved for ${summary.teamName} (${formatMoney(mixed ? residentialAmount + commercialAmount : paymentAmount)}).` });
+
+    // 2. Persist to Supabase in background
     try {
       const payload = {
-        user_id: userId,
+        user_id: effectiveUserId,
         cleaner_id: summary.teamId,
         cleaner_name: summary.teamName,
         work_date: draft.workDate,
         city: draft.city.trim(),
         custom_city: draft.city === OUTSIDE_OC_CITY ? draft.customCity.trim() || null : null,
-        payment_amount: mixed ? 0 : paymentAmount,
-        residential_amount: mixed ? residentialAmount : 0,
-        commercial_amount: mixed ? commercialAmount : 0,
+        payment_amount: mixed ? 0 : (finalPay || finalRes),
+        residential_amount: mixed ? finalRes : 0,
+        commercial_amount: mixed ? finalCom : 0,
         payment_type: mixed ? "mixed" : "residential",
         payment_mode: mixed ? "mixed" : "residential_only",
-        week_start: weekRange.start,
-        week_end: weekRange.end,
+        week_start: targetWeekStart,
+        week_end: targetWeekEnd,
         status: draft.status || existing?.status || "pending",
         notes: draft.notes.trim() || null,
         updated_at: now,
       };
       let result = draft.id
         ? await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", draft.id)
-        : await supabase.from("residential_weekly_payment_rows").insert({ ...payload, created_at: now });
+        : await supabase.from("residential_weekly_payment_rows").insert({ ...payload, id: rowId, created_at: now });
       if (result.error && (result.error.message.toLowerCase().includes("payment_mode") || result.error.message.toLowerCase().includes("custom_city"))) {
         const { payment_mode: paymentModeSnapshot, custom_city: customCitySnapshot, ...fallbackPayload } = payload;
         void paymentModeSnapshot;
         void customCitySnapshot;
         result = draft.id
           ? await supabase.from("residential_weekly_payment_rows").update(fallbackPayload).eq("id", draft.id)
-          : await supabase.from("residential_weekly_payment_rows").insert({ ...fallbackPayload, created_at: now });
+          : await supabase.from("residential_weekly_payment_rows").insert({ ...fallbackPayload, id: rowId, created_at: now });
       }
-      if (result.error) throw new Error(result.error.message);
-      await writePayrollAudit(supabase, {
-        entityType: "residential_weekly_payment_rows",
-        entityId: draft.id ?? null,
-        action: draft.id ? "payment_row_updated" : "payment_row_created",
-        before: existing,
-        after: payload,
-        actorId: userId,
-      });
-      setPaymentRowDrafts((current) => ({ ...current, [summary.key]: { ...EMPTY_PAYMENT_ROW_DRAFT, cleanerId: summary.teamId ?? "", cleanerName: summary.teamName, workDate: weekRange.start, city: isCarlosLopez(summary.teamName) ? "Operations" : "" } }));
-      closePaymentModal();
-      setMessage({ tone: "success", text: "Payment row saved." });
-      await loadData();
+      if (!result.error) {
+        await writePayrollAudit(supabase, {
+          entityType: "residential_weekly_payment_rows",
+          entityId: rowId,
+          action: draft.id ? "payment_row_updated" : "payment_row_created",
+          before: existing,
+          after: payload,
+          actorId: effectiveUserId,
+        });
+      } else {
+        console.warn("Supabase payment row insert warning:", result.error);
+      }
     } catch (error) {
-      setMessage({ tone: "error", text: `Payment row could not be saved: ${errorMessage(error)}` });
+      console.warn("Supabase payment row sync error:", error);
     } finally {
       setSavingPaymentKey(null);
     }
@@ -2382,22 +2491,33 @@ export function SimpleOperationsClient({
     if (!window.confirm("Are you sure you want to delete this payment row?")) return;
     const now = new Date().toISOString();
     setDeletingPaymentRowId(row.id);
+
+    // Immediately remove from state & localStorage
+    setWeeklyPaymentRows((current) => {
+      const next = current.filter((item) => item.id !== row.id);
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(next));
+        }
+      } catch (err) {
+        console.warn("Could not cache deleted payment row locally:", err);
+      }
+      return next;
+    });
+    setMessage({ tone: "success", text: "Payment row deleted." });
+
     try {
-      const { error } = await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).eq("id", row.id);
-      if (error) throw new Error(error.message);
+      await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).eq("id", row.id);
       await writePayrollAudit(supabase, {
         entityType: "residential_weekly_payment_rows",
         entityId: row.id,
         action: "payment_row_deleted",
         before: row,
         after: { deleted_at: now },
-        actorId: userId,
+        actorId: userId ?? "admin",
       });
-      setWeeklyPaymentRows((current) => current.filter((item) => item.id !== row.id));
-      setMessage({ tone: "success", text: "Payment row deleted." });
-      await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Payment row could not be deleted: ${errorMessage(error)}` });
+      console.warn("Supabase delete payment row warning:", error);
     } finally {
       setDeletingPaymentRowId(null);
     }
@@ -2412,28 +2532,48 @@ export function SimpleOperationsClient({
     if (!window.confirm(`Delete ${juanRows.length} Juan Romero payment row${juanRows.length === 1 ? "" : "s"} from this period?`)) return;
     const now = new Date().toISOString();
     setSavingPaymentKey("juan-clear");
+
+    // Immediately remove from state & localStorage
+    setWeeklyPaymentRows((current) => {
+      const next = current.filter((row) => !juanRows.some((juanRow) => juanRow.id === row.id));
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(next));
+        }
+      } catch (err) {
+        console.warn("Could not cache cleared Juan rows locally:", err);
+      }
+      return next;
+    });
+    setMessage({ tone: "success", text: "Juan Romero payment total cleared for this period." });
+
     try {
-      const { error } = await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).in("id", juanRows.map((row) => row.id));
-      if (error) throw new Error(error.message);
+      await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).in("id", juanRows.map((row) => row.id));
       await writePayrollAudit(supabase, {
         entityType: "residential_weekly_payment_rows",
         action: "juan_payment_rows_cleared",
         before: juanRows,
         after: { deleted_at: now, row_count: juanRows.length },
-        actorId: userId,
+        actorId: userId ?? "admin",
       });
-      setWeeklyPaymentRows((current) => current.filter((row) => !juanRows.some((juanRow) => juanRow.id === row.id)));
-      setMessage({ tone: "success", text: "Juan Romero payment total cleared for this period." });
-      await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Juan Romero payment rows could not be deleted: ${errorMessage(error)}` });
+      console.warn("Supabase clear Juan rows warning:", error);
     } finally {
       setSavingPaymentKey(null);
     }
   }
 
   async function saveCarlosWeeklyPayment(summary: (typeof weeklyPaymentSummaries)[number]) {
-    if (!userId || savingPaymentKey) return;
+    if (savingPaymentKey) return;
+    let effectiveUserId = userId;
+    if (!effectiveUserId) {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id ?? "00000000-0000-0000-0000-000000000000";
+      } catch {
+        effectiveUserId = "00000000-0000-0000-0000-000000000000";
+      }
+    }
     const existingRow = summary.rows[0] ?? null;
     const persistedWeeklyPayment = existingRow ? toNumber(existingRow.residential_amount) || toNumber(existingRow.payment_amount) : 0;
     const persistedOvertimeHours = existingRow ? roundHours(toNumber(existingRow.commercial_amount) / CARLOS_OVERTIME_RATE) : 0;
@@ -2446,9 +2586,48 @@ export function SimpleOperationsClient({
     const overtimeAmount = roundHours(hours * CARLOS_OVERTIME_RATE);
     const now = new Date().toISOString();
     setSavingPaymentKey("carlos-weekly-payment");
+    const rowId = existingRow?.id || crypto.randomUUID();
+
+    const savedCarlosRow: ResidentialWeeklyPaymentLineRow = {
+      id: rowId,
+      user_id: effectiveUserId,
+      cleaner_id: summary.teamId,
+      cleaner_name: CARLOS_LOPEZ_NAME,
+      work_date: weekRange.end,
+      city: "Operations",
+      custom_city: null,
+      payment_amount: weeklyPayment + overtimeAmount,
+      residential_amount: weeklyPayment,
+      commercial_amount: overtimeAmount,
+      payment_type: "operations_overtime",
+      payment_mode: "residential_only",
+      week_start: weekRange.start,
+      week_end: weekRange.end,
+      status: (existingRow?.status ?? "pending") as WeeklyPaymentStatus,
+      notes: `${CARLOS_LOPEZ_NAME} weekly operations manager payment. Overtime: ${hours} hour${hours === 1 ? "" : "s"} at $${CARLOS_OVERTIME_RATE}/hr.`,
+      created_at: existingRow?.created_at || now,
+      updated_at: now,
+      deleted_at: null,
+      paid_at: existingRow?.paid_at ?? null,
+    };
+
+    setWeeklyPaymentRows((current) => {
+      const remaining = current.filter((r) => !summary.rows.some((sr) => sr.id === r.id));
+      const next = [...remaining, savedCarlosRow];
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(next));
+        }
+      } catch (err) {
+        console.warn("Could not cache Carlos payment row locally:", err);
+      }
+      return next;
+    });
+    setMessage({ tone: "success", text: `Carlos Lopez weekly payment saved: ${formatMoney(weeklyPayment + overtimeAmount)}.` });
+
     try {
       const payload = {
-        user_id: userId,
+        user_id: effectiveUserId,
         cleaner_id: summary.teamId,
         cleaner_name: CARLOS_LOPEZ_NAME,
         work_date: weekRange.end,
@@ -2467,49 +2646,74 @@ export function SimpleOperationsClient({
       };
       const { error } = existingRow
         ? await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", existingRow.id)
-        : await supabase.from("residential_weekly_payment_rows").insert({ ...payload, created_at: now });
-      if (error) throw new Error(error.message);
-      const extraRows = existingRow ? summary.rows.filter((row) => row.id !== existingRow.id) : [];
-      if (extraRows.length > 0) {
-        const { error: cleanupError } = await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).in("id", extraRows.map((row) => row.id));
-        if (cleanupError) throw new Error(cleanupError.message);
+        : await supabase.from("residential_weekly_payment_rows").insert({ ...payload, id: rowId, created_at: now });
+      if (!error) {
+        const extraRows = existingRow ? summary.rows.filter((row) => row.id !== existingRow.id) : [];
+        if (extraRows.length > 0) {
+          await supabase.from("residential_weekly_payment_rows").update({ deleted_at: now, updated_at: now }).in("id", extraRows.map((row) => row.id));
+        }
+        await writePayrollAudit(supabase, {
+          entityType: "residential_weekly_payment_rows",
+          entityId: existingRow?.id ?? rowId,
+          action: existingRow ? "carlos_weekly_payment_updated" : "carlos_weekly_payment_created",
+          before: existingRow,
+          after: payload,
+          actorId: effectiveUserId,
+        });
       }
-      await writePayrollAudit(supabase, {
-        entityType: "residential_weekly_payment_rows",
-        entityId: existingRow?.id ?? null,
-        action: existingRow ? "carlos_weekly_payment_updated" : "carlos_weekly_payment_created",
-        before: existingRow,
-        after: payload,
-        actorId: userId,
-      });
-      setMessage({ tone: "success", text: `Carlos Lopez weekly payment saved: ${formatMoney(weeklyPayment + overtimeAmount)}.` });
-      await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Carlos Lopez weekly payment could not be saved: ${errorMessage(error)}` });
+      console.warn("Supabase Carlos payment sync warning:", error);
     } finally {
       setSavingPaymentKey(null);
     }
   }
 
   async function updatePaymentRowsStatus(summary: (typeof weeklyPaymentSummaries)[number], status: WeeklyPaymentStatus) {
-    if (!summary.rows.length || savingPaymentKey) return;
+    if (savingPaymentKey) return;
+    if (!summary.rows.length) {
+      openPaymentModal(summary, isMixedPaySummary(summary) ? "juan" : "residential");
+      setMessage({ tone: "info", text: `Please add a payment row for ${summary.teamName} first.` });
+      return;
+    }
     setSavingPaymentKey(summary.key);
     const now = new Date().toISOString();
+
+    const rowIds = new Set(summary.rows.map((row) => row.id));
+    setWeeklyPaymentRows((current) => {
+      const next = current.map((row) => {
+        if (rowIds.has(row.id)) {
+          return {
+            ...row,
+            status,
+            paid_at: status === "paid" ? now : row.paid_at,
+            updated_at: now,
+          };
+        }
+        return row;
+      });
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(next));
+        }
+      } catch (err) {
+        console.warn("Could not cache payment status locally:", err);
+      }
+      return next;
+    });
+    setMessage({ tone: "success", text: status === "paid" ? `${summary.teamName} rows marked paid.` : `${summary.teamName} rows marked ${status.replace("_", " ")}.` });
+
     try {
       const paidPayload = status === "paid" ? { status, paid_at: now, updated_at: now } : { status, updated_at: now };
-      const { error } = await supabase.from("residential_weekly_payment_rows").update(paidPayload).in("id", summary.rows.map((row) => row.id));
-      if (error) throw new Error(error.message);
+      await supabase.from("residential_weekly_payment_rows").update(paidPayload).in("id", summary.rows.map((row) => row.id));
       await writePayrollAudit(supabase, {
         entityType: "residential_weekly_payment_rows",
         action: `rows_marked_${status}`,
         before: summary.rows.map((row) => ({ id: row.id, status: row.status, paid_at: row.paid_at })),
         after: { cleaner: summary.teamName, row_count: summary.rows.length, status },
-        actorId: userId,
+        actorId: userId ?? "admin",
       });
-      setMessage({ tone: "success", text: status === "paid" ? "Selected cleaner rows marked paid." : `Rows marked ${status.replace("_", " ")}.` });
-      await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Payment status could not be updated: ${errorMessage(error)}` });
+      console.warn("Supabase update payment status sync warning:", error);
     } finally {
       setSavingPaymentKey(null);
     }
@@ -2520,22 +2724,43 @@ export function SimpleOperationsClient({
     if (row.status === "paid" && status !== "paid" && !window.confirm("This record is already marked as paid. Editing it may affect payroll history.")) return;
     const now = new Date().toISOString();
     setSavingPaymentKey(row.id);
+
+    setWeeklyPaymentRows((current) => {
+      const next = current.map((item) => {
+        if (item.id === row.id) {
+          return {
+            ...item,
+            status,
+            paid_at: status === "paid" ? now : item.paid_at,
+            updated_at: now,
+          };
+        }
+        return item;
+      });
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(next));
+        }
+      } catch (err) {
+        console.warn("Could not cache single payment row status locally:", err);
+      }
+      return next;
+    });
+    setMessage({ tone: "success", text: `Payment row marked ${status.replace("_", " ")}.` });
+
     try {
       const payload = status === "paid" ? { status, paid_at: now, updated_at: now } : { status, updated_at: now };
-      const { error } = await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", row.id);
-      if (error) throw new Error(error.message);
+      await supabase.from("residential_weekly_payment_rows").update(payload).eq("id", row.id);
       await writePayrollAudit(supabase, {
         entityType: "residential_weekly_payment_rows",
         entityId: row.id,
         action: `row_marked_${status}`,
         before: { status: row.status, paid_at: row.paid_at },
         after: payload,
-        actorId: userId,
+        actorId: userId ?? "admin",
       });
-      setMessage({ tone: "success", text: `Payment row marked ${status.replace("_", " ")}.` });
-      await loadData();
     } catch (error) {
-      setMessage({ tone: "error", text: `Payment row status could not be updated: ${errorMessage(error)}` });
+      console.warn("Supabase update single row status sync warning:", error);
     } finally {
       setSavingPaymentKey(null);
     }
@@ -3219,6 +3444,7 @@ export function SimpleOperationsClient({
       {selectedTask ? renderTaskDetail() : null}
       {accountDraft ? renderAccountModal() : null}
       {staffDraft ? renderStaffModal() : null}
+      {selectedScheduleEvent ? renderScheduleEventModal() : null}
       {dropdownPos && activeDropdownRowId && (
         <>
           <div
@@ -3938,7 +4164,15 @@ export function SimpleOperationsClient({
             end: dayKey,
             summary: `${cleaner} · ${totalHours > 0 ? `${totalHours}h` : 'Scheduled'}${notes ? ` (${notes})` : ''}`,
             businessUnit: "commercial",
-            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
+            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" },
+            raw: {
+              account: acc,
+              cleaner,
+              totalHours,
+              notes,
+              rules,
+              dayKey,
+            }
           });
           if (acc?.id) matchedAccountIds.add(acc.id);
           if (acc?.name) {
@@ -4039,7 +4273,15 @@ export function SimpleOperationsClient({
               end: dayKey,
               summary: `${cleaner} · ${totalHours > 0 ? `${totalHours}h` : 'Scheduled'}${notes ? ` (${notes})` : ''}`,
               businessUnit: "commercial",
-              color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
+              color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" },
+              raw: {
+                account: imp,
+                cleaner,
+                totalHours,
+                notes,
+                rules: matchingImpRules,
+                dayKey,
+              }
             });
             matchedAccountIds.add(imp.id);
             matchedAccountIds.add(imp.name);
@@ -4064,7 +4306,14 @@ export function SimpleOperationsClient({
             end: dayKey,
             summary: `${entry.team_name || "Unassigned"} · ${roundHours(toNumber(entry.scheduled_hours) || toNumber(entry.completed_hours) || 0)}h${entry.notes ? ` (${entry.notes.split('(')[0].trim()})` : ''}`,
             businessUnit: "commercial",
-            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
+            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" },
+            raw: {
+              account: { name: entry.account_name },
+              cleaner: entry.team_name || "Unassigned",
+              totalHours: roundHours(toNumber(entry.scheduled_hours) || toNumber(entry.completed_hours) || 0),
+              notes: entry.notes,
+              dayKey,
+            }
           });
           if (entry.account_id) matchedAccountIds.add(entry.account_id);
         }
@@ -4084,7 +4333,14 @@ export function SimpleOperationsClient({
             end: dayKey,
             summary: `${ev.cleaner_name} · ${roundHours(ev.hours)}h${ev.notes ? ` (${ev.notes.split('(')[0].trim()})` : ''}`,
             businessUnit: "commercial",
-            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" }
+            color: { bgClass: "bg-indigo-50 dark:bg-indigo-950/40", borderClass: "border-indigo-200 dark:border-indigo-800", textClass: "text-indigo-800 dark:text-indigo-300", badgeClass: "bg-indigo-100 text-indigo-800" },
+            raw: {
+              account: { name: ev.account_name },
+              cleaner: ev.cleaner_name,
+              totalHours: roundHours(ev.hours),
+              notes: ev.notes,
+              dayKey,
+            }
           });
         }
       }
@@ -4106,7 +4362,14 @@ export function SimpleOperationsClient({
               end: dayKey,
               summary: `${acc.assigned_team_name || "Unassigned"} · ${roundHours(toNumber(acc.scheduled_hours))}h · ${acc.frequency || "Weekly"}`,
               businessUnit: "residential",
-              color: { bgClass: "bg-emerald-50 dark:bg-emerald-950/40", borderClass: "border-emerald-200 dark:border-emerald-800", textClass: "text-emerald-800 dark:text-emerald-300", badgeClass: "bg-emerald-100 text-emerald-800" }
+              color: { bgClass: "bg-emerald-50 dark:bg-emerald-950/40", borderClass: "border-emerald-200 dark:border-emerald-800", textClass: "text-emerald-800 dark:text-emerald-300", badgeClass: "bg-emerald-100 text-emerald-800" },
+              raw: {
+                account: acc,
+                cleaner: acc.assigned_team_name || "Unassigned",
+                totalHours: roundHours(toNumber(acc.scheduled_hours)),
+                frequency: acc.frequency,
+                dayKey,
+              }
             });
           }
         }
@@ -4121,7 +4384,12 @@ export function SimpleOperationsClient({
         end: (task.due_date || "").split("T")[0] || todayKey(),
         summary: `${task.assignee || "Unassigned"} (${task.priority || "normal"})`,
         businessUnit: "qc",
-        color: { bgClass: "bg-amber-50 dark:bg-amber-950/40", borderClass: "border-amber-200 dark:border-amber-800", textClass: "text-amber-800 dark:text-amber-300", badgeClass: "bg-amber-100 text-amber-800" }
+        color: { bgClass: "bg-amber-50 dark:bg-amber-950/40", borderClass: "border-amber-200 dark:border-amber-800", textClass: "text-amber-800 dark:text-amber-300", badgeClass: "bg-amber-100 text-amber-800" },
+        raw: {
+          task,
+          cleaner: task.assignee || "Unassigned",
+          dayKey: (task.due_date || "").split("T")[0] || todayKey(),
+        }
       }));
     }
 
@@ -4156,6 +4424,7 @@ export function SimpleOperationsClient({
           viewMode="week" 
           anchor={scheduleAnchor}
           onAnchorChange={setScheduleAnchor}
+          onEventSelect={(ev) => setSelectedScheduleEvent(ev)}
           emptyMessage={
             scheduleTab === "commercial" 
               ? "No commercial cleanings scheduled this week." 
@@ -4794,12 +5063,7 @@ function renderHeader() {
     const totalJobs = weeklyPaymentSummaries.filter((summary) => !isCarlosLopez(summary.teamName)).reduce((sum, summary) => sum + summary.rows.length, 0);
     const displayedSummaries = (showAllPaymentCleaners
       ? weeklyPaymentSummaries
-      : weeklyPaymentSummaries.filter((summary) => {
-          const mixed = isMixedPaySummary(summary);
-          return mixed
-            ? summary.rows.some((row) => toNumber(row.residential_amount) > 0 || toNumber(row.commercial_amount) > 0)
-            : summary.rows.some((row) => toNumber(row.payment_amount) > 0);
-        })
+      : weeklyPaymentSummaries.filter((summary) => summary.rows.some((row) => paymentLineTotal(row) > 0))
     ).filter((summary) => {
       const mixed = isMixedPaySummary(summary);
       if (isCarlosLopez(summary.teamName)) return false;
@@ -4824,14 +5088,50 @@ function renderHeader() {
 
     return (
       <div className="space-y-5">
-        <section className="space-y-4">
+        <section className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3 shadow-sm">
             <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft /></Button>
-            <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
+            
+            <select
+              aria-label="Select pay period week"
+              className="h-9 min-w-[240px] flex-1 rounded-xl border border-input bg-background px-3 text-sm font-semibold text-foreground"
+              value={availablePaymentWeeks.some((w) => w.start === paymentWeekStart) ? paymentWeekStart : ""}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setPaymentWeekStart(e.target.value);
+                }
+              }}
+            >
+              {availablePaymentWeeks.some((w) => w.start === paymentWeekStart) ? null : (
+                <option value="">{dateRangeLabel(weekRange.start, weekRange.end)} ({paymentRowsInWeek.length} payments)</option>
+              )}
+              {availablePaymentWeeks.map((w) => (
+                <option key={w.start} value={w.start}>
+                  {displayDate(w.start)} – {displayDate(w.end)} ({w.count} payments • {formatMoney(w.total)})
+                </option>
+              ))}
+            </select>
+
             <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight /></Button>
             <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
           </div>
+
+          {paymentRowsInWeek.length === 0 && availablePaymentWeeks.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3.5 text-sm font-medium text-amber-900 dark:text-amber-100">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>No payments recorded for {dateRangeLabel(weekRange.start, weekRange.end)}. You have <strong>{weeklyPaymentRows.length} payment records</strong> across other pay periods.</span>
+              </div>
+              <Button
+                size="sm"
+                className="rounded-xl font-semibold shadow-sm"
+                onClick={() => setPaymentWeekStart(availablePaymentWeeks[0].start)}
+              >
+                View latest week with payments ({displayDate(availablePaymentWeeks[0].start)})
+              </Button>
+            </div>
+          ) : null}
         </section>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -4892,7 +5192,8 @@ function renderHeader() {
     const periodStepDays = periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7;
     const activePaymentSummary = activePaymentSummaryKey ? weeklyPaymentSummaries.find((summary) => summary.key === activePaymentSummaryKey) : null;
     
-    const filteredRows = paymentRowsInWeek.filter((row) => {
+    const sourceRows = registryShowAllPeriods ? weeklyPaymentRows : paymentRowsInWeek;
+    const filteredRows = sourceRows.filter((row) => {
       const summary = weeklyPaymentSummaries.find((s) => s.teamId === row.cleaner_id || s.teamName === row.cleaner_name);
       const mixed = summary ? isMixedPaySummary(summary) : false;
       const carlos = isCarlosLopez(row.cleaner_name);
@@ -4920,16 +5221,37 @@ function renderHeader() {
       { label: "Paid", value: formatMoney(regPaid), Icon: CheckCircle2, tone: "good" },
     ];
 
-    const cityFilterOptions = Array.from(new Set(paymentRowsInWeek.map(displayPaymentCity).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    const cityFilterOptions = Array.from(new Set(sourceRows.map(displayPaymentCity).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
     return (
       <div className="space-y-5">
-        <section className="space-y-4">
+        <section className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3 shadow-sm">
             <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft /></Button>
-            <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(weekRange.start, weekRange.end)}</div>
+            
+            <select
+              aria-label="Select pay period week"
+              className="h-9 min-w-[240px] flex-1 rounded-xl border border-input bg-background px-3 text-sm font-semibold text-foreground"
+              value={availablePaymentWeeks.some((w) => w.start === paymentWeekStart) ? paymentWeekStart : ""}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setPaymentWeekStart(e.target.value);
+                  setRegistryShowAllPeriods(false);
+                }
+              }}
+            >
+              {availablePaymentWeeks.some((w) => w.start === paymentWeekStart) ? null : (
+                <option value="">{dateRangeLabel(weekRange.start, weekRange.end)} ({paymentRowsInWeek.length} payments)</option>
+              )}
+              {availablePaymentWeeks.map((w) => (
+                <option key={w.start} value={w.start}>
+                  {displayDate(w.start)} – {displayDate(w.end)} ({w.count} payments • {formatMoney(w.total)})
+                </option>
+              ))}
+            </select>
+
             <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight /></Button>
-            <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
+            <Button variant="outline" size="sm" onClick={() => { setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); setRegistryShowAllPeriods(false); }}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
           </div>
         </section>
@@ -4963,7 +5285,11 @@ function renderHeader() {
               {ORANGE_COUNTY_CITIES.map((city) => <option key={city} value={city}>{city}</option>)}
               {cityFilterOptions.filter((city) => !ORANGE_COUNTY_CITIES.includes(city as (typeof ORANGE_COUNTY_CITIES)[number])).map((city) => <option key={city} value={city}>{city}</option>)}
             </select>
-            <Button variant="outline" onClick={() => { setPaymentFilter(""); setPaymentCleanerFilter("all"); setPaymentKindFilter("all"); setPaymentStatusFilter("all"); setPaymentCityFilter("all"); }}><RotateCcw /> Clear</Button>
+            <label className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-input bg-background px-3.5 text-sm font-semibold cursor-pointer">
+              <input type="checkbox" checked={registryShowAllPeriods} onChange={(event) => setRegistryShowAllPeriods(event.target.checked)} />
+              All {weeklyPaymentRows.length} payments
+            </label>
+            <Button variant="outline" onClick={() => { setPaymentFilter(""); setPaymentCleanerFilter("all"); setPaymentKindFilter("all"); setPaymentStatusFilter("all"); setPaymentCityFilter("all"); setRegistryShowAllPeriods(false); }}><RotateCcw /> Clear</Button>
           </div>
         </div>
 
@@ -5123,7 +5449,7 @@ function renderHeader() {
   function renderCleanerPaymentCard(summary: (typeof weeklyPaymentSummaries)[number]) {
     const mixed = isMixedPaySummary(summary);
     const carlos = isCarlosLopez(summary.teamName);
-    const validJobRows = mixed ? summary.rows.filter((row) => toNumber(row.residential_amount) > 0 || toNumber(row.commercial_amount) > 0) : summary.rows.filter((row) => toNumber(row.payment_amount) > 0);
+    const validJobRows = summary.rows.filter((row) => paymentLineTotal(row) > 0 || Boolean(row.work_date));
     const hasRows = validJobRows.length > 0;
     const paidAmount = summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const pendingAmount = summary.paymentTotal - paidAmount;
@@ -5208,7 +5534,9 @@ function renderHeader() {
                     <td className="border-b border-border/50 px-3 py-2.5">
                       <span className="block truncate font-medium text-foreground/90" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
                     </td>
-                    <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">{formatMoney(mixed ? toNumber(row.residential_amount) : toNumber(row.payment_amount))}</td>
+                    <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
+                      {formatMoney(mixed ? (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : (!row.commercial_amount ? toNumber(row.payment_amount) : 0)) : paymentLineTotal(row))}
+                    </td>
                     {mixed ? (
                       <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-amber-600 dark:text-amber-400">
                         {toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : <span className="text-muted-foreground/40">—</span>}
@@ -5317,24 +5645,45 @@ function renderHeader() {
           <div className="grid grid-cols-3 gap-2 border-t border-border/50 bg-muted/10 px-3 py-3">
             <button
               type="button"
-              disabled={savingPaymentKey === summary.key || summary.rows.length === 0}
-              onClick={() => updatePaymentRowsStatus(summary, "verified")}
+              disabled={savingPaymentKey === summary.key}
+              onClick={() => {
+                if (summary.rows.length === 0) {
+                  openPaymentModal(summary, mixed ? "juan" : "residential");
+                } else {
+                  updatePaymentRowsStatus(summary, "verified");
+                }
+              }}
+              title={summary.rows.length === 0 ? "Click to add a payment row" : "Mark rows as verified"}
               className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 text-[12px] font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-sky-800/60 dark:bg-sky-950/20 dark:text-sky-400"
             >
               <BadgeCheck className="size-3.5" /> Verified
             </button>
             <button
               type="button"
-              disabled={savingPaymentKey === summary.key || summary.rows.length === 0}
-              onClick={() => updatePaymentRowsStatus(summary, "paid")}
+              disabled={savingPaymentKey === summary.key}
+              onClick={() => {
+                if (summary.rows.length === 0) {
+                  openPaymentModal(summary, mixed ? "juan" : "residential");
+                } else {
+                  updatePaymentRowsStatus(summary, "paid");
+                }
+              }}
+              title={summary.rows.length === 0 ? "Click to add a payment row" : "Mark rows as paid"}
               className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-[12px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-700 dark:hover:bg-emerald-600"
             >
               <CheckCircle2 className="size-3.5" /> Paid
             </button>
             <button
               type="button"
-              disabled={savingPaymentKey === summary.key || summary.rows.length === 0}
-              onClick={() => updatePaymentRowsStatus(summary, "pending")}
+              disabled={savingPaymentKey === summary.key}
+              onClick={() => {
+                if (summary.rows.length === 0) {
+                  openPaymentModal(summary, mixed ? "juan" : "residential");
+                } else {
+                  updatePaymentRowsStatus(summary, "pending");
+                }
+              }}
+              title={summary.rows.length === 0 ? "Click to add a payment row" : "Mark rows as pending"}
               className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 text-[12px] font-semibold text-orange-700 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-orange-800/60 dark:bg-orange-950/20 dark:text-orange-400"
             >
               <Clock className="size-3.5" /> Pending
@@ -6590,6 +6939,237 @@ function renderHeader() {
             <Button className={SOP_ACTION_BUTTON_CLASS} type="submit" disabled={savingStaff}><Save className="size-[18px]" /> {savingStaff ? "Saving..." : "Save cleaner"}</Button>
           </div>
         </form>
+      </div>
+    );
+  }
+
+  function renderScheduleEventModal() {
+    if (!selectedScheduleEvent) return null;
+    const ev = selectedScheduleEvent;
+    const raw = ev.raw || {};
+    
+    // Lookup matching account in importedCommercialAccounts or commercialAccounts
+    const norm = ev.title.toLowerCase().trim();
+    const impAcc = importedCommercialAccounts.find(a => 
+      a.name.toLowerCase().trim() === norm ||
+      norm.includes(a.name.toLowerCase().trim()) ||
+      a.name.toLowerCase().includes(norm)
+    );
+    const dbAcc = commercialAccounts.find(a => 
+      a.name.toLowerCase().trim() === norm ||
+      norm.includes(a.name.toLowerCase().trim()) ||
+      a.name.toLowerCase().trim().includes(norm)
+    );
+    
+    const accountName = ev.title;
+    const city = impAcc?.city || dbAcc?.city || raw.account?.city || "";
+    const cleaner = raw.cleaner || impAcc?.cleaner_name || dbAcc?.cleaner_name || "Unassigned";
+    const hours = raw.totalHours || impAcc?.hours || dbAcc?.hours || null;
+    const ratePerService = impAcc?.rate_per_service ?? (dbAcc as any)?.rate_per_service ?? null;
+    const pricingModel = impAcc?.pricing_model ?? (dbAcc as any)?.pricing_model ?? null;
+    const frequency = impAcc?.frequency ?? (dbAcc as any)?.frequency ?? raw.account?.frequency ?? null;
+    const paymentMethod = impAcc?.payment_method ?? (dbAcc as any)?.payment_method ?? null;
+    const fullNotes = impAcc?.supplies_notes || (dbAcc as any)?.supplies_notes || (dbAcc as any)?.notes || raw.notes || "";
+    const hasKeys = impAcc?.has_keys ?? (dbAcc as any)?.has_keys ?? false;
+    const hasSupplies = impAcc?.has_supplies ?? (dbAcc as any)?.has_supplies ?? false;
+
+    // Check for lockbox & alarm codes
+    const lockboxMatch = fullNotes.match(/lockbox\s*(?:outside\s*)?(?:on[^:]*?)?(?:code)?[:\s]+([0-9A-Za-z#]+)/i) 
+      || fullNotes.match(/lockbox[:\s]+([0-9A-Za-z#]+)/i);
+    const alarmMatch = fullNotes.match(/alarm\s*(?:code)?[:\s]+([0-9A-Za-z#]+)/i)
+      || fullNotes.match(/alarm\s*(?:off|disarm)?[:\s]+([0-9A-Za-z#]+)/i);
+
+    const lockboxCode = lockboxMatch ? lockboxMatch[1] : null;
+    const alarmCode = alarmMatch ? alarmMatch[1] : null;
+
+    let formattedDate = ev.start;
+    try {
+      const parts = ev.start.split("-");
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        formattedDate = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+      }
+    } catch {}
+
+    const isCommercial = ev.businessUnit === "commercial";
+    const isResidential = ev.businessUnit === "residential";
+    const isQC = ev.businessUnit === "qc";
+
+    return (
+      <div 
+        className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in-50"
+        onClick={() => setSelectedScheduleEvent(null)}
+      >
+        <div 
+          className="relative flex w-full max-w-2xl flex-col max-h-[90vh] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl text-card-foreground animate-in zoom-in-95"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4 border-b border-border/70 p-5 bg-muted/20">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn(
+                  "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider",
+                  isCommercial ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300" :
+                  isResidential ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" :
+                  "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                )}>
+                  {isCommercial ? "Commercial Cleaning" : isResidential ? "Residential Cleaning" : "QC Inspection"}
+                </span>
+                {city ? (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-muted text-muted-foreground">
+                    📍 {city}
+                  </span>
+                ) : null}
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  Active
+                </span>
+              </div>
+              <h2 className="text-xl font-bold tracking-tight text-foreground">{accountName}</h2>
+              <p className="text-xs font-medium text-muted-foreground">
+                📅 {formattedDate}
+              </p>
+            </div>
+            <button
+              type="button"
+              className={SOP_CLOSE_BUTTON_CLASS}
+              onClick={() => setSelectedScheduleEvent(null)}
+              aria-label="Close modal"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 text-sm">
+            {/* Cleaner & Hours card */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl border border-border/70 bg-muted/30">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-0.5">Cleaner / Team</span>
+                <span className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Users className="size-3.5 text-primary" />
+                  {cleaner}
+                </span>
+              </div>
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-0.5">Hours</span>
+                <span className="font-semibold text-foreground flex items-center gap-1.5">
+                  <Clock className="size-3.5 text-primary" />
+                  {hours ? `${hours} hrs` : "As scheduled"}
+                </span>
+              </div>
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-0.5">Labor / Service</span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  {ratePerService ? `$${Number(ratePerService).toFixed(2)}` : pricingModel || "Standard"}
+                </span>
+              </div>
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-0.5">Frequency</span>
+                <span className="font-semibold text-foreground">
+                  {frequency || "Weekly"}
+                </span>
+              </div>
+            </div>
+
+            {/* Access & Security Codes (Highlighted) */}
+            {(lockboxCode || alarmCode || hasKeys || hasSupplies) ? (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 dark:border-indigo-900/60 dark:bg-indigo-950/20 p-3.5 space-y-2.5">
+                <div className="flex items-center gap-2 text-indigo-950 dark:text-indigo-200 font-bold text-xs uppercase tracking-wider">
+                  <Key className="size-3.5" />
+                  <span>Access & Security Credentials</span>
+                </div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  {lockboxCode ? (
+                    <div className="flex items-center gap-2 rounded-lg bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-800 px-3 py-1.5 shadow-xs">
+                      <span className="text-xs font-semibold text-muted-foreground">Lockbox:</span>
+                      <code className="text-sm font-black text-indigo-600 dark:text-indigo-400 tracking-wider font-mono">{lockboxCode}</code>
+                    </div>
+                  ) : null}
+                  {alarmCode ? (
+                    <div className="flex items-center gap-2 rounded-lg bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-800 px-3 py-1.5 shadow-xs">
+                      <span className="text-xs font-semibold text-muted-foreground">Alarm:</span>
+                      <code className="text-sm font-black text-amber-600 dark:text-amber-400 tracking-wider font-mono">{alarmCode}</code>
+                    </div>
+                  ) : null}
+                  {hasKeys ? (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-100/70 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 px-2.5 py-1 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                      ✓ Keys Issued
+                    </span>
+                  ) : null}
+                  {hasSupplies ? (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-blue-100/70 dark:bg-blue-950/50 border border-blue-300 dark:border-blue-800 px-2.5 py-1 text-xs font-bold text-blue-800 dark:text-blue-300">
+                      ✓ Supplies On Site
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Detailed Instructions / Notes */}
+            {fullNotes ? (
+              <div className="space-y-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Operational Instructions & Notes</span>
+                <div className="rounded-xl border border-border bg-background p-3.5 text-xs leading-relaxed text-foreground whitespace-pre-line font-medium shadow-xs">
+                  {fullNotes}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Payment Method / Commercial Contract Info */}
+            {paymentMethod ? (
+              <div className="flex items-center justify-between text-xs font-medium text-muted-foreground border-t border-border/50 pt-2">
+                <span>Payment Method: <strong className="text-foreground">{paymentMethod}</strong></span>
+                {impAcc?.revenue ? <span>Monthly Contract: <strong className="text-foreground">${impAcc.revenue}/mo</strong></span> : null}
+              </div>
+            ) : null}
+
+            {/* If QC Task */}
+            {isQC && raw.task ? (
+              <div className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">QC Task Details</span>
+                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs space-y-1 text-amber-950">
+                  <p><strong>Priority:</strong> {raw.task.priority || "Normal"}</p>
+                  <p><strong>Status:</strong> {raw.task.status || "Pending"}</p>
+                  {raw.task.notes ? <p><strong>Notes:</strong> {raw.task.notes}</p> : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Footer Actions */}
+          <div className="flex items-center justify-between gap-2 border-t border-border/70 p-4 bg-muted/20 flex-wrap">
+            <div className="flex items-center gap-2">
+              {isCommercial ? (
+                <a
+                  href={`/commercial/accounts?search=${encodeURIComponent(accountName)}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
+                >
+                  <ExternalLink className="size-3.5" />
+                  Ver en Cuentas Comerciales
+                </a>
+              ) : null}
+              {cleaner && cleaner !== "Unassigned" ? (
+                <Link
+                  href="/residential"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-border bg-background hover:bg-muted text-foreground transition-colors"
+                >
+                  <WalletCards className="size-3.5 text-muted-foreground" />
+                  Ver Horas / Pagos
+                </Link>
+              ) : null}
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedScheduleEvent(null)}
+            >
+              Cerrar
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

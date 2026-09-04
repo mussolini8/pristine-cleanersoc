@@ -33,6 +33,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { exportSalesTrackToXLSX, exportSalesTrackToPDF, type SalesTrackItem } from "@/lib/export/sales-track-export";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
 import type { ServiceBookingRow } from "@/lib/sales-tracker/types";
+import {
+  applyUpdateAccountFinancialsAction,
+  applyAccessUpdateAction,
+  applySopModificationsAction,
+} from "@/lib/ai/sop-actions-handler";
 
 interface AiSopCopilotModalProps {
   isOpen: boolean;
@@ -282,43 +287,53 @@ export function AiSopCopilotModal({
   const handleApply = async () => {
     if (!response) return;
 
-    if (onApplyFullCopilotResponse) {
-      setLoading(true);
-      try {
-        await onApplyFullCopilotResponse(response);
-        setAppliedSuccess(true);
-      } catch (err: any) {
-        setError(err?.message || "Error al aplicar cambios en el sistema.");
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    try {
+      if (response.updateAccountFinancials && response.updateAccountFinancials.length > 0) {
+        await applyUpdateAccountFinancialsAction(response.updateAccountFinancials);
       }
-      return;
-    }
 
-    if (response.extractedBookings && response.extractedBookings.length > 0 && onApplyBookings) {
-      onApplyBookings(response.extractedBookings);
-    }
+      if (response.accessUpdate || (response.accessUpdates && response.accessUpdates.length > 0)) {
+        await applyAccessUpdateAction(response.accessUpdates || [response.accessUpdate!]);
+      }
 
-    if (response.extractedSalesTrack && response.extractedSalesTrack.length > 0 && onApplySalesTrack) {
-      onApplySalesTrack(response.extractedSalesTrack);
-    }
+      if (response.sopModifications && response.sopModifications.length > 0) {
+        await applySopModificationsAction(response.sopModifications);
+      }
 
-    if (response.sopModifications && response.sopModifications.length > 0 && onApplySopModifications) {
-      onApplySopModifications(response.sopModifications);
-    } else if (response.ingestedSchedule && onApplySopModifications) {
-      const is = response.ingestedSchedule;
-      onApplySopModifications([
-        {
-          accountName: is.clientName || is.buildingName,
-          cleanerName: is.assignedCleaner,
-          newHours: is.budgetHours,
-          newDays: is.recurringRule ? [is.recurringRule] : undefined,
-          notes: is.internalNotes || (is.accessInstructions?.accessCode ? `Code: ${is.accessInstructions.accessCode}` : undefined),
-        }
-      ]);
-    }
+      if (onApplyFullCopilotResponse) {
+        await onApplyFullCopilotResponse(response);
+      }
 
-    setAppliedSuccess(true);
+      if (response.extractedBookings && response.extractedBookings.length > 0 && onApplyBookings) {
+        onApplyBookings(response.extractedBookings);
+      }
+
+      if (response.extractedSalesTrack && response.extractedSalesTrack.length > 0 && onApplySalesTrack) {
+        onApplySalesTrack(response.extractedSalesTrack);
+      }
+
+      if (response.sopModifications && response.sopModifications.length > 0 && onApplySopModifications) {
+        onApplySopModifications(response.sopModifications);
+      } else if (response.ingestedSchedule && onApplySopModifications) {
+        const is = response.ingestedSchedule;
+        onApplySopModifications([
+          {
+            accountName: is.clientName || is.buildingName,
+            cleanerName: is.assignedCleaner,
+            newHours: is.budgetHours,
+            newDays: is.recurringRule ? [is.recurringRule] : undefined,
+            notes: is.internalNotes || (is.accessInstructions?.accessCode ? `Code: ${is.accessInstructions.accessCode}` : undefined),
+          }
+        ]);
+      }
+
+      setAppliedSuccess(true);
+    } catch (err: any) {
+      setError(err?.message || "Error al aplicar cambios en el sistema.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSendSmsQuo = async () => {
@@ -747,6 +762,45 @@ export function AiSopCopilotModal({
                         <strong className="text-foreground font-mono text-sm">{response.accessUpdate.gateCode}</strong>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Commercial Account Financials / Labor per Service Card */}
+              {response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
+                <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-500/[0.06] p-4 text-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
+                      <DollarSign className="size-4 text-emerald-600" /> Tarifas y Labor por Servicio ({response.updateAccountFinancials.length} cuentas)
+                    </span>
+                    <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-700 dark:text-emerald-300 font-bold">
+                      Listo para Aplicar
+                    </Badge>
+                  </div>
+                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                    {response.updateAccountFinancials.map((fin, idx) => (
+                      <div key={idx} className="rounded-lg bg-background p-2.5 border border-border/50 flex items-center justify-between">
+                        <div>
+                          <strong className="text-foreground font-semibold">{fin.accountName}</strong>
+                          <p className="text-muted-foreground text-[10px]">
+                            {fin.pricingModel || "per Service"}
+                            {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {fin.ratePerService !== undefined && fin.ratePerService !== null && (
+                            <span className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold">
+                              ${Number(fin.ratePerService).toFixed(2)} / serv
+                            </span>
+                          )}
+                          {fin.revenue ? (
+                            <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                              ${fin.revenue}/mes
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

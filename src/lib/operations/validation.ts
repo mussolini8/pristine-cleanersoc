@@ -64,14 +64,9 @@ export const residentialPaymentRowSchema = z.object({
   if (value.city === OUTSIDE_OC_CITY && !value.customCity) {
     ctx.addIssue({ code: "custom", path: ["customCity"], message: "Custom city is required for outside Orange County jobs." });
   }
-  if (value.paymentMode === "mixed") {
-    if (value.residentialAmount === 0 && value.commercialAmount === 0) {
-      ctx.addIssue({ code: "custom", path: ["residentialAmount"], message: "Juan Romero's payment row needs a residential or commercial amount." });
-    }
-    return;
-  }
-  if (value.paymentAmount <= 0) {
-    ctx.addIssue({ code: "custom", path: ["paymentAmount"], message: positiveAmount.safeParse(value.paymentAmount).success ? "Payment amount must be greater than 0." : "Payment amount must be greater than 0." });
+  const total = value.paymentAmount + value.residentialAmount + value.commercialAmount;
+  if (total <= 0) {
+    ctx.addIssue({ code: "custom", path: ["paymentAmount"], message: "Payment amount must be greater than 0." });
   }
 });
 

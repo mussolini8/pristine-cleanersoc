@@ -45,10 +45,23 @@ import {
   applyQcScheduleBatchAction,
   applyCleanupStaffDuplicatesAction,
   applyUpdateAccountFinancialsAction,
+  applyAccessUpdateAction,
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
 
 const QUICK_PROMPTS = [
+  {
+    label: "💰 Labor per Service",
+    text: "Mama's Restaurant $200.00\nSwing Easy Golf Club $69.00\nMiracle Minds $63.25\nese monto es Labor Amount Per Service (including insurances)",
+  },
+  {
+    label: "🔑 Códigos / Lockbox",
+    text: "Para Moxi3 costa mesa: Lockbox code 3400. Alarm code: 1480. Saturday training room and 1st/3rd Sat pilates mats deep clean (+2h).",
+  },
+  {
+    label: "🗓️ Días / Cadencia",
+    text: "Miracle Minds tiene agendados 3 días a la semana (martes, jueves, viernes).",
+  },
   {
     label: "📅 Evento / Boda",
     text: "Añade un evento a The Harper el 15 de agosto de 12am a 7am con Juan Romero.",
@@ -474,6 +487,23 @@ export function GlobalAiBubble() {
     }
   };
 
+  const handleApplyAccessUpdate = async () => {
+    const payload = response?.accessUpdates || (response?.accessUpdate ? [response.accessUpdate] : null);
+    if (!payload || payload.length === 0) return;
+    setExecutingAction("access_update");
+    try {
+      const res = await applyAccessUpdateAction(payload);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions((prev) => ({ ...prev, access_update: true }));
+      } else {
+        setError(res.message);
+      }
+    } finally {
+      setExecutingAction(null);
+    }
+  };
+
   const handleCopySmsText = (text: string) => {
     navigator.clipboard.writeText(text);
     setIsCopied(true);
@@ -861,6 +891,90 @@ export function GlobalAiBubble() {
                       </Button>
                     </div>
                   )}
+
+                  {/* ACTION: Access Codes & Security Instructions */}
+                  {(response.accessUpdate || (response.accessUpdates && response.accessUpdates.length > 0)) && (() => {
+                    const list = response.accessUpdates || (response.accessUpdate ? [response.accessUpdate] : []);
+                    return (
+                      <div className="rounded-xl border border-amber-500/40 bg-card p-3.5 shadow-sm space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-foreground flex items-center gap-1.5">
+                            <Key className="size-3.5 text-amber-500" /> Códigos de Acceso y Seguridad
+                          </span>
+                          <Badge variant="outline" className="border-amber-500/30 text-amber-600 dark:text-amber-400 text-[10px] font-bold">
+                            {list.length} {list.length === 1 ? "cuenta" : "cuentas"}
+                          </Badge>
+                        </div>
+
+                        <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                          {list.map((acc, idx) => (
+                            <div key={idx} className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5 text-[11px] space-y-1.5">
+                              <div className="flex items-center justify-between font-bold text-foreground">
+                                <span>{acc.accountName}</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {acc.lockboxCode && (
+                                  <span className="rounded-md bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-800 dark:text-amber-200">
+                                    🔐 Lockbox: {acc.lockboxCode}
+                                  </span>
+                                )}
+                                {acc.alarmCode && (
+                                  <span className="rounded-md bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-800 dark:text-amber-200">
+                                    🚨 Alarma: {acc.alarmCode}
+                                  </span>
+                                )}
+                                {acc.gateCode && (
+                                  <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-mono">
+                                    Portón: {acc.gateCode}
+                                  </span>
+                                )}
+                                {acc.keyLocation && (
+                                  <span className="rounded-md bg-muted px-2 py-0.5 text-[10px]">
+                                    Llave: {acc.keyLocation}
+                                  </span>
+                                )}
+                              </div>
+                              {acc.specialInstructions && (
+                                <p className="text-[10px] text-muted-foreground italic bg-background/50 p-1.5 rounded">
+                                  📌 {acc.specialInstructions}
+                                </p>
+                              )}
+                              {acc.otherNotes && !acc.specialInstructions && (
+                                <p className="text-[10px] text-muted-foreground italic">
+                                  {acc.otherNotes}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        <Button
+                          size="sm"
+                          onClick={handleApplyAccessUpdate}
+                          disabled={executingAction === "access_update" || savedActions.access_update}
+                          className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                            savedActions.access_update
+                              ? "bg-emerald-700 text-white cursor-default"
+                              : "bg-amber-600 text-white hover:bg-amber-700"
+                          }`}
+                        >
+                          {executingAction === "access_update" ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin" /> Guardando códigos...
+                            </>
+                          ) : savedActions.access_update ? (
+                            <>
+                              <Check className="size-3.5 text-white" /> ¡Códigos Guardados en SOP!
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="size-3.5" /> Confirmar & Guardar Códigos de Acceso
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    );
+                  })()}
 
                   {/* ACTION 2: Add Staff / Cleaner */}
                   {response.addStaff && (
@@ -1502,29 +1616,39 @@ export function GlobalAiBubble() {
                     </div>
                   )}
 
-                  {/* ACTION: Update Account Financials */}
+                  {/* ACTION: Update Account Financials & Labor per Service */}
                   {response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <DollarSign className="size-3.5 text-primary" /> Actualización de Precios y Finanzas
+                          <DollarSign className="size-3.5 text-primary" /> Precios y Labor por Servicio
                         </span>
                         <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
                           {response.updateAccountFinancials.length} {response.updateAccountFinancials.length === 1 ? "cuenta" : "cuentas"}
                         </Badge>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
                         {response.updateAccountFinancials.map((fin, idx) => (
                           <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
                             <div>
                               <strong className="text-foreground">{fin.accountName}</strong>
                               <p className="text-muted-foreground text-[10px]">
-                                {fin.pricingModel || "Tarifa"} · Costo: ${fin.cost || 0}
+                                {fin.pricingModel || "per Service"}
+                                {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
                               </p>
                             </div>
-                            <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
-                              ${fin.revenue || 0}/mes
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {fin.ratePerService !== undefined && fin.ratePerService !== null && (
+                                <span className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold">
+                                  ${Number(fin.ratePerService).toFixed(2)} / serv
+                                </span>
+                              )}
+                              {fin.revenue ? (
+                                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                                  ${fin.revenue}/mes
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1540,15 +1664,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "update_financials" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Guardando finanzas...
+                            <Loader2 className="size-3.5 animate-spin" /> Guardando tarifas...
                           </>
                         ) : savedActions.update_financials ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Finanzas Actualizadas!
+                            <Check className="size-3.5 text-white" /> ¡Tarifas Actualizadas en SOP!
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Actualizar Precios y Finanzas
+                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar Tarifas por Servicio
                           </>
                         )}
                       </Button>

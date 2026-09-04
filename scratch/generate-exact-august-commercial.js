@@ -174,9 +174,111 @@ importedCommercialAccounts.forEach((acc) => {
     actualHours: 2,
     bookedBy: "Commercial Contract",
     status: "completed",
-    notes: "Servicio mensual regular Whittier (Lorena Benitez)"
+    notes: "Servicio mensual regular Whittier (Lorena Benitez). $119.00 labor per service"
   }),`
     });
+    return;
+  }
+
+  // Special case: University Park Dental (2 visits in August: Aug 10 and Aug 24)
+  if (acc.name.includes("University Park Dental")) {
+    ["2026-08-10", "2026-08-24"].forEach((vDate, idx) => {
+      commercialEntries.push({
+        date: vDate,
+        code: `  // University Park Dental — Visita ${idx + 1}/2 (${vDate})
+  computeBookingFormulas({
+    id: "comm-aug-university-park-dental-0${idx + 1}",
+    date: "${vDate}",
+    clientName: "University Park Dental",
+    service: "Commercial Cleaning",
+    serviceCategory: "Commercial Cleaning",
+    frequency: "Every 2 weeks",
+    city: "Irvine",
+    cleanerTeam: "Unassigned",
+    subTotal: 162.5,
+    salesTax: 0,
+    processingFee: 0,
+    tip: 0,
+    teamEarningsWithoutTips: 51.75,
+    merchantFee: 0,
+    stripeFee: 0,
+    durationHours: 2.25,
+    actualHours: 2.25,
+    bookedBy: "Commercial Contract",
+    status: "completed",
+    notes: "Visita ${idx + 1} de 2 en agosto (Unassigned). Every 14 days ($51.75 labor per service)",
+  }),`
+      });
+    });
+    return;
+  }
+
+  // Special case: LA Model Unit Cleaning
+  if (acc.name.includes("LA Model")) {
+    commercialEntries.push({
+      date: "2026-08-11",
+      code: `  // LA Model Unit Cleaning (2026-08-11)
+  computeBookingFormulas({
+    id: "comm-aug-la-model-01",
+    date: "2026-08-11",
+    clientName: "LA Model Unit Cleaning",
+    service: "Commercial Cleaning",
+    serviceCategory: "Commercial Cleaning",
+    frequency: "As needed (Events)",
+    city: "Los Angeles",
+    cleanerTeam: "Sandra Hernandez",
+    subTotal: 340,
+    salesTax: 0,
+    processingFee: 0,
+    tip: 0,
+    teamEarningsWithoutTips: 170,
+    merchantFee: 0,
+    stripeFee: 0,
+    durationHours: 3,
+    actualHours: 3,
+    bookedBy: "Commercial Contract",
+    status: "completed",
+    notes: "Event clean (Sandra Hernandez). $170.00 labor amount per service",
+  }),`
+    });
+    return;
+  }
+
+  // Special case: Renewable Farms
+  if (acc.name.includes("Renewable Farms")) {
+    ["2026-08-08", "2026-08-22"].forEach((vDate, idx) => {
+      commercialEntries.push({
+        date: vDate,
+        code: `  // Renewable Farms — Evento #${idx + 1} (${vDate})
+  computeBookingFormulas({
+    id: "comm-aug-renewable-farms-0${idx + 1}",
+    date: "${vDate}",
+    clientName: "Renewable Farms",
+    service: "Commercial Cleaning",
+    serviceCategory: "Commercial Cleaning",
+    frequency: "As needed",
+    city: "Aliso Viejo",
+    cleanerTeam: "Ana Morales",
+    subTotal: 360,
+    salesTax: 0,
+    processingFee: 0,
+    tip: 0,
+    teamEarningsWithoutTips: 69,
+    merchantFee: 0,
+    stripeFee: 0,
+    durationHours: 3,
+    actualHours: 3,
+    bookedBy: "Commercial Contract",
+    status: "completed",
+    notes: "Event clean (Ana Morales). $69.00 labor amount per service",
+  }),`
+      });
+    });
+    return;
+  }
+
+  // Skip as-needed accounts without August occurrences
+  if (acc.name.includes("Revive Real Estate") || acc.name.includes("Flex Fitness")) {
     return;
   }
 

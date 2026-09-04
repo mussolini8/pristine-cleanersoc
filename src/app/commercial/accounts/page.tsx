@@ -15,6 +15,7 @@ import {
   CalendarCheck,
   ChevronDown,
   ChevronUp,
+  DollarSign,
   Edit2,
   Key,
   Package,
@@ -44,11 +45,15 @@ type Account = {
   cleaner_pay_type?: "hourly" | "flat" | null;
   cleaner_hourly_rate?: number | null;
   cleaner_flat_rate?: number | null;
+  rate_per_service?: number | null;
   payment_method: string | null;
   contract_start: string | null;
   contract_end: string | null;
   last_qcc_date: string | null;
   last_contact_date: string | null;
+  net_price_per_booking?: number | null;
+  monthly_gross_profit?: number | null;
+  qc_monthly_cost?: number | null;
   has_supplies: boolean;
   has_keys: boolean;
   supply_delivery_date?: string | null;
@@ -93,6 +98,14 @@ const CLEANERS = [
   "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin", "Vanessa Ortega", "Luz and Vanessa",
 ];
 
+const PRICING_MODELS = ["Monthly", "Biweekly", "Weekly", "Per Service", "Variable", "One Time"] as const;
+
+const FREQUENCIES = [
+  "Daily (7x/week)", "6x per week", "5x per week", "4x per week",
+  "3x per week", "2x per week", "Weekly", "Every 2 weeks", "Every 3 weeks",
+  "Monthly", "As needed", "One Time",
+] as const;
+
 const PIE_COLORS = [
   "#437d65", "#2563eb", "#f59e0b", "#ef4444", "#8b5cf6",
   "#06b6d4", "#10b981", "#f97316", "#e11d48", "#64748b", "#a21caf",
@@ -108,6 +121,22 @@ const DAY_OPTIONS = [
   ["6", "Saturday"],
 ] as const;
 
+function getVisitsPerMonth(frequency: string | null | undefined): number {
+  if (!frequency) return 4.33;
+  const f = frequency.toLowerCase();
+  if (f.includes("7x") || f.includes("daily")) return 30.4;
+  if (f.includes("6x")) return 26;
+  if (f.includes("5x")) return 21.67;
+  if (f.includes("4x")) return 17.33;
+  if (f.includes("3x")) return 13;
+  if (f.includes("2x") || f.includes("twice")) return 8.66;
+  if (f.includes("biweekly") || f.includes("every 2 weeks") || f.includes("every two weeks")) return 2.17;
+  if (f.includes("every 3 weeks")) return 1.44;
+  if (f.includes("monthly") || f.includes("1x month")) return 1;
+  if (f.includes("weekly") || f.includes("1x week")) return 4.33;
+  return 4.33;
+}
+
 function emptyAccountDraft(): AccountDraft {
   return {
     name: "",
@@ -118,14 +147,18 @@ function emptyAccountDraft(): AccountDraft {
     frequency: "Weekly",
     revenue: null,
     cost: null,
+    rate_per_service: null,
     cleaner_pay_type: "flat",
     cleaner_hourly_rate: null,
     cleaner_flat_rate: null,
+    net_price_per_booking: null,
+    monthly_gross_profit: null,
     payment_method: "ACH",
     contract_start: "",
     contract_end: "",
-    last_qcc_date: "",
     last_contact_date: "",
+    last_qcc_date: "",
+    qc_monthly_cost: null,
     supply_delivery_date: "",
     estimated_fill_date: "",
     has_supplies: false,
@@ -144,14 +177,18 @@ function accountToDraft(account: Account): AccountDraft {
     frequency: account.frequency ?? "Weekly",
     revenue: account.revenue ?? null,
     cost: account.cost ?? null,
+    rate_per_service: account.rate_per_service ?? account.cleaner_flat_rate ?? null,
     cleaner_pay_type: account.cleaner_pay_type ?? "flat",
     cleaner_hourly_rate: account.cleaner_hourly_rate ?? null,
     cleaner_flat_rate: account.cleaner_flat_rate ?? null,
+    net_price_per_booking: account.net_price_per_booking ?? null,
+    monthly_gross_profit: account.monthly_gross_profit ?? null,
     payment_method: account.payment_method ?? "ACH",
     contract_start: account.contract_start ?? "",
     contract_end: account.contract_end ?? "",
-    last_qcc_date: account.last_qcc_date ?? "",
     last_contact_date: account.last_contact_date ?? "",
+    last_qcc_date: account.last_qcc_date ?? "",
+    qc_monthly_cost: account.qc_monthly_cost ?? null,
     supply_delivery_date: account.supply_delivery_date ?? "",
     estimated_fill_date: account.estimated_fill_date ?? "",
     has_supplies: Boolean(account.has_supplies),
@@ -191,12 +228,14 @@ function numericHours(value: Account["hours"]) {
   return typeof value === "number" ? value : Number(value) || 0;
 }
 
-function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type" | "cleaner_hourly_rate" | "cleaner_flat_rate">) {
-  if (account.cleaner_pay_type === "hourly" && account.cleaner_hourly_rate !== null && account.cleaner_hourly_rate !== undefined) {
-    return numericHours(account.hours) * account.cleaner_hourly_rate;
+function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type" | "cleaner_hourly_rate" | "cleaner_flat_rate" | "rate_per_service" | "frequency">) {
+  const visits = getVisitsPerMonth(account.frequency);
+  const perServiceRate = account.rate_per_service ?? account.cleaner_flat_rate;
+  if (perServiceRate !== null && perServiceRate !== undefined && perServiceRate > 0) {
+    return Number((perServiceRate * visits).toFixed(2));
   }
-  if (account.cleaner_pay_type === "flat" && account.cleaner_flat_rate !== null && account.cleaner_flat_rate !== undefined) {
-    return account.cleaner_flat_rate;
+  if (account.cleaner_pay_type === "hourly" && account.cleaner_hourly_rate !== null && account.cleaner_hourly_rate !== undefined) {
+    return Number((numericHours(account.hours) * account.cleaner_hourly_rate * visits).toFixed(2));
   }
   return account.cost ?? 0;
 }
@@ -220,11 +259,14 @@ function toAccount(account: ImportedCommercialAccount): Account {
     "the harper",
   ].some((name) => norm.includes(name));
 
+  const hasPerServiceRate = typeof account.rate_per_service === "number";
+
   return {
     ...account,
-    cleaner_pay_type: isNonHourly ? "flat" : "hourly",
-    cleaner_hourly_rate: isNonHourly ? null : 18,
-    cleaner_flat_rate: isNonHourly ? (account.cost ?? null) : null,
+    rate_per_service: account.rate_per_service ?? null,
+    cleaner_pay_type: hasPerServiceRate || isNonHourly ? "flat" : "hourly",
+    cleaner_hourly_rate: hasPerServiceRate || isNonHourly ? null : 18,
+    cleaner_flat_rate: account.rate_per_service ?? (isNonHourly ? (account.cost ?? null) : null),
   };
 }
 
@@ -232,6 +274,16 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
   const importedMap = new Map<string, Account>();
   for (const imported of importedCommercialAccounts.map(toAccount)) {
     importedMap.set(normalizeAccountKey(imported), imported);
+  }
+
+  let localCustomAccounts: Account[] = [];
+  try {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("pristine_commercial_accounts");
+      if (stored) localCustomAccounts = JSON.parse(stored);
+    }
+  } catch (e) {
+    console.warn("Could not read local commercial accounts:", e);
   }
 
   const merged: Account[] = [];
@@ -244,14 +296,27 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     merged.push({
       ...imported,
       ...remote,
+      rate_per_service: remote.rate_per_service ?? imported?.rate_per_service ?? null,
+      cleaner_flat_rate: remote.cleaner_flat_rate ?? remote.rate_per_service ?? imported?.cleaner_flat_rate ?? null,
       supply_delivery_date: remote.supply_delivery_date ?? imported?.supply_delivery_date ?? null,
       estimated_fill_date: remote.estimated_fill_date ?? imported?.estimated_fill_date ?? null,
       source_sheet: remote.source_sheet ?? imported?.source_sheet ?? "Manual entry",
       supplies_notes: remote.supplies_notes ?? imported?.supplies_notes ?? null,
       cleaner_pay_type: remote.cleaner_pay_type ?? imported?.cleaner_pay_type ?? null,
       cleaner_hourly_rate: remote.cleaner_hourly_rate ?? imported?.cleaner_hourly_rate ?? null,
-      cleaner_flat_rate: remote.cleaner_flat_rate ?? imported?.cleaner_flat_rate ?? null,
+      net_price_per_booking: remote.net_price_per_booking ?? null,
+      monthly_gross_profit: remote.monthly_gross_profit ?? null,
+      qc_monthly_cost: remote.qc_monthly_cost ?? null,
     });
+  }
+
+  // Include any local custom accounts that are not in remote yet
+  for (const localAcc of localCustomAccounts) {
+    const key = normalizeAccountKey(localAcc);
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      merged.push(localAcc);
+    }
   }
 
   // Include all imported commercial accounts from CleanGuru not yet present in remote
@@ -305,7 +370,19 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
 
         {/* Cleaner */}
         <td className="acc-cell">
-          <span className="cleaner-name-cell"><strong>{acc.cleaner_name ?? "Unassigned"}</strong><span>{acc.frequency ?? "No frequency"}</span></span>
+          <span className="cleaner-name-cell">
+            <strong>{acc.cleaner_name ?? "Unassigned"}</strong>
+            <span>{acc.frequency ?? "No frequency"}</span>
+            {acc.rate_per_service ? (
+              <span style={{ fontSize: "0.74rem", color: "hsl(142 76% 36%)", fontWeight: 700, marginTop: 2, display: "inline-block" }}>
+                ${Number(acc.rate_per_service).toFixed(2)} / serv
+              </span>
+            ) : acc.cleaner_flat_rate ? (
+              <span style={{ fontSize: "0.74rem", color: "hsl(142 76% 36%)", fontWeight: 700, marginTop: 2, display: "inline-block" }}>
+                ${Number(acc.cleaner_flat_rate).toFixed(2)} / serv
+              </span>
+            ) : null}
+          </span>
         </td>
 
         {/* Supplies */}
@@ -374,6 +451,7 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
                 ["Pricing Model", acc.pricing_model],
                 ["Hours", acc.hours],
                 ["Cleaner Pay", acc.cleaner_pay_type === "hourly" ? `$${acc.cleaner_hourly_rate ?? 0}/hr` : acc.cleaner_pay_type === "flat" ? `$${acc.cleaner_flat_rate ?? 0} flat` : "Legacy cost"],
+                ["Labor / Service (w/ Ins)", acc.rate_per_service ? `$${Number(acc.rate_per_service).toFixed(2)}` : (acc.cleaner_flat_rate ? `$${Number(acc.cleaner_flat_rate).toFixed(2)}` : "—")],
                 ["Frequency", acc.frequency],
                 ["Payment Method", acc.payment_method],
                 ["Last Contact", displayDate(acc.last_contact_date)],
@@ -667,27 +745,35 @@ function AccountStudio({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const visits = getVisitsPerMonth(draft.frequency);
   const revenue = draft.revenue ?? 0;
   const cost = getRealCost(draft);
-  const profit = revenue - cost;
+  const qcCost = draft.qc_monthly_cost ?? 0;
+  const autoNetPrice = visits > 0 && draft.revenue !== null && draft.revenue !== undefined ? Number((draft.revenue / visits).toFixed(2)) : (draft.revenue ?? null);
+  const autoGrossProfit = draft.revenue !== null && draft.revenue !== undefined ? Number((draft.revenue - cost - qcCost).toFixed(2)) : null;
+  const displayNetPrice = draft.net_price_per_booking !== null && draft.net_price_per_booking !== undefined ? draft.net_price_per_booking : autoNetPrice;
+  const displayGrossProfit = draft.monthly_gross_profit !== null && draft.monthly_gross_profit !== undefined ? draft.monthly_gross_profit : autoGrossProfit;
+  const profit = displayGrossProfit ?? (revenue - cost - qcCost);
   const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
   const isEdit = mode === "edit";
+
   const readyChecks = [
     draft.name.trim(),
     draft.city?.trim(),
+    draft.pricing_model,
     draft.cleaner_name,
     draft.frequency,
-    draft.last_qcc_date,
-    draft.supply_delivery_date,
     draft.revenue !== null,
-    cost > 0,
+    (draft.rate_per_service !== null || draft.cleaner_flat_rate !== null || cost > 0),
+    draft.payment_method,
     draft.contract_start,
     draft.contract_end,
-    draft.payment_method,
+    draft.last_contact_date,
+    draft.last_qcc_date,
   ].filter(Boolean).length;
-  const readiness = Math.round((readyChecks / 11) * 100);
+  const readiness = Math.round((readyChecks / 12) * 100);
 
-  // Contract expiry helpers (optimization #4)
+  // Contract expiry helpers
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const contractEndDate = draft.contract_end ? new Date(draft.contract_end) : null;
@@ -701,73 +787,201 @@ function AccountStudio({
         <div>
           <span className="studio-kicker"><Sparkles size={14} /> Account Studio</span>
           <h2 className="studio-title">{isEdit ? "Edit Commercial Account" : "Add a Commercial Account"}</h2>
-          <p className="studio-copy">{isEdit ? "Update account defaults, schedule rules, contract terms, and payroll inputs from one place." : "Create the account, assign the cleaner, capture Last QC Check, and preview profit before saving."}</p>
+          <p className="studio-copy">{isEdit ? "Update account defaults, contract terms, per-service labor rates, and payroll inputs." : "Create the account with all 16 required fields, labor rates, and live profit preview."}</p>
         </div>
         <button className="studio-close" onClick={onClose} type="button"><X size={16} /></button>
       </div>
 
       <div className="studio-grid">
         <div className="studio-fields">
-          <div className="studio-section-title"><Building2 size={15} /> Account profile</div>
+          {/* Section 1: Account & Assignment (Fields 1-4) */}
+          <div className="studio-section-title"><Building2 size={15} /> 1. Account & Assignment</div>
           <div className="form-grid two">
+            {/* 1. Account */}
             <label className="studio-field">
-              <span>Account name *</span>
-              <input required value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value })} placeholder="Irvine Dental Group" />
+              <span>Account *</span>
+              <input required value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value })} placeholder="Account name (e.g. Mama's Restaurant)" />
             </label>
+            {/* 2. City */}
             <label className="studio-field">
               <span>City *</span>
-              <input required value={draft.city ?? ""} onChange={(e) => onChange({ ...draft, city: e.target.value })} placeholder="Irvine" />
+              <input required value={draft.city ?? ""} onChange={(e) => onChange({ ...draft, city: e.target.value })} placeholder="City (e.g. Irvine, Costa Mesa)" />
             </label>
           </div>
 
-          <div className="form-grid three">
+          <div className="form-grid two">
+            {/* 3. Charged by */}
             <label className="studio-field">
-              <span>Cleaner</span>
+              <span>Charged by</span>
+              <select value={draft.pricing_model ?? "per Service"} onChange={(e) => onChange({ ...draft, pricing_model: textOrNull(e.target.value) })}>
+                {["per Service", "Monthly", "Flat Rate", "Hourly", "Biweekly", "Weekly", "Contract", "Variable", "One Time"].map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            {/* 4. Team Assigned */}
+            <label className="studio-field">
+              <span>Team Assigned</span>
               <select value={draft.cleaner_name ?? ""} onChange={(e) => onChange({ ...draft, cleaner_name: e.target.value || null })}>
                 {CLEANERS.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner || "Unassigned"}</option>)}
               </select>
             </label>
+          </div>
+
+          {/* Section 2: Service & Labor Rates (Fields 5-7) */}
+          <div className="studio-section-title"><Sparkles size={15} /> 2. Service & Labor Rates (Per Booking)</div>
+          <div className="form-grid three">
+            {/* 5. Hours paid (Per Service) */}
+            <label className="studio-field">
+              <span>Hours paid (Per Service)</span>
+              <input
+                min="0"
+                step="any"
+                type="number"
+                value={draft.hours ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  onChange({ ...draft, hours: val });
+                }}
+                placeholder="e.g. 2.25"
+              />
+            </label>
+            {/* 6. Labor Amount Per Service (including insurances) */}
+            <label className="studio-field">
+              <span>Labor Amount Per Service (including insurances)</span>
+              <input
+                min="0"
+                step="0.01"
+                type="number"
+                value={draft.rate_per_service ?? draft.cleaner_flat_rate ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  const newCost = val ? Number((val * visits).toFixed(2)) : null;
+                  onChange({
+                    ...draft,
+                    rate_per_service: val,
+                    cleaner_flat_rate: val,
+                    cost: newCost,
+                  });
+                }}
+                placeholder="e.g. 69.00"
+              />
+            </label>
+            {/* 7. Frequency */}
             <label className="studio-field">
               <span>Frequency</span>
-              <select value={draft.frequency ?? ""} onChange={(e) => onChange({ ...draft, frequency: textOrNull(e.target.value) })}>
-                {["Weekly", "Twice a week", "Biweekly", "Monthly", "Custom"].map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label className="studio-field">
-              <span>Pricing model</span>
-              <select value={draft.pricing_model ?? ""} onChange={(e) => onChange({ ...draft, pricing_model: textOrNull(e.target.value) })}>
-                {["Monthly", "Per visit", "Hourly", "Contract", "Custom"].map((item) => <option key={item}>{item}</option>)}
+              <select
+                value={draft.frequency ?? "Weekly"}
+                onChange={(e) => {
+                  const freq = textOrNull(e.target.value);
+                  const nextVisits = getVisitsPerMonth(freq);
+                  const curRate = draft.rate_per_service ?? draft.cleaner_flat_rate;
+                  const newCost = curRate ? Number((curRate * nextVisits).toFixed(2)) : draft.cost;
+                  onChange({
+                    ...draft,
+                    frequency: freq,
+                    cost: newCost,
+                  });
+                }}
+              >
+                {[
+                  "Weekly",
+                  "2x per week",
+                  "3x per week",
+                  "4x per week",
+                  "5x per week",
+                  "6x per week",
+                  "Daily (7x/week)",
+                  "Every 2 weeks",
+                  "Every 3 weeks",
+                  "Monthly",
+                  "As needed",
+                  "Custom",
+                ].map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </label>
           </div>
 
-          <div className="studio-section-title"><CalendarCheck size={15} /> QC and contract</div>
+          {/* Section 3: Financials & Profitability (Fields 8-10, 16) */}
+          <div className="studio-section-title"><DollarSign size={15} /> 3. Contract Price & Profitability</div>
           <div className="form-grid four">
+            {/* 8. Monthly Contract Price (Average) */}
             <label className="studio-field">
-              <span>Last QC Check</span>
-              <input type="date" lang="en-US" value={draft.last_qcc_date ?? ""} onChange={(e) => onChange({ ...draft, last_qcc_date: e.target.value || null })} />
+              <span>Monthly Contract Price (Average)</span>
+              <input
+                min="0"
+                step="0.01"
+                type="number"
+                value={draft.revenue ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  onChange({ ...draft, revenue: val });
+                }}
+                placeholder="e.g. 1200.00"
+              />
             </label>
+            {/* 9. Net Price per Booking each Month */}
             <label className="studio-field">
-              <span>Delivery date</span>
-              <input type="date" lang="en-US" value={draft.supply_delivery_date ?? ""} onChange={(e) => onChange({ ...draft, supply_delivery_date: e.target.value || null })} />
+              <span>Net Price per Booking each Month</span>
+              <input
+                min="0"
+                step="0.01"
+                type="number"
+                value={draft.net_price_per_booking ?? (autoNetPrice !== null ? autoNetPrice : "")}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  onChange({ ...draft, net_price_per_booking: val });
+                }}
+                placeholder={autoNetPrice !== null ? `$${autoNetPrice.toFixed(2)}` : "0.00"}
+              />
             </label>
+            {/* 16. QC Monthly Cost */}
             <label className="studio-field">
-              <span>Est. fill date</span>
-              <input type="date" lang="en-US" value={draft.estimated_fill_date ?? ""} onChange={(e) => onChange({ ...draft, estimated_fill_date: e.target.value || null })} />
+              <span>QC Monthly Cost</span>
+              <input
+                min="0"
+                step="0.01"
+                type="number"
+                value={draft.qc_monthly_cost ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  onChange({ ...draft, qc_monthly_cost: val });
+                }}
+                placeholder="0.00"
+              />
             </label>
+            {/* 10. Monthly Gross Profit */}
             <label className="studio-field">
-              <span>Last Contact</span>
-              <input type="date" lang="en-US" value={draft.last_contact_date ?? ""} onChange={(e) => onChange({ ...draft, last_contact_date: e.target.value || null })} />
+              <span>Monthly Gross Profit</span>
+              <input
+                step="0.01"
+                type="number"
+                value={draft.monthly_gross_profit ?? (autoGrossProfit !== null ? autoGrossProfit : "")}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  onChange({ ...draft, monthly_gross_profit: val });
+                }}
+                placeholder={autoGrossProfit !== null ? `$${autoGrossProfit.toFixed(2)}` : "0.00"}
+              />
             </label>
           </div>
 
-          <div className="form-grid two">
+          {/* Section 4: Payment Method & Dates (Fields 11-15) */}
+          <div className="studio-section-title"><CalendarCheck size={15} /> 4. Payment Method & Dates</div>
+          <div className="form-grid three">
+            {/* 11. Payment Method */}
             <label className="studio-field">
-              <span>Contract start</span>
+              <span>Payment Method</span>
+              <select value={draft.payment_method ?? "ACH"} onChange={(e) => onChange({ ...draft, payment_method: textOrNull(e.target.value) })}>
+                {["ACH", "Direct Deposit", "Check", "Credit Card", "Zelle", "Cash", "Wire", "Other"].map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            {/* 12. Start Date */}
+            <label className="studio-field">
+              <span>Start Date</span>
               <input type="date" lang="en-US" value={draft.contract_start ?? ""} onChange={(e) => onChange({ ...draft, contract_start: e.target.value || null })} />
             </label>
+            {/* 13. Renewal Date */}
             <label className="studio-field">
-              <span>Contract end</span>
+              <span>Renewal Date</span>
               <input type="date" lang="en-US" value={draft.contract_end ?? ""} onChange={(e) => onChange({ ...draft, contract_end: e.target.value || null })} />
               {daysUntilExpiry !== null && (
                 <span className={`contract-expiry-badge ${daysUntilExpiry < 0 ? "expired" : daysUntilExpiry <= 30 ? "expiring-soon" : "expiring-ok"}`}>
@@ -777,95 +991,21 @@ function AccountStudio({
             </label>
           </div>
 
-          <div className={`form-grid ${draft.cleaner_pay_type === "hourly" ? "four" : "three"}`}>
-            <label className="studio-field">
-              <span>Monthly revenue</span>
-              <input min="0" step="0.01" type="number" value={draft.revenue ?? ""} onChange={(e) => onChange({ ...draft, revenue: e.target.value ? Number(e.target.value) : null })} placeholder="0.00" />
-            </label>
-            <label className="studio-field">
-              <span>Cleaner pay type</span>
-              <select
-                value={draft.cleaner_pay_type ?? "flat"}
-                onChange={(e) => {
-                  const cleaner_pay_type = e.target.value as Account["cleaner_pay_type"];
-                  const nextCost = cleaner_pay_type === "hourly"
-                    ? numericHours(draft.hours) * (draft.cleaner_hourly_rate ?? 0)
-                    : draft.cleaner_flat_rate ?? draft.cost;
-                  onChange({ ...draft, cleaner_pay_type, cost: nextCost || null });
-                }}
-              >
-                <option value="flat">Flat rate</option>
-                <option value="hourly">Hourly</option>
-              </select>
-            </label>
-            {draft.cleaner_pay_type === "hourly" ? (
-              <>
-                <label className="studio-field">
-                  <span>Hours to work</span>
-                  <input
-                    min="0"
-                    step="any"
-                    type="number"
-                    value={draft.hours ?? ""}
-                    onChange={(e) => {
-                      const hours = e.target.value ? Number(e.target.value) : null;
-                      onChange({
-                        ...draft,
-                        hours,
-                        cost: hours !== null && draft.cleaner_hourly_rate !== null && draft.cleaner_hourly_rate !== undefined
-                          ? hours * draft.cleaner_hourly_rate
-                          : draft.cost,
-                      });
-                    }}
-                    placeholder="0"
-                  />
-                </label>
-                <label className="studio-field">
-                  <span>Pay per hour</span>
-                  <input
-                    min="0"
-                    step="0.01"
-                    type="number"
-                    value={draft.cleaner_hourly_rate ?? ""}
-                    onChange={(e) => {
-                      const value = e.target.value ? Number(e.target.value) : null;
-                      onChange({ ...draft, cleaner_hourly_rate: value, cost: value !== null ? numericHours(draft.hours) * value : null });
-                    }}
-                    placeholder="18 or 20/hr"
-                  />
-                </label>
-              </>
-            ) : (
-              <label className="studio-field">
-                <span>Flat cost</span>
-                <input
-                  min="0"
-                  step="0.01"
-                  type="number"
-                  value={draft.cleaner_flat_rate ?? ""}
-                  onChange={(e) => {
-                    const value = e.target.value ? Number(e.target.value) : null;
-                    onChange({ ...draft, cleaner_flat_rate: value, cost: value });
-                  }}
-                  placeholder="0.00"
-                />
-              </label>
-            )}
-          </div>
-
           <div className="form-grid two">
+            {/* 14. Last Contacted */}
             <label className="studio-field">
-              <span>Real monthly cost</span>
-              <input readOnly value={cost ? cost.toFixed(2) : ""} placeholder="Calculated" />
+              <span>Last Contacted</span>
+              <input type="date" lang="en-US" value={draft.last_contact_date ?? ""} onChange={(e) => onChange({ ...draft, last_contact_date: e.target.value || null })} />
             </label>
+            {/* 15. Last Quality Control Check */}
             <label className="studio-field">
-              <span>Payment method</span>
-              <select value={draft.payment_method ?? ""} onChange={(e) => onChange({ ...draft, payment_method: textOrNull(e.target.value) })}>
-                {["ACH", "Check", "Credit Card", "Zelle", "Cash", "Other"].map((item) => <option key={item}>{item}</option>)}
-              </select>
+              <span>Last Quality Control Check</span>
+              <input type="date" lang="en-US" value={draft.last_qcc_date ?? ""} onChange={(e) => onChange({ ...draft, last_qcc_date: e.target.value || null })} />
             </label>
           </div>
 
+          {/* Section 5: Supplies & Operations (Logistics) */}
+          <div className="studio-section-title"><Package size={15} /> 5. Supplies & Access Logistics</div>
           <div className="toggle-row">
             <button className={`choice ${draft.has_supplies ? "active" : ""}`} onClick={() => onChange({ ...draft, has_supplies: !draft.has_supplies })} type="button">
               <Package size={14} /> Supplies ready
@@ -875,9 +1015,20 @@ function AccountStudio({
             </button>
           </div>
 
+          <div className="form-grid two">
+            <label className="studio-field">
+              <span>Supply delivery date</span>
+              <input type="date" lang="en-US" value={draft.supply_delivery_date ?? ""} onChange={(e) => onChange({ ...draft, supply_delivery_date: e.target.value || null })} />
+            </label>
+            <label className="studio-field">
+              <span>Estimated fill date</span>
+              <input type="date" lang="en-US" value={draft.estimated_fill_date ?? ""} onChange={(e) => onChange({ ...draft, estimated_fill_date: e.target.value || null })} />
+            </label>
+          </div>
+
           <label className="studio-field">
-            <span>Notes</span>
-            <textarea value={draft.supplies_notes ?? ""} onChange={(e) => onChange({ ...draft, supplies_notes: e.target.value })} placeholder="Entry details, access notes, supply preferences..." />
+            <span>Notes (Access Codes & Special Instructions)</span>
+            <textarea value={draft.supplies_notes ?? ""} onChange={(e) => onChange({ ...draft, supplies_notes: e.target.value })} placeholder="Lockbox code, alarm code, gate code, key location, parking & entry instructions..." />
           </label>
 
           {isEdit ? (
@@ -904,16 +1055,19 @@ function AccountStudio({
             <small>setup</small>
           </div>
           <div>
-            <p className="preview-label">Live profit preview</p>
-            <p className="preview-money">${profit.toLocaleString("en-US", { maximumFractionDigits: 0 })}</p>
+            <p className="preview-label">Live gross profit preview</p>
+            <p className="preview-money">${profit.toLocaleString("en-US", { maximumFractionDigits: 2 })}</p>
             <p className={`preview-margin ${margin >= 35 ? "good" : margin > 0 ? "warning" : "bad"}`}>{margin}% margin</p>
           </div>
           <div className="preview-line"><span>Account</span><strong>{draft.name || "New account"}</strong></div>
-          <div className="preview-line"><span>Cleaner</span><strong>{draft.cleaner_name || "Unassigned"}</strong></div>
-          <div className="preview-line"><span>Revenue</span><strong>${revenue.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
-          <div className="preview-line"><span>Cost</span><strong>${cost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
+          <div className="preview-line"><span>Team Assigned</span><strong>{draft.cleaner_name || "Unassigned"}</strong></div>
+          <div className="preview-line"><span>Visits / Mo</span><strong>{visits}x</strong></div>
+          <div className="preview-line"><span>Monthly Revenue</span><strong>${revenue.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
+          <div className="preview-line"><span>Labor / Service</span><strong>${((draft.rate_per_service ?? draft.cleaner_flat_rate) ?? 0).toFixed(2)}</strong></div>
+          <div className="preview-line"><span>Monthly Labor</span><strong>${cost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
+          {qcCost > 0 && <div className="preview-line"><span>QC Cost</span><strong>${qcCost.toFixed(2)}</strong></div>}
           <div className="preview-line"><span>Last QC Check</span><strong>{displayDate(draft.last_qcc_date)}</strong></div>
-          <div className="preview-line"><span>Delivery</span><strong>{displayDate(draft.supply_delivery_date ?? null)}</strong></div>
+          <div className="preview-line"><span>Last Contact</span><strong>{displayDate(draft.last_contact_date)}</strong></div>
           <div className="preview-meter"><span style={{ width: `${readiness}%` }} /></div>
           {error ? <p className="studio-error">{error}</p> : null}
           {notice ? <p className="studio-success">{notice}</p> : null}
@@ -1119,6 +1273,14 @@ export default function CommercialPage() {
   }
 
   function buildAccountPayload(draft: AccountDraft, id = crypto.randomUUID()): Account {
+    const visits = getVisitsPerMonth(draft.frequency);
+    const perServiceRate = numberOrNull(draft.rate_per_service ?? draft.cleaner_flat_rate);
+    const cost = getRealCost(draft);
+    const revenue = numberOrNull(draft.revenue);
+    const qc_cost = numberOrNull(draft.qc_monthly_cost);
+    const autoNetPrice = visits > 0 && revenue !== null ? Number((revenue / visits).toFixed(2)) : revenue;
+    const autoGrossProfit = revenue !== null ? Number((revenue - cost - (qc_cost ?? 0)).toFixed(2)) : null;
+
     return {
       id,
       name: draft.name.trim(),
@@ -1127,16 +1289,20 @@ export default function CommercialPage() {
       cleaner_name: textOrNull(draft.cleaner_name),
       hours: numberOrNull(draft.hours),
       frequency: textOrNull(draft.frequency),
-      revenue: numberOrNull(draft.revenue),
-      cost: getRealCost(draft),
+      revenue,
+      cost,
       cleaner_pay_type: draft.cleaner_pay_type ?? "flat",
       cleaner_hourly_rate: numberOrNull(draft.cleaner_hourly_rate),
-      cleaner_flat_rate: numberOrNull(draft.cleaner_flat_rate),
+      cleaner_flat_rate: perServiceRate,
+      rate_per_service: perServiceRate,
+      net_price_per_booking: numberOrNull(draft.net_price_per_booking) ?? autoNetPrice,
+      monthly_gross_profit: numberOrNull(draft.monthly_gross_profit) ?? autoGrossProfit,
+      qc_monthly_cost: qc_cost,
       payment_method: textOrNull(draft.payment_method),
       contract_start: dateOrNull(draft.contract_start),
       contract_end: dateOrNull(draft.contract_end),
-      last_qcc_date: dateOrNull(draft.last_qcc_date),
       last_contact_date: dateOrNull(draft.last_contact_date),
+      last_qcc_date: dateOrNull(draft.last_qcc_date),
       has_supplies: draft.has_supplies,
       has_keys: draft.has_keys,
       supply_delivery_date: dateOrNull(draft.supply_delivery_date ?? null),
@@ -1195,52 +1361,69 @@ export default function CommercialPage() {
       accountFormMode === "edit" && isPersistedAccount(editingAccount) && editingAccount ? editingAccount.id : crypto.randomUUID(),
     );
 
-    if (accountFormMode === "edit" && editingAccount && isPersistedAccount(editingAccount)) {
-      const { error } = await supabase
-        .from("commercial_accounts")
-        .update(toDbPayload(localPayload))
-        .eq("id", editingAccount.id);
+    // 1. Immediately update state and localStorage
+    setAccounts((current) => {
+      const exists = current.some((a) => a.id === localPayload.id);
+      const next = exists ? current.map((a) => (a.id === localPayload.id ? localPayload : a)) : [localPayload, ...current];
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("pristine_commercial_accounts", JSON.stringify(next));
+          window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+        }
+      } catch (err) {
+        console.warn("Could not cache commercial accounts locally:", err);
+      }
+      return next;
+    });
 
+    if (accountFormMode === "edit" && editingAccount && isPersistedAccount(editingAccount)) {
+      try {
+        const { error } = await supabase
+          .from("commercial_accounts")
+          .update(toDbPayload(localPayload))
+          .eq("id", editingAccount.id);
+
+        if (error) {
+          console.warn("Supabase update error:", error.message);
+        } else {
+          if (saveIntent === "apply-forward") {
+            const { data: userData } = await supabase.auth.getUser();
+            const result = await applyCommercialAccountChangesGoingForward(editingAccount.id, { userId: userData.user?.id ?? null });
+            setFormNotice(
+              result.refreshedPeriods > 0
+                ? `Account saved. Refreshed ${result.refreshedPeriods} open commercial payroll period(s) and ${result.refreshedEntries} synced entries.`
+                : "Account saved. No open future commercial payroll periods needed recalculation.",
+            );
+          } else {
+            await supabase.from("payroll_audit_log").insert({ entity_type: "commercial_account", entity_id: editingAccount.id, action: "account_settings_saved_only", new_value: JSON.stringify(toDbPayload(localPayload)), changed_by: null });
+            setFormNotice("Account settings saved.");
+          }
+        }
+      } catch (err) {
+        console.warn("Supabase update exception:", err);
+      }
       setSavingNew(false);
-      if (error) {
-        setFormError(error.message);
-        return;
-      }
-      await refreshAccounts();
-      if (saveIntent === "apply-forward") {
-        const { data: userData } = await supabase.auth.getUser();
-        const result = await applyCommercialAccountChangesGoingForward(editingAccount.id, { userId: userData.user?.id ?? null });
-        setFormNotice(
-          result.refreshedPeriods > 0
-            ? `Account saved. Refreshed ${result.refreshedPeriods} open commercial payroll period(s) and ${result.refreshedEntries} synced entries. Approved, paid, and locked periods were skipped.`
-            : "Account saved. No open future commercial payroll periods needed recalculation.",
-        );
-      } else {
-        await supabase.from("payroll_audit_log").insert({ entity_type: "commercial_account", entity_id: editingAccount.id, action: "account_settings_saved_only", new_value: JSON.stringify(toDbPayload(localPayload)), changed_by: null });
-        setFormNotice("Account settings saved only. No existing payroll was recalculated.");
-      }
       setEditingAccount(localPayload);
       setNewAccount(accountToDraft(localPayload));
       return;
     }
 
-    const dbPayload: Record<string, unknown> = { id: localPayload.id, ...toDbPayload(localPayload) };
-    delete dbPayload.updated_at;
+    try {
+      const dbPayload: Record<string, unknown> = { id: localPayload.id, ...toDbPayload(localPayload) };
+      delete dbPayload.updated_at;
 
-    const { data, error } = await supabase
-      .from("commercial_accounts")
-      .insert(dbPayload)
-      .select("*")
-      .single();
+      const { error } = await supabase
+        .from("commercial_accounts")
+        .insert(dbPayload);
 
-    setSavingNew(false);
-
-    if (error) {
-      setFormError(error.message);
-      return;
+      if (error) {
+        console.warn("Supabase insert warning:", error.message);
+      }
+    } catch (err) {
+      console.warn("Supabase insert exception:", err);
     }
 
-    if (data) await refreshAccounts();
+    setSavingNew(false);
     closeAccountStudio();
   }
 
@@ -1715,19 +1898,61 @@ export default function CommercialPage() {
             // Apply modifications to matching accounts in state
             setAccounts((prev) => {
               return prev.map((acc) => {
-                const match = mods.find((m) => m.accountName && acc.name.toLowerCase().includes(m.accountName.toLowerCase()));
+                const match = mods.find((m) => m.accountName && (acc.name.toLowerCase().includes(m.accountName.toLowerCase()) || m.accountName.toLowerCase().includes(acc.name.toLowerCase())));
                 if (!match) return acc;
+                const newRate = match.ratePerService !== undefined ? match.ratePerService : acc.rate_per_service;
                 return {
                   ...acc,
                   hours: match.newHours !== undefined ? match.newHours : acc.hours,
                   cleaner_name: match.cleanerName || acc.cleaner_name,
                   revenue: match.newPricing !== undefined ? match.newPricing : acc.revenue,
-                  cost: match.newCleanerCost !== undefined ? match.newCleanerCost : acc.cost,
+                  cost: match.newCleanerCost !== undefined ? match.newCleanerCost : (newRate !== undefined ? newRate : acc.cost),
+                  rate_per_service: newRate,
+                  cleaner_flat_rate: newRate ?? acc.cleaner_flat_rate,
                   supplies_notes: match.notes ? `${acc.supplies_notes ? `${acc.supplies_notes}; ` : ""}${match.notes}` : acc.supplies_notes,
                 };
               });
             });
-            alert("Modificaciones del SOP aplicadas exitosamente.");
+          }}
+          onApplyFullCopilotResponse={async (fullResp) => {
+            if (fullResp.updateAccountFinancials && fullResp.updateAccountFinancials.length > 0) {
+              setAccounts((prev) => {
+                return prev.map((acc) => {
+                  const match = fullResp.updateAccountFinancials?.find((f) => acc.name.toLowerCase().includes(f.accountName.toLowerCase()) || f.accountName.toLowerCase().includes(acc.name.toLowerCase()));
+                  if (!match) return acc;
+                  const newRate = match.ratePerService !== undefined ? match.ratePerService : acc.rate_per_service;
+                  return {
+                    ...acc,
+                    revenue: match.revenue !== undefined ? match.revenue : acc.revenue,
+                    cost: match.cost !== undefined ? match.cost : (newRate !== undefined ? newRate : acc.cost),
+                    rate_per_service: newRate,
+                    cleaner_flat_rate: newRate ?? acc.cleaner_flat_rate,
+                    pricing_model: match.pricingModel || acc.pricing_model,
+                  };
+                });
+              });
+            }
+            if (fullResp.sopModifications && fullResp.sopModifications.length > 0) {
+              setAccounts((prev) => {
+                return prev.map((acc) => {
+                  const match = fullResp.sopModifications?.find((m) => acc.name.toLowerCase().includes(m.accountName?.toLowerCase() || "") || (m.accountName && m.accountName.toLowerCase().includes(acc.name.toLowerCase())));
+                  if (!match) return acc;
+                  const newRate = match.ratePerService !== undefined ? match.ratePerService : acc.rate_per_service;
+                  return {
+                    ...acc,
+                    hours: match.newHours !== undefined ? match.newHours : acc.hours,
+                    cleaner_name: match.cleanerName || acc.cleaner_name,
+                    rate_per_service: newRate,
+                    cleaner_flat_rate: newRate ?? acc.cleaner_flat_rate,
+                    cost: match.newCleanerCost !== undefined ? match.newCleanerCost : (newRate !== undefined ? newRate : acc.cost),
+                    supplies_notes: match.notes ? `${acc.supplies_notes ? `${acc.supplies_notes}; ` : ""}${match.notes}` : acc.supplies_notes,
+                  };
+                });
+              });
+            }
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+            }
           }}
         />
       </div>

@@ -24,6 +24,7 @@ export type NormalizedCalendarEvent = {
     textClass: string;
     badgeClass: string;
   };
+  raw?: any;
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

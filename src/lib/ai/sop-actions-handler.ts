@@ -18,12 +18,153 @@ export function resolveCanonicalAccountName(name: string): string {
   if (norm.includes("field day") || norm.includes("field ai") || norm.includes("fiel ai") || norm.includes("fieldday")) {
     return "Field AI";
   }
-  if (norm === "the harper" || norm === "harper") return "The Harper";
+  if (norm === "the harper" || norm === "harper" || norm.includes("harper wedding")) return "The Harper";
   if (norm.includes("kott")) return "Kott Koatings";
-  if (norm.includes("ocss") || norm.includes("spine and sport")) return "Orange County Spine and Sports Physicians";
+  if (norm.includes("ocss") || norm.includes("spine and sport") || norm.includes("orange county spine")) return "Orange County Spine and Sports Physicians";
   if (norm.includes("wren")) return "Wren Spa";
   if (norm.includes("lsg")) return "LSG Sky Chefs";
+  if (norm.includes("miracle minds") || norm.includes("miracle mind")) return "Miracle Minds";
+  if (norm.includes("moxi3 costa") || norm.includes("moxi 3 costa") || norm.includes("moxi costa") || norm.includes("moxi3 cm")) return "MOXI3 Costa Mesa";
+  if (norm.includes("moxi3 dana") || norm.includes("moxi 3 dana") || norm.includes("moxi dana") || norm.includes("moxi3 dp")) return "MOXI3 Dana Point";
+  if (norm.includes("university park") || norm.includes("univ park") || norm.includes("university dental")) return "University Park Dental";
+  if (norm.includes("mama") || norm.includes("mamas")) return "Mama's Restaurant";
+  if (norm.includes("swing easy") || norm.includes("swing golf")) return "Swing Easy Golf Club";
+  if (norm.includes("green leaf") || norm.includes("greenleaf")) return "Green Leaf Botanicals";
+  if (norm.includes("sierra")) return "Sierra Analytical";
+  if (norm.includes("la model") || norm.includes("model unit")) return "LA Model Unit Cleaning";
+  if (norm.includes("kush")) return "Kush Fine Art";
+  if (norm.includes("posh pooch") || norm.includes("pooch")) return "Posh Pooch";
+  if (norm.includes("renewable")) return "Renewable Farms";
+  if (norm.includes("ilg irvine")) return "ILG Irvine Office";
+  if (norm.includes("ilg corona")) return "ILG Corona Office";
+  if (norm.includes("ilg westlake")) return "ILG Westlake";
+  if (norm.includes("ilg valencia")) return "ILG Valencia Office";
+  if (norm.includes("elevate aerial") || norm.includes("elevate hb")) return "Elevate Aerial HB";
+  if (norm.includes("revive")) return "Revive Real Estate";
+  if (norm.includes("vntr")) return "VNTR Fitness";
+  if (norm.includes("miwa")) return "MIWA Office";
+  if (norm.includes("flex fitness") || norm.includes("flex oc")) return "Flex Fitness OC";
+  if (norm.includes("13demarzo") || norm.includes("13 de marzo")) return "13demarzo";
+  if (norm.includes("globar")) return "GLOBAR Medspa";
+  if (norm.includes("cornerstone")) return "Cornerstone Rehab";
+  if (norm.includes("lifted")) return "Lifted Dentistry";
+  if (norm.includes("macarthur") || norm.includes("mac arthur")) return "MacArthur Dental Arts";
+  if (norm.includes("steripax")) return "Steripax";
   return name;
+}
+
+/**
+ * Apply access updates (Lockbox, Alarm Codes, Special Cleaning Instructions)
+ */
+export async function applyAccessUpdateAction(
+  update: NonNullable<SopCopilotResponse["accessUpdate"]> | NonNullable<SopCopilotResponse["accessUpdates"]>
+): Promise<SopActionResult> {
+  const updates = Array.isArray(update) ? update : [update];
+  if (updates.length === 0) {
+    return { success: false, message: "No se encontraron códigos de acceso para actualizar." };
+  }
+
+  const results: string[] = [];
+  const supabase = createClient();
+
+  for (const item of updates) {
+    if (!item.accountName) continue;
+    const canonicalName = resolveCanonicalAccountName(item.accountName);
+
+    const codeParts: string[] = [];
+    if (item.lockboxCode) codeParts.push(`Lockbox: ${item.lockboxCode}`);
+    if (item.alarmCode) codeParts.push(`Alarm: ${item.alarmCode}`);
+    if (item.gateCode) codeParts.push(`Gate: ${item.gateCode}`);
+    if (item.keyLocation) codeParts.push(`Keys: ${item.keyLocation}`);
+    if (item.specialInstructions) codeParts.push(`Instrucciones: ${item.specialInstructions}`);
+    if (item.otherNotes && !codeParts.some((p) => item.otherNotes!.includes(p))) codeParts.push(item.otherNotes);
+    const accessText = codeParts.join(" | ");
+
+    if (supabase) {
+      try {
+        const { data: accounts } = await supabase
+          .from("commercial_accounts")
+          .select("id, name, supplies_notes")
+          .ilike("name", `%${canonicalName}%`)
+          .limit(1);
+
+        if (accounts && accounts.length > 0) {
+          const acc = accounts[0];
+          const existingNotes = acc.supplies_notes || "";
+          const newNotes = existingNotes.includes(accessText)
+            ? existingNotes
+            : existingNotes ? `${existingNotes}\n${accessText}` : accessText;
+
+          await supabase
+            .from("commercial_accounts")
+            .update({
+              supplies_notes: newNotes,
+              has_keys: Boolean(item.lockboxCode || item.keyLocation || item.alarmCode),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", acc.id);
+        }
+      } catch (err) {
+        console.warn("[applyAccessUpdateAction] Supabase error:", err);
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      try {
+        const key = "pristine_commercial_accounts";
+        const existingStr = localStorage.getItem(key) || "[]";
+        const existingList: any[] = JSON.parse(existingStr);
+        const idx = existingList.findIndex(
+          (e: any) => e.name?.toLowerCase().includes(canonicalName.toLowerCase())
+        );
+
+        if (idx !== -1) {
+          const acc = existingList[idx];
+          const existingNotes = acc.supplies_notes || "";
+          const newNotes = existingNotes.includes(accessText)
+            ? existingNotes
+            : existingNotes ? `${existingNotes}\n${accessText}` : accessText;
+
+          existingList[idx] = {
+            ...acc,
+            supplies_notes: newNotes,
+            has_keys: true,
+            updated_at: new Date().toISOString(),
+          };
+          localStorage.setItem(key, JSON.stringify(existingList));
+        }
+
+        const accessCodesKey = "pristine_access_codes";
+        const rawCodes = localStorage.getItem(accessCodesKey) || "{}";
+        const codesMap = JSON.parse(rawCodes);
+        codesMap[canonicalName.toLowerCase()] = {
+          accountName: canonicalName,
+          lockboxCode: item.lockboxCode,
+          alarmCode: item.alarmCode,
+          gateCode: item.gateCode,
+          specialInstructions: item.specialInstructions,
+          updatedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(accessCodesKey, JSON.stringify(codesMap));
+      } catch {}
+    }
+
+    results.push(
+      `"${canonicalName}": ${item.lockboxCode ? `Lockbox ${item.lockboxCode}` : ""}${
+        item.alarmCode ? ` | Alarma ${item.alarmCode}` : ""
+      }${item.specialInstructions ? ` | ${item.specialInstructions}` : ""}`
+    );
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+  }
+
+  return {
+    success: true,
+    message: `Códigos de acceso y notas actualizados con éxito:\n${results.join("\n")}`,
+    data: updates,
+  };
 }
 
 /**
@@ -498,9 +639,21 @@ export async function applySopModificationsAction(
       if (typeof mod.newHours === "number" && !isDeactivation) updateData.hours = mod.newHours;
       if (typeof mod.newPricing === "number") updateData.revenue = mod.newPricing;
       if (typeof mod.newCleanerCost === "number") updateData.cost = mod.newCleanerCost;
+      if (typeof mod.ratePerService === "number") {
+        updateData.rate_per_service = mod.ratePerService;
+        updateData.cleaner_flat_rate = mod.ratePerService;
+        updateData.cost = mod.ratePerService;
+        updateData.cleaner_pay_type = "flat";
+      }
+      if (mod.frequency) updateData.frequency = mod.frequency;
+      if (mod.lockboxCode || mod.alarmCode) {
+        updateData.has_keys = true;
+      }
       if (mod.notes) updateData.supplies_notes = mod.notes;
       if (isDeactivation) {
         updateData.contract_end = cutoffDate || "2026-08-31";
+      } else if (mod.action === "activate_account" || mod.status === "active") {
+        updateData.contract_end = mod.contractEnd || "2027-12-31";
       }
 
       // Save to localStorage deactivated list for instant client-side isolation
@@ -640,7 +793,62 @@ export async function applySopModificationsAction(
             if (mod.cleanerName) {
               ruleUpdates.assigned_cleaner_name = mod.cleanerName;
             }
-            if (Object.keys(ruleUpdates).length > 1) {
+            if (mod.anchorDate) {
+              ruleUpdates.anchor_date = mod.anchorDate;
+            }
+
+            const DAY_MAP: Record<string, number> = {
+              domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3,
+              jueves: 4, viernes: 5, sabado: 6, sábado: 6,
+              sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+            };
+            const targetDays: number[] = mod.daysOfWeek && mod.daysOfWeek.length > 0
+              ? mod.daysOfWeek
+              : (mod.newDays || [])
+                  .map((d) => DAY_MAP[d.toLowerCase().trim()])
+                  .filter((n) => typeof n === "number");
+
+            if (targetDays.length > 0) {
+              const hours = typeof mod.newHours === "number" ? mod.newHours : (updateData.hours || 2.5);
+              const cleaner = mod.cleanerName || updateData.cleaner_name || "Sin asignar";
+              for (const day of targetDays) {
+                const { data: existingRule } = await supabase
+                  .from("commercial_account_schedule_rules")
+                  .select("id")
+                  .eq("commercial_account_id", accountId)
+                  .eq("day_of_week", day)
+                  .limit(1)
+                  .maybeSingle();
+
+                if (existingRule?.id) {
+                  await supabase
+                    .from("commercial_account_schedule_rules")
+                    .update({
+                      active: true,
+                      paid_hours: hours,
+                      scheduled_hours: hours,
+                      assigned_cleaner_name: cleaner,
+                      anchor_date: mod.anchorDate || null,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq("id", existingRule.id);
+                } else {
+                  await supabase
+                    .from("commercial_account_schedule_rules")
+                    .insert({
+                      commercial_account_id: accountId,
+                      day_of_week: day,
+                      paid_hours: hours,
+                      scheduled_hours: hours,
+                      assigned_cleaner_name: cleaner,
+                      active: true,
+                      frequency_type: mod.frequency?.toLowerCase().includes("biweekly") || mod.frequency?.toLowerCase().includes("2 weeks") ? "biweekly" : "weekly",
+                      anchor_date: mod.anchorDate || null,
+                      created_at: new Date().toISOString(),
+                    });
+                }
+              }
+            } else if (Object.keys(ruleUpdates).length > 1) {
               await supabase
                 .from("commercial_account_schedule_rules")
                 .update(ruleUpdates)
@@ -649,7 +857,9 @@ export async function applySopModificationsAction(
             appliedSupabase = true;
             results.push(
               `Modificado "${accountName}": ${typeof mod.newHours === "number" ? `${mod.newHours} hrs ` : ""}${
-                mod.cleanerName ? `(Cleaner: ${mod.cleanerName})` : ""
+                mod.ratePerService ? `($${mod.ratePerService}/serv) ` : ""
+              }${mod.cleanerName ? `(Cleaner: ${mod.cleanerName})` : ""}${
+                targetDays.length > 0 ? ` [Días: ${targetDays.join(", ")}]` : ""
               }`
             );
           }
@@ -1035,7 +1245,19 @@ export async function applyUpdateAccountFinancialsAction(
     let updatedCount = 0;
     const messages: string[] = [];
 
+    // Local storage map for quick client-side lookup
+    const localRateMap: Record<string, number> = {};
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("pristine_rate_per_service_map") || "{}";
+        Object.assign(localRateMap, JSON.parse(raw));
+      } catch {}
+    }
+
     for (const upd of updates) {
+      if (!upd.accountName) continue;
+      const canonicalName = resolveCanonicalAccountName(upd.accountName);
+
       const payload: any = { updated_at: new Date().toISOString() };
       if (upd.revenue !== undefined) payload.revenue = upd.revenue;
       if (upd.cost !== undefined) payload.cost = upd.cost;
@@ -1044,25 +1266,136 @@ export async function applyUpdateAccountFinancialsAction(
       if (upd.cleanerRate !== undefined) payload.cleaner_hourly_rate = upd.cleanerRate;
       if (upd.frequency) payload.frequency = upd.frequency;
 
-      const { data, error } = await supabase
-        .from("commercial_accounts")
-        .update(payload)
-        .ilike("name", `%${upd.accountName}%`)
-        .select("name, revenue, cost, pricing_model");
+      if (upd.ratePerService !== undefined && upd.ratePerService !== null) {
+        payload.cleaner_flat_rate = upd.ratePerService;
+        payload.cost = upd.ratePerService;
+        payload.cleaner_pay_type = "flat";
+        if (!payload.pricing_model) payload.pricing_model = "per Service";
+        localRateMap[canonicalName.toLowerCase()] = upd.ratePerService;
+      }
 
-      if (!error && data && data.length > 0) {
-        updatedCount++;
-        messages.push(`${data[0].name}: Rev $${data[0].revenue}, Costo $${data[0].cost} (${data[0].pricing_model})`);
+      let accountUpdatedInDb = false;
+
+      if (supabase) {
+        try {
+          const { data, error } = await supabase
+            .from("commercial_accounts")
+            .update(payload)
+            .ilike("name", `%${canonicalName}%`)
+            .select("name, revenue, cost, pricing_model, cleaner_flat_rate");
+
+          if (!error && data && data.length > 0) {
+            accountUpdatedInDb = true;
+            updatedCount++;
+            const item = data[0];
+            const rateMsg = upd.ratePerService !== undefined ? `Labor/Serv: $${upd.ratePerService}` : `Rev: $${item.revenue}, Costo: $${item.cost}`;
+            messages.push(`${item.name} (${rateMsg})`);
+          } else {
+            // If not found in commercial_accounts table yet, materialize from importedCommercialAccounts
+            const imp = importedCommercialAccounts.find(
+              (a) => a.name.toLowerCase().includes(canonicalName.toLowerCase()) || canonicalName.toLowerCase().includes(a.name.toLowerCase())
+            );
+            if (imp) {
+              const { data: inserted } = await supabase
+                .from("commercial_accounts")
+                .insert({
+                  name: imp.name,
+                  city: imp.city || "Orange County",
+                  cleaner_name: imp.cleaner_name || null,
+                  hours: Number(imp.hours) || 2.5,
+                  frequency: imp.frequency || "Weekly",
+                  revenue: upd.revenue !== undefined ? upd.revenue : imp.revenue,
+                  cost: upd.ratePerService !== undefined ? upd.ratePerService : (upd.cost !== undefined ? upd.cost : imp.cost),
+                  cleaner_flat_rate: upd.ratePerService !== undefined ? upd.ratePerService : imp.rate_per_service,
+                  pricing_model: upd.pricingModel || imp.pricing_model || "per Service",
+                  cleaner_pay_type: "flat",
+                  contract_start: imp.contract_start || null,
+                  contract_end: imp.contract_end || "2027-12-31",
+                })
+                .select()
+                .single();
+
+              if (inserted) {
+                accountUpdatedInDb = true;
+                updatedCount++;
+                messages.push(`${inserted.name} (Labor/Serv: $${upd.ratePerService || inserted.cost})`);
+              }
+            }
+          }
+        } catch (dbErr) {
+          console.warn("[applyUpdateAccountFinancialsAction] Supabase error:", dbErr);
+        }
+      }
+
+      // Also update in importedCommercialAccounts in-memory
+      const impMatch = importedCommercialAccounts.find(
+        (a) => a.name.toLowerCase().includes(canonicalName.toLowerCase()) || canonicalName.toLowerCase().includes(a.name.toLowerCase())
+      );
+      if (impMatch && upd.ratePerService !== undefined) {
+        impMatch.rate_per_service = upd.ratePerService;
+        impMatch.cleaner_flat_rate = upd.ratePerService;
+        impMatch.cost = upd.ratePerService;
+      }
+
+      // Fallback/sync in localStorage
+      if (typeof window !== "undefined") {
+        try {
+          const key = "pristine_commercial_accounts";
+          const raw = localStorage.getItem(key) || "[]";
+          const list: any[] = JSON.parse(raw);
+          const idx = list.findIndex(
+            (e: any) => e.name?.toLowerCase().includes(canonicalName.toLowerCase())
+          );
+
+          if (idx !== -1) {
+            list[idx] = {
+              ...list[idx],
+              ...payload,
+              rate_per_service: upd.ratePerService !== undefined ? upd.ratePerService : list[idx].rate_per_service,
+            };
+            localStorage.setItem(key, JSON.stringify(list));
+            if (!accountUpdatedInDb) {
+              updatedCount++;
+              messages.push(`${list[idx].name} (Actualizado localmente: Labor/Serv $${upd.ratePerService})`);
+            }
+          } else {
+            // Add new entry
+            const newEntry = {
+              id: `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              name: canonicalName,
+              city: impMatch?.city || "Orange County",
+              hours: impMatch?.hours || 2.5,
+              frequency: impMatch?.frequency || "Weekly",
+              revenue: upd.revenue || impMatch?.revenue || 0,
+              cost: upd.ratePerService || upd.cost || impMatch?.cost || 0,
+              rate_per_service: upd.ratePerService,
+              cleaner_flat_rate: upd.ratePerService,
+              cleaner_pay_type: "flat",
+              pricing_model: upd.pricingModel || "per Service",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+            list.unshift(newEntry);
+            localStorage.setItem(key, JSON.stringify(list));
+            if (!accountUpdatedInDb) {
+              updatedCount++;
+              messages.push(`${newEntry.name} (Creado localmente: Labor/Serv $${upd.ratePerService})`);
+            }
+          }
+        } catch {}
       }
     }
 
     if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("pristine_rate_per_service_map", JSON.stringify(localRateMap));
+      } catch {}
       window.dispatchEvent(new CustomEvent("pristine:data-updated"));
     }
 
     return {
       success: true,
-      message: `Finanzas actualizadas para ${updatedCount} cuenta(s):\n${messages.join("\n")}`,
+      message: `Finanzas y Labor por Servicio actualizados para ${updatedCount} cuenta(s):\n${messages.join("\n")}`,
       data: { updatedCount },
     };
   } catch (err: any) {
