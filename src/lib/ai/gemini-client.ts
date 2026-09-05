@@ -533,6 +533,23 @@ Core Superpowers and Capabilities:
         - "contractEnd": "2027-12-31"
      3. For biweekly cadences ('cada dos semanas', 'every 2 weeks', 'cada 14 días'), ALWAYS set "frequency": "Every 2 weeks".
      4. NEVER omit "daysOfWeek" when setting a schedule rule.
+     5. CURRENT CALENDAR CONTEXT:
+        - Today is Friday, September 4, 2026 (2026-09-04).
+        - Tomorrow ("mañana") is Saturday, September 5, 2026 (2026-09-05). Day of week: 6 (sábado).
+        - When user says "spine and sports lo hara luz a partir de mañana, la frecuencia es cada dos semanas, asi que tiene que ser de ahora en adelante en esa misma":
+          - Canonical accountName: "Orange County Spine and Sports Physicians"
+          - cleanerName: "Luz Uribe"
+          - action: "update_schedule"
+          - status: "active"
+          - frequency: "Every 2 weeks"
+          - daysOfWeek: [6]
+          - newDays: ["sábado"]
+          - anchorDate: "2026-09-05"
+          - effectiveDate: "2026-09-05"
+          - contractStart: "2026-09-05"
+          - contractEnd: "2027-12-31"
+          - newHours: 2.5
+          - notes: "Horario asignado a Luz Uribe cada 2 semanas los sábados comenzando el 5 de septiembre (2.5 hrs)"
 
 Return ONLY a valid JSON object matching this schema:
 {

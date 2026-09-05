@@ -591,14 +591,14 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "Orange County Spine and Sports Physicians",
     city: "Huntington Beach",
     pricing_model: "flat rate",
-    cleaner_name: "Mirna Contreras",
+    cleaner_name: "Luz Uribe",
     hours: 2.5,
-    frequency: "2nd & 4th Sat of Month",
+    frequency: "Every 2 weeks",
     revenue: 380,
     cost: 125,
     rate_per_service: 57.5,
     payment_method: "Credit Card",
-    contract_start: "2026-01-31",
+    contract_start: "2026-09-05",
     contract_end: null,
     last_contact_date: "2026-02-18",
     last_qcc_date: "2026-04-14",
@@ -606,10 +606,10 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     has_keys: true,
     supply_delivery_date: null,
     estimated_fill_date: null,
-    supplies_notes: "18800 Delaware Street. Suite 1000 on 10th floor. 9:00 AM - 11:20 AM.",
+    supplies_notes: "18800 Delaware Street. Suite 1000 on 10th floor. 9:00 AM - 11:20 AM. Luz Uribe cada 2 semanas los sábados.",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 6, paid_hours: 2.5, assigned_cleaner_name: "Mirna Contreras", frequency_type: "monthly", anchor_date: "2026-08-08", notes: "2nd & 4th Sat of Month (9:00 AM - 11:20 AM)" }
+      { day_of_week: 6, paid_hours: 2.5, assigned_cleaner_name: "Luz Uribe", frequency_type: "biweekly", anchor_date: "2026-09-05", effective_start_date: "2026-09-05", notes: "Every 2 weeks (Saturdays 9:00 AM - 11:20 AM, 2.5 hrs)" }
     ]
   },
   {

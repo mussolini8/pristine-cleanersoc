@@ -49,6 +49,7 @@ import { getCleanerPhone } from "@/lib/cleaner-contacts";
 
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
+import { resolveCanonicalAccountName } from "@/lib/ai/sop-actions-handler";
 import { importedCommercialAccounts, importedCommercialEventEntries } from "@/lib/commercial-accounts-data";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
@@ -869,6 +870,15 @@ export function SimpleOperationsClient({
   const [scheduleTab, setScheduleTab] = useState<"commercial" | "residential" | "qc">("commercial");
   const [scheduleAnchor, setScheduleAnchor] = useState<Date>(() => new Date());
   const [selectedScheduleEvent, setSelectedScheduleEvent] = useState<NormalizedCalendarEvent | null>(null);
+  const [scheduleActionType, setScheduleActionType] = useState<null | "reschedule" | "reassign" | "cancel">(null);
+  const [scheduleActionDate, setScheduleActionDate] = useState<string>("");
+  const [scheduleActionScope, setScheduleActionScope] = useState<"single" | "recurring">("recurring");
+  const [scheduleActionFrequency, setScheduleActionFrequency] = useState<string>("Every 2 weeks");
+  const [scheduleActionCleaner, setScheduleActionCleaner] = useState<string>("");
+  const [scheduleActionReason, setScheduleActionReason] = useState<string>("");
+  const [scheduleConfirmPending, setScheduleConfirmPending] = useState<boolean>(false);
+  const [scheduleActionSubmitting, setScheduleActionSubmitting] = useState<boolean>(false);
+  const [scheduleActionFeedback, setScheduleActionFeedback] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
@@ -1172,6 +1182,48 @@ export function SimpleOperationsClient({
   const potentialCleaners = useMemo(() => staff.filter((person) => staffIsPotentialCleaner(person) && !["jake ivan-pal", "carlos lopez"].includes(person.name.toLowerCase())), [staff]);
   const potentialResidentialCleaners = useMemo(() => potentialCleaners.filter((person) => staffScope(person) !== "commercial"), [potentialCleaners]);
   const potentialCommercialCleaners = useMemo(() => potentialCleaners.filter((person) => staffScope(person) !== "residential"), [potentialCleaners]);
+  const availableCleaners = useMemo(() => {
+    const list = new Set<string>();
+    for (const s of staff) {
+      if (s.name) list.add(s.name.trim());
+    }
+    for (const a of commercialAccounts) {
+      if (a.cleaner_name && a.cleaner_name !== "Unassigned") list.add(a.cleaner_name.trim());
+    }
+    for (const a of importedCommercialAccounts) {
+      if (a.cleaner_name && a.cleaner_name !== "Unassigned") list.add(a.cleaner_name.trim());
+    }
+    const coreCleaners = [
+      "Luz Uribe",
+      "Maria Lopez",
+      "Susana Bautista",
+      "Mirna Contreras",
+      "Carlos Lopez",
+      "Ana Morales",
+      "Sandra Hernandez",
+      "Juan Romero",
+      "Ana Silvia",
+    ];
+    for (const c of coreCleaners) list.add(c);
+    list.add("Unassigned");
+    return Array.from(list).sort();
+  }, [staff, commercialAccounts]);
+
+  const handleOpenScheduleEvent = (ev: NormalizedCalendarEvent | null) => {
+    setSelectedScheduleEvent(ev);
+    setScheduleActionType(null);
+    setScheduleConfirmPending(false);
+    setScheduleActionFeedback(null);
+    if (ev) {
+      setScheduleActionDate(ev.start);
+      const rawCleaner = ev.raw?.cleaner || "";
+      setScheduleActionCleaner(rawCleaner === "Unassigned" ? "" : rawCleaner);
+      const freq = ev.raw?.account?.frequency || "Every 2 weeks";
+      setScheduleActionFrequency(freq);
+      setScheduleActionScope("recurring");
+      setScheduleActionReason("");
+    }
+  };
   const teamByKey = useMemo(() => {
     const map = new Map<string, StaffMemberRow>();
     for (const team of activeTeams) {
@@ -4424,7 +4476,7 @@ export function SimpleOperationsClient({
           viewMode="week" 
           anchor={scheduleAnchor}
           onAnchorChange={setScheduleAnchor}
-          onEventSelect={(ev) => setSelectedScheduleEvent(ev)}
+          onEventSelect={(ev) => handleOpenScheduleEvent(ev)}
           emptyMessage={
             scheduleTab === "commercial" 
               ? "No commercial cleanings scheduled this week." 
@@ -6943,6 +6995,312 @@ function renderHeader() {
     );
   }
 
+  async function handleExecuteScheduleAction() {
+    if (!selectedScheduleEvent) return;
+    setScheduleActionSubmitting(true);
+    try {
+      const ev = selectedScheduleEvent;
+      const raw = ev.raw || {};
+      const canonicalName = resolveCanonicalAccountName(ev.title);
+
+      // Find db account or imp account
+      let targetDbAcc = commercialAccounts.find(
+        (a) =>
+          a.name.toLowerCase().trim() === canonicalName.toLowerCase().trim() ||
+          a.name.toLowerCase().includes(canonicalName.toLowerCase().trim()) ||
+          canonicalName.toLowerCase().trim().includes(a.name.toLowerCase().trim())
+      );
+      let targetAccountId = targetDbAcc?.id;
+
+      // If account not in commercial_accounts table yet, materialize from importedCommercialAccounts
+      if (!targetAccountId) {
+        const imp = importedCommercialAccounts.find(
+          (a) =>
+            a.name.toLowerCase().trim() === canonicalName.toLowerCase().trim() ||
+            a.name.toLowerCase().includes(canonicalName.toLowerCase().trim()) ||
+            canonicalName.toLowerCase().trim().includes(a.name.toLowerCase().trim())
+        );
+        if (imp) {
+          const { data: inserted } = await supabase
+            .from("commercial_accounts")
+            .insert({
+              name: imp.name,
+              city: imp.city || "Orange County",
+              cleaner_name:
+                scheduleActionType === "reassign" && scheduleActionScope === "recurring"
+                  ? scheduleActionCleaner
+                  : imp.cleaner_name,
+              hours: Number(imp.hours) || 2.5,
+              frequency:
+                scheduleActionType === "reschedule" && scheduleActionScope === "recurring"
+                  ? scheduleActionFrequency
+                  : imp.frequency,
+              revenue: imp.revenue || 0,
+              cost: imp.cost || 0,
+              pricing_model: imp.pricing_model || "per Service",
+              contract_start:
+                scheduleActionType === "reschedule" && scheduleActionScope === "recurring"
+                  ? scheduleActionDate
+                  : imp.contract_start || null,
+              contract_end: "2027-12-31",
+              supplies_notes: imp.supplies_notes || null,
+            })
+            .select()
+            .single();
+          if (inserted) {
+            targetAccountId = inserted.id;
+            targetDbAcc = inserted;
+          }
+        }
+      }
+
+      if (scheduleActionType === "reschedule") {
+        const newDate = scheduleActionDate;
+        const newDayOfWeek = new Date(newDate + "T12:00:00").getDay();
+        const isRecurring = scheduleActionScope === "recurring";
+
+        if (isRecurring) {
+          const isBiweekly =
+            scheduleActionFrequency?.toLowerCase().includes("biweekly") ||
+            scheduleActionFrequency?.toLowerCase().includes("2 weeks") ||
+            scheduleActionFrequency?.toLowerCase().includes("cada 2 semanas");
+          const freqType = isBiweekly ? "biweekly" : scheduleActionFrequency?.toLowerCase().includes("monthly") ? "monthly" : "weekly";
+          const freqInterval = isBiweekly ? 2 : 1;
+          const freqLabel = isBiweekly ? "Every 2 weeks" : freqType === "monthly" ? "Monthly" : "Weekly";
+
+          if (targetAccountId) {
+            // Update commercial_accounts
+            await supabase
+              .from("commercial_accounts")
+              .update({
+                contract_start: newDate,
+                contract_end: "2027-12-31",
+                frequency: freqLabel,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", targetAccountId);
+
+            // Update / insert schedule rule
+            const { data: existingRule } = await supabase
+              .from("commercial_account_schedule_rules")
+              .select("id")
+              .eq("commercial_account_id", targetAccountId)
+              .limit(1)
+              .maybeSingle();
+
+            if (existingRule?.id) {
+              await supabase
+                .from("commercial_account_schedule_rules")
+                .update({
+                  active: true,
+                  day_of_week: newDayOfWeek,
+                  anchor_date: newDate,
+                  effective_start_date: newDate,
+                  effective_from: newDate,
+                  effective_until: null,
+                  effective_end_date: null,
+                  frequency_type: freqType,
+                  frequency_interval: freqInterval,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", existingRule.id);
+            } else {
+              await supabase.from("commercial_account_schedule_rules").insert({
+                commercial_account_id: targetAccountId,
+                day_of_week: newDayOfWeek,
+                paid_hours: targetDbAcc?.hours || 2.5,
+                scheduled_hours: targetDbAcc?.hours || 2.5,
+                assigned_cleaner_name: targetDbAcc?.cleaner_name || "Sin asignar",
+                active: true,
+                frequency_type: freqType,
+                frequency_interval: freqInterval,
+                anchor_date: newDate,
+                effective_start_date: newDate,
+                effective_from: newDate,
+                created_at: new Date().toISOString(),
+              });
+            }
+          }
+
+          // Clean up from local deactivations
+          try {
+            const raw = localStorage.getItem("pristine_deactivated_accounts") || "[]";
+            const list = JSON.parse(raw).filter((item: any) => {
+              const n = (typeof item === "string" ? item : item.name || "").toLowerCase().trim();
+              return n !== canonicalName.toLowerCase().trim() && n !== ev.title.toLowerCase().trim();
+            });
+            localStorage.setItem("pristine_deactivated_accounts", JSON.stringify(list));
+          } catch {}
+
+          setScheduleActionFeedback({
+            tone: "success",
+            text: `¡Schedule movido con éxito! "${canonicalName}" ahora iniciará el ${newDate} (${freqLabel}) y las horas comerciales fueron recalculadas.`,
+          });
+        } else {
+          // Single visit rescheduled
+          const hours = Number(targetDbAcc?.hours) || 2.5;
+          const cleanerName = targetDbAcc?.cleaner_name || "Sin asignar";
+
+          await supabase.from("commercial_hours_entries").upsert(
+            {
+              account_name: canonicalName,
+              work_date: ev.start,
+              team_name: cleanerName,
+              status: "skipped",
+              scheduled_hours: 0,
+              completed_hours: 0,
+              notes: `Reagendada para el ${newDate}`,
+              manual_entry: true,
+            },
+            { onConflict: "account_name,work_date" }
+          );
+
+          await supabase.from("commercial_hours_entries").upsert(
+            {
+              account_name: canonicalName,
+              work_date: newDate,
+              team_name: cleanerName,
+              status: "needs_review",
+              scheduled_hours: hours,
+              completed_hours: 0,
+              notes: `Reagendada desde el ${ev.start}`,
+              manual_entry: true,
+            },
+            { onConflict: "account_name,work_date" }
+          );
+
+          setScheduleActionFeedback({
+            tone: "success",
+            text: `Visita movida al ${newDate}. Las horas comerciales fueron recalculadas.`,
+          });
+        }
+      } else if (scheduleActionType === "reassign") {
+        const cleanerName = scheduleActionCleaner;
+        const isRecurring = scheduleActionScope === "recurring";
+
+        if (isRecurring) {
+          if (targetAccountId) {
+            await supabase
+              .from("commercial_accounts")
+              .update({ cleaner_name: cleanerName, updated_at: new Date().toISOString() })
+              .eq("id", targetAccountId);
+
+            const { data: existingRule } = await supabase
+              .from("commercial_account_schedule_rules")
+              .select("id")
+              .eq("commercial_account_id", targetAccountId)
+              .limit(1)
+              .maybeSingle();
+
+            if (existingRule?.id) {
+              await supabase
+                .from("commercial_account_schedule_rules")
+                .update({ assigned_cleaner_name: cleanerName, updated_at: new Date().toISOString() })
+                .eq("id", existingRule.id);
+            } else {
+              await supabase.from("commercial_account_schedule_rules").insert({
+                commercial_account_id: targetAccountId,
+                day_of_week: new Date(ev.start + "T12:00:00").getDay(),
+                paid_hours: targetDbAcc?.hours || 2.5,
+                scheduled_hours: targetDbAcc?.hours || 2.5,
+                assigned_cleaner_name: cleanerName,
+                active: true,
+                created_at: new Date().toISOString(),
+              });
+            }
+          }
+          setScheduleActionFeedback({
+            tone: "success",
+            text: `Asignación permanente actualizada: ${cleanerName} es la cleaner asignada a ${canonicalName}.`,
+          });
+        } else {
+          await supabase.from("commercial_hours_entries").upsert(
+            {
+              account_name: canonicalName,
+              work_date: ev.start,
+              team_name: cleanerName,
+              status: "needs_review",
+              scheduled_hours: Number(targetDbAcc?.hours) || 2.5,
+              notes: `Reasignada puntualmente a ${cleanerName}`,
+              manual_entry: true,
+            },
+            { onConflict: "account_name,work_date" }
+          );
+
+          setScheduleActionFeedback({
+            tone: "success",
+            text: `Visita del ${ev.start} reasignada a ${cleanerName}.`,
+          });
+        }
+      } else if (scheduleActionType === "cancel") {
+        const isRecurring = scheduleActionScope === "recurring";
+
+        if (isRecurring) {
+          if (targetAccountId) {
+            await supabase
+              .from("commercial_accounts")
+              .update({ contract_end: ev.start, updated_at: new Date().toISOString() })
+              .eq("id", targetAccountId);
+
+            await supabase
+              .from("commercial_account_schedule_rules")
+              .update({
+                effective_until: ev.start,
+                effective_end_date: ev.start,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("commercial_account_id", targetAccountId);
+          }
+
+          try {
+            const raw = localStorage.getItem("pristine_deactivated_accounts") || "[]";
+            const list = JSON.parse(raw);
+            list.push({ name: canonicalName, contractEnd: ev.start, deactivatedAt: new Date().toISOString() });
+            localStorage.setItem("pristine_deactivated_accounts", JSON.stringify(list));
+          } catch {}
+
+          setScheduleActionFeedback({
+            tone: "success",
+            text: `Cuenta "${canonicalName}" desprogramada a partir del ${ev.start}. Visitas previas preservadas.`,
+          });
+        } else {
+          await supabase.from("commercial_hours_entries").upsert(
+            {
+              account_name: canonicalName,
+              work_date: ev.start,
+              team_name: ev.raw?.cleaner || targetDbAcc?.cleaner_name || "Sin asignar",
+              status: "skipped",
+              scheduled_hours: 0,
+              completed_hours: 0,
+              notes: scheduleActionReason || "Visita cancelada",
+              manual_entry: true,
+            },
+            { onConflict: "account_name,work_date" }
+          );
+
+          setScheduleActionFeedback({
+            tone: "success",
+            text: `Visita del ${ev.start} cancelada (0 horas registradas).`,
+          });
+        }
+      }
+
+      setScheduleConfirmPending(false);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+      }
+      await loadData();
+    } catch (err: any) {
+      console.error("Error executing schedule action:", err);
+      setScheduleActionFeedback({
+        tone: "error",
+        text: `Error al aplicar la acción: ${err?.message || "Ocurrió un error inesperado."}`,
+      });
+    } finally {
+      setScheduleActionSubmitting(false);
+    }
+  }
+
   function renderScheduleEventModal() {
     if (!selectedScheduleEvent) return null;
     const ev = selectedScheduleEvent;
@@ -6998,7 +7356,7 @@ function renderHeader() {
     return (
       <div 
         className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in-50"
-        onClick={() => setSelectedScheduleEvent(null)}
+        onClick={() => handleOpenScheduleEvent(null)}
       >
         <div 
           className="relative flex w-full max-w-2xl flex-col max-h-[90vh] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl text-card-foreground animate-in zoom-in-95"
@@ -7033,7 +7391,7 @@ function renderHeader() {
             <button
               type="button"
               className={SOP_CLOSE_BUTTON_CLASS}
-              onClick={() => setSelectedScheduleEvent(null)}
+              onClick={() => handleOpenScheduleEvent(null)}
               aria-label="Close modal"
             >
               <X className="size-4" />
@@ -7124,6 +7482,419 @@ function renderHeader() {
               </div>
             ) : null}
 
+            {/* OPERATIONAL SCHEDULE ACTIONS: Cancelar, Reagendar / Mover Schedule, Cambiar Cleaner */}
+            <div className="rounded-xl border border-border/80 bg-muted/20 p-4 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Settings2 className="size-3.5 text-primary" />
+                  Acciones Operativas del Schedule
+                </span>
+                {scheduleActionType ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScheduleActionType(null);
+                      setScheduleConfirmPending(false);
+                    }}
+                    className="text-[11px] font-semibold text-muted-foreground hover:text-foreground underline cursor-pointer"
+                  >
+                    Cerrar panel de acción
+                  </button>
+                ) : null}
+              </div>
+
+              {/* Action Selector Buttons */}
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScheduleActionType("reschedule");
+                    setScheduleConfirmPending(false);
+                    setScheduleActionFeedback(null);
+                  }}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shadow-xs cursor-pointer",
+                    scheduleActionType === "reschedule"
+                      ? "bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-500/20"
+                      : "bg-background border-border hover:bg-muted text-foreground"
+                  )}
+                >
+                  <RotateCcw className="size-3.5" />
+                  Reagendar / Mover
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScheduleActionType("reassign");
+                    setScheduleConfirmPending(false);
+                    setScheduleActionFeedback(null);
+                  }}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shadow-xs cursor-pointer",
+                    scheduleActionType === "reassign"
+                      ? "bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-500/20"
+                      : "bg-background border-border hover:bg-muted text-foreground"
+                  )}
+                >
+                  <Users className="size-3.5" />
+                  Cambiar Cleaner
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScheduleActionType("cancel");
+                    setScheduleConfirmPending(false);
+                    setScheduleActionFeedback(null);
+                  }}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shadow-xs cursor-pointer",
+                    scheduleActionType === "cancel"
+                      ? "bg-rose-600 text-white border-rose-600 ring-2 ring-rose-500/20"
+                      : "bg-background border-border hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/50"
+                  )}
+                >
+                  <Trash2 className="size-3.5" />
+                  Cancelar
+                </button>
+              </div>
+
+              {/* Feedback Alert */}
+              {scheduleActionFeedback ? (
+                <div className={cn(
+                  "p-3 rounded-lg text-xs font-medium border animate-in fade-in-50",
+                  scheduleActionFeedback.tone === "success" 
+                    ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
+                    : "bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800"
+                )}>
+                  {scheduleActionFeedback.text}
+                </div>
+              ) : null}
+
+              {/* ACTION SUB-PANELS */}
+              {scheduleActionType && !scheduleConfirmPending ? (
+                <div className="rounded-lg border border-border bg-background p-4 space-y-3.5 animate-in slide-in-from-top-2">
+                  {/* RESCHEDULE PANEL */}
+                  {scheduleActionType === "reschedule" && (
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
+                          Nueva Fecha
+                        </label>
+                        <input
+                          type="date"
+                          value={scheduleActionDate}
+                          onChange={(e) => setScheduleActionDate(e.target.value)}
+                          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
+                          Alcance del Reagendamiento
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <label className={cn(
+                            "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition-colors",
+                            scheduleActionScope === "recurring" ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-950 dark:text-indigo-200 font-semibold" : "border-border bg-muted/20 text-muted-foreground"
+                          )}>
+                            <input
+                              type="radio"
+                              name="rescheduleScope"
+                              checked={scheduleActionScope === "recurring"}
+                              onChange={() => setScheduleActionScope("recurring")}
+                              className="mt-0.5"
+                            />
+                            <div>
+                              <span className="block font-bold">Mover todo el schedule</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">Reancla la recurrencia desde esta nueva fecha.</span>
+                            </div>
+                          </label>
+
+                          <label className={cn(
+                            "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition-colors",
+                            scheduleActionScope === "single" ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-950 dark:text-indigo-200 font-semibold" : "border-border bg-muted/20 text-muted-foreground"
+                          )}>
+                            <input
+                              type="radio"
+                              name="rescheduleScope"
+                              checked={scheduleActionScope === "single"}
+                              onChange={() => setScheduleActionScope("single")}
+                              className="mt-0.5"
+                            />
+                            <div>
+                              <span className="block font-bold">Solo esta visita</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">Mueve únicamente la fecha del {ev.start}.</span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {scheduleActionScope === "recurring" && (
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
+                            Frecuencia Recurrente
+                          </label>
+                          <select
+                            value={scheduleActionFrequency}
+                            onChange={(e) => setScheduleActionFrequency(e.target.value)}
+                            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          >
+                            <option value="Every 2 weeks">Every 2 weeks (Cada 2 semanas / Biweekly)</option>
+                            <option value="Weekly">Weekly (Semanal)</option>
+                            <option value="Monthly">Monthly (Mensual)</option>
+                            <option value="Every 15 days">Every 15 days (Cada 15 días)</option>
+                          </select>
+                        </div>
+                      )}
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setScheduleConfirmPending(true)}
+                        disabled={!scheduleActionDate}
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer"
+                      >
+                        Revisar y Confirmar Cambio
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* REASSIGN CLEANER PANEL */}
+                  {scheduleActionType === "reassign" && (
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
+                          Nueva Cleaner / Equipo Asignado
+                        </label>
+                        <select
+                          value={scheduleActionCleaner}
+                          onChange={(e) => setScheduleActionCleaner(e.target.value)}
+                          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                          <option value="">-- Seleccionar cleaner --</option>
+                          {availableCleaners.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
+                          Alcance del Cambio
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <label className={cn(
+                            "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition-colors",
+                            scheduleActionScope === "recurring" ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-950 dark:text-indigo-200 font-semibold" : "border-border bg-muted/20 text-muted-foreground"
+                          )}>
+                            <input
+                              type="radio"
+                              name="reassignScope"
+                              checked={scheduleActionScope === "recurring"}
+                              onChange={() => setScheduleActionScope("recurring")}
+                              className="mt-0.5"
+                            />
+                            <div>
+                              <span className="block font-bold">Permanente</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">Todas las visitas futuras del schedule.</span>
+                            </div>
+                          </label>
+
+                          <label className={cn(
+                            "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition-colors",
+                            scheduleActionScope === "single" ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-950 dark:text-indigo-200 font-semibold" : "border-border bg-muted/20 text-muted-foreground"
+                          )}>
+                            <input
+                              type="radio"
+                              name="reassignScope"
+                              checked={scheduleActionScope === "single"}
+                              onChange={() => setScheduleActionScope("single")}
+                              className="mt-0.5"
+                            />
+                            <div>
+                              <span className="block font-bold">Solo esta visita</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">Reemplazo puntual para el {ev.start}.</span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setScheduleConfirmPending(true)}
+                        disabled={!scheduleActionCleaner}
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer"
+                      >
+                        Revisar y Confirmar Asignación
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* CANCEL PANEL */}
+                  {scheduleActionType === "cancel" && (
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
+                          Tipo de Cancelación
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <label className={cn(
+                            "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition-colors",
+                            scheduleActionScope === "single" ? "border-rose-500 bg-rose-50/50 dark:bg-rose-950/30 text-rose-950 dark:text-rose-200 font-semibold" : "border-border bg-muted/20 text-muted-foreground"
+                          )}>
+                            <input
+                              type="radio"
+                              name="cancelScope"
+                              checked={scheduleActionScope === "single"}
+                              onChange={() => setScheduleActionScope("single")}
+                              className="mt-0.5"
+                            />
+                            <div>
+                              <span className="block font-bold">Solo esta visita</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">Cancela la visita del {ev.start}.</span>
+                            </div>
+                          </label>
+
+                          <label className={cn(
+                            "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition-colors",
+                            scheduleActionScope === "recurring" ? "border-rose-500 bg-rose-50/50 dark:bg-rose-950/30 text-rose-950 dark:text-rose-200 font-semibold" : "border-border bg-muted/20 text-muted-foreground"
+                          )}>
+                            <input
+                              type="radio"
+                              name="cancelScope"
+                              checked={scheduleActionScope === "recurring"}
+                              onChange={() => setScheduleActionScope("recurring")}
+                              className="mt-0.5"
+                            />
+                            <div>
+                              <span className="block font-bold">Desprogramar cuenta</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">Finaliza el contrato a partir del {ev.start}.</span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
+                          Motivo / Nota (opcional)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ej. Solicitud del cliente, feriado, etc."
+                          value={scheduleActionReason}
+                          onChange={(e) => setScheduleActionReason(e.target.value)}
+                          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setScheduleConfirmPending(true)}
+                        className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
+                      >
+                        Revisar y Confirmar Cancelación
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {/* CONFIRMATION STEP (SIEMPRE CON CONFIRMACIÓN ANTES DE EJECUTAR) */}
+              {scheduleConfirmPending && (
+                <div className="rounded-xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-950/40 p-4 space-y-3 animate-in zoom-in-95">
+                  <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 font-black text-xs uppercase tracking-wider">
+                    <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    Confirmación de Operación en Schedule
+                  </div>
+
+                  <div className="space-y-1 text-xs text-amber-950 dark:text-amber-200">
+                    <p>
+                      <strong>Cuenta:</strong> {accountName}
+                    </p>
+                    {scheduleActionType === "reschedule" && (
+                      <>
+                        <p>
+                          <strong>Acción:</strong> {scheduleActionScope === "recurring" ? "Mover todo el schedule" : "Reagendar solo esta visita"}
+                        </p>
+                        <p>
+                          <strong>Nueva Fecha:</strong> {scheduleActionDate}
+                        </p>
+                        {scheduleActionScope === "recurring" && (
+                          <p>
+                            <strong>Frecuencia:</strong> {scheduleActionFrequency}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          ⚡ Las horas comerciales del calculador y el payroll se actualizarán de acuerdo a esta nueva programación.
+                        </p>
+                      </>
+                    )}
+                    {scheduleActionType === "reassign" && (
+                      <>
+                        <p>
+                          <strong>Acción:</strong> {scheduleActionScope === "recurring" ? "Reasignación permanente de cleaner" : `Reemplazo puntual para el ${ev.start}`}
+                        </p>
+                        <p>
+                          <strong>Nueva Cleaner:</strong> <span className="font-bold text-indigo-700 dark:text-indigo-300">{scheduleActionCleaner}</span>
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          ⚡ El pago y horas trabajadas se vincularán al perfil de {scheduleActionCleaner}.
+                        </p>
+                      </>
+                    )}
+                    {scheduleActionType === "cancel" && (
+                      <>
+                        <p>
+                          <strong>Acción:</strong> {scheduleActionScope === "recurring" ? `Desprogramar a partir del ${ev.start}` : `Cancelar visita del ${ev.start}`}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          ⚡ Esta visita registrará 0 horas pagaderas en el calculador comercial.
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleExecuteScheduleAction}
+                      disabled={scheduleActionSubmitting}
+                      className={cn(
+                        "flex-1 font-bold text-xs gap-1.5 shadow-sm cursor-pointer",
+                        scheduleActionType === "cancel" 
+                          ? "bg-rose-600 hover:bg-rose-700 text-white"
+                          : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      )}
+                    >
+                      {scheduleActionSubmitting ? (
+                        <span>Guardando cambios...</span>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="size-3.5" />
+                          Confirmar y Ejecutar Ahora
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={scheduleActionSubmitting}
+                      onClick={() => setScheduleConfirmPending(false)}
+                      className="text-xs cursor-pointer"
+                    >
+                      Volver
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* If QC Task */}
             {isQC && raw.task ? (
               <div className="space-y-2">
@@ -7164,7 +7935,7 @@ function renderHeader() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setSelectedScheduleEvent(null)}
+              onClick={() => handleOpenScheduleEvent(null)}
             >
               Cerrar
             </Button>
