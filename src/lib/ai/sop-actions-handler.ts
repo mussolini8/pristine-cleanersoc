@@ -649,8 +649,19 @@ export async function applySopModificationsAction(
       if (mod.notes) updateData.supplies_notes = mod.notes;
       if (isDeactivation) {
         updateData.contract_end = cutoffDate || "2026-08-31";
-      } else if (mod.action === "activate_account" || mod.status === "active") {
-        updateData.contract_end = mod.contractEnd || "2027-12-31";
+      } else {
+        if (
+          mod.anchorDate ||
+          mod.effectiveDate ||
+          mod.action === "activate_account" ||
+          mod.action === "update_schedule" ||
+          mod.status === "active"
+        ) {
+          updateData.contract_end = mod.contractEnd || "2027-12-31";
+          if (mod.anchorDate || mod.effectiveDate) {
+            updateData.contract_start = mod.anchorDate || mod.effectiveDate;
+          }
+        }
       }
 
       // Save to localStorage deactivated list for instant client-side isolation
@@ -701,7 +712,13 @@ export async function applySopModificationsAction(
               canonicalAccName.toLowerCase().trim().includes(a.name.toLowerCase().trim())
           );
           if (imp) {
-            const effectiveEnd = isDeactivation ? (cutoffDate || "2026-08-31") : imp.contract_end;
+            const effectiveEnd = isDeactivation
+              ? (cutoffDate || "2026-08-31")
+              : (mod.contractEnd || "2027-12-31");
+            const effectiveStart = !isDeactivation
+              ? (mod.anchorDate || mod.effectiveDate || mod.contractStart || imp.contract_start || null)
+              : (imp.contract_start || null);
+            const freq = mod.frequency || imp.frequency;
             const { data: inserted } = await supabase
               .from("commercial_accounts")
               .insert({
@@ -709,11 +726,11 @@ export async function applySopModificationsAction(
                 city: imp.city || "Orange County",
                 cleaner_name: mod.cleanerName || imp.cleaner_name || null,
                 hours: mod.newHours !== undefined && !isDeactivation ? mod.newHours : Number(imp.hours) || 0,
-                frequency: imp.frequency,
+                frequency: freq,
                 revenue: mod.newPricing !== undefined ? mod.newPricing : imp.revenue,
                 cost: mod.newCleanerCost !== undefined ? mod.newCleanerCost : imp.cost,
                 pricing_model: imp.pricing_model,
-                contract_start: imp.contract_start || null,
+                contract_start: effectiveStart,
                 contract_end: effectiveEnd || null,
                 supplies_notes: mod.notes ? `${imp.supplies_notes || ""}; ${mod.notes}` : imp.supplies_notes,
               })
@@ -782,82 +799,125 @@ export async function applySopModificationsAction(
             appliedSupabase = true;
             results.push(`Regla(s) de días eliminadas para "${accountName}".`);
           } else {
-            const ruleUpdates: Record<string, any> = { updated_at: new Date().toISOString() };
-            if (typeof mod.newHours === "number") {
-              ruleUpdates.paid_hours = mod.newHours;
-              ruleUpdates.scheduled_hours = mod.newHours;
-            }
-            if (mod.cleanerName) {
-              ruleUpdates.assigned_cleaner_name = mod.cleanerName;
-            }
-            if (mod.anchorDate) {
-              ruleUpdates.anchor_date = mod.anchorDate;
-            }
-
+            const anchor = mod.anchorDate || mod.effectiveDate || null;
             const DAY_MAP: Record<string, number> = {
               domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3,
               jueves: 4, viernes: 5, sabado: 6, sábado: 6,
               sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+              sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+              lun: 1, mar: 2, mie: 3, mié: 3, jue: 4, vie: 5, sab: 6, sáb: 6, dom: 0,
             };
-            const targetDays: number[] = mod.daysOfWeek && mod.daysOfWeek.length > 0
+            let targetDays: number[] = mod.daysOfWeek && mod.daysOfWeek.length > 0
               ? mod.daysOfWeek
               : (mod.newDays || [])
                   .map((d) => DAY_MAP[d.toLowerCase().trim()])
                   .filter((n) => typeof n === "number");
 
-            if (targetDays.length > 0) {
-              const hours = typeof mod.newHours === "number" ? mod.newHours : (updateData.hours || 2.5);
-              const cleaner = mod.cleanerName || updateData.cleaner_name || "Sin asignar";
-              for (const day of targetDays) {
-                const { data: existingRule } = await supabase
-                  .from("commercial_account_schedule_rules")
-                  .select("id")
-                  .eq("commercial_account_id", accountId)
-                  .eq("day_of_week", day)
-                  .limit(1)
-                  .maybeSingle();
-
-                if (existingRule?.id) {
-                  await supabase
-                    .from("commercial_account_schedule_rules")
-                    .update({
-                      active: true,
-                      paid_hours: hours,
-                      scheduled_hours: hours,
-                      assigned_cleaner_name: cleaner,
-                      anchor_date: mod.anchorDate || null,
-                      updated_at: new Date().toISOString(),
-                    })
-                    .eq("id", existingRule.id);
-                } else {
-                  await supabase
-                    .from("commercial_account_schedule_rules")
-                    .insert({
-                      commercial_account_id: accountId,
-                      day_of_week: day,
-                      paid_hours: hours,
-                      scheduled_hours: hours,
-                      assigned_cleaner_name: cleaner,
-                      active: true,
-                      frequency_type: mod.frequency?.toLowerCase().includes("biweekly") || mod.frequency?.toLowerCase().includes("2 weeks") ? "biweekly" : "weekly",
-                      anchor_date: mod.anchorDate || null,
-                      created_at: new Date().toISOString(),
-                    });
-                }
+            // Fallback 1: Derive day of week from anchorDate or effectiveDate
+            if (targetDays.length === 0 && anchor) {
+              const d = new Date(anchor + "T12:00:00");
+              if (!isNaN(d.getTime())) {
+                targetDays = [d.getDay()];
               }
-            } else if (Object.keys(ruleUpdates).length > 1) {
-              await supabase
-                .from("commercial_account_schedule_rules")
-                .update(ruleUpdates)
-                .eq("commercial_account_id", accountId);
             }
+
+            // Fallback 2: Check importedCommercialAccounts schedule rules
+            if (targetDays.length === 0) {
+              const imp = importedCommercialAccounts.find(
+                (a) =>
+                  a.name.toLowerCase().trim() === canonicalAccName.toLowerCase().trim() ||
+                  a.name.toLowerCase().includes(canonicalAccName.toLowerCase().trim()) ||
+                  canonicalAccName.toLowerCase().trim().includes(a.name.toLowerCase().trim())
+              );
+              if (imp?.schedule_rules && imp.schedule_rules.length > 0) {
+                targetDays = imp.schedule_rules.map((r: any) => Number(r.day_of_week)).filter((n: number) => !isNaN(n));
+              }
+            }
+
+            // Fallback 3: Check existing DB rules for this account
+            if (targetDays.length === 0) {
+              const { data: dbRules } = await supabase
+                .from("commercial_account_schedule_rules")
+                .select("day_of_week")
+                .eq("commercial_account_id", accountId);
+              if (dbRules && dbRules.length > 0) {
+                targetDays = dbRules.map((r: any) => Number(r.day_of_week)).filter((n: number) => !isNaN(n));
+              }
+            }
+
+            // Fallback 4: Default to Monday (1)
+            if (targetDays.length === 0) {
+              targetDays = [1];
+            }
+
+            const isBiweekly =
+              mod.frequency?.toLowerCase().includes("biweekly") ||
+              mod.frequency?.toLowerCase().includes("2 weeks") ||
+              mod.frequency?.toLowerCase().includes("cada 2 semanas") ||
+              mod.frequency?.toLowerCase().includes("cada dos semanas") ||
+              mod.frequencyInterval === 2;
+            const freqType = isBiweekly ? "biweekly" : (mod.frequency?.toLowerCase().includes("monthly") ? "monthly" : "weekly");
+            const freqInterval = isBiweekly ? 2 : 1;
+
+            const hours = typeof mod.newHours === "number" ? mod.newHours : (updateData.hours || 2.5);
+            const cleaner = mod.cleanerName || updateData.cleaner_name || "Sin asignar";
+
+            for (const day of targetDays) {
+              const { data: existingRule } = await supabase
+                .from("commercial_account_schedule_rules")
+                .select("id")
+                .eq("commercial_account_id", accountId)
+                .eq("day_of_week", day)
+                .limit(1)
+                .maybeSingle();
+
+              if (existingRule?.id) {
+                await supabase
+                  .from("commercial_account_schedule_rules")
+                  .update({
+                    active: true,
+                    paid_hours: hours,
+                    scheduled_hours: hours,
+                    assigned_cleaner_name: cleaner,
+                    anchor_date: anchor,
+                    effective_start_date: anchor,
+                    effective_from: anchor,
+                    effective_until: null,
+                    effective_end_date: null,
+                    frequency_type: freqType,
+                    frequency_interval: freqInterval,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq("id", existingRule.id);
+              } else {
+                await supabase
+                  .from("commercial_account_schedule_rules")
+                  .insert({
+                    commercial_account_id: accountId,
+                    day_of_week: day,
+                    paid_hours: hours,
+                    scheduled_hours: hours,
+                    assigned_cleaner_name: cleaner,
+                    active: true,
+                    frequency_type: freqType,
+                    frequency_interval: freqInterval,
+                    anchor_date: anchor,
+                    effective_start_date: anchor,
+                    effective_from: anchor,
+                    created_at: new Date().toISOString(),
+                  });
+              }
+            }
+
             appliedSupabase = true;
+            const dayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+            const daysFormatted = targetDays.map((d) => dayNames[d] || `Día ${d}`).join(", ");
             results.push(
               `Modificado "${accountName}": ${typeof mod.newHours === "number" ? `${mod.newHours} hrs ` : ""}${
                 mod.ratePerService ? `($${mod.ratePerService}/serv) ` : ""
-              }${mod.cleanerName ? `(Cleaner: ${mod.cleanerName})` : ""}${
-                targetDays.length > 0 ? ` [Días: ${targetDays.join(", ")}]` : ""
-              }`
+              }${mod.cleanerName ? `(Cleaner: ${mod.cleanerName}) ` : ""}${
+                mod.frequency ? `[${mod.frequency}] ` : ""
+              }[Días: ${daysFormatted}]${anchor ? ` (Inicio: ${anchor})` : ""}`
             );
           }
         }

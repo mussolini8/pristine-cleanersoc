@@ -1339,7 +1339,7 @@ export function GlobalAiBubble() {
                           <div key={idx} className="rounded-lg bg-muted/40 p-2.5 text-[11px] space-y-1">
                             <div className="flex items-center justify-between">
                               <strong className="text-foreground font-semibold">{mod.accountName || "Cuenta"}</strong>
-                              {mod.status && (
+                              {(mod.status || mod.action) && (
                                 <Badge
                                   className={
                                     mod.status === "inactive" || mod.status === "cancelled" || mod.action === "delete_account"
@@ -1348,29 +1348,76 @@ export function GlobalAiBubble() {
                                   }
                                 >
                                   {mod.status === "inactive" || mod.action === "delete_account"
-                                    ? "Eliminar del Schedule"
+                                    ? "Desprogramar"
                                     : mod.status === "cancelled"
                                     ? "Cancelada"
-                                    : "Activa"}
+                                    : "Activa / En Schedule"}
                                 </Badge>
                               )}
                             </div>
-                            {(mod.contractEnd || mod.effectiveUntil || mod.effectiveDate) && (
-                              <p className="text-rose-600 dark:text-rose-400 font-medium text-[10px]">
-                                Efectivo desde: {mod.contractEnd || mod.effectiveUntil || mod.effectiveDate}
-                              </p>
-                            )}
+
+                            {/* Schedule & Effective Date details */}
+                            {(() => {
+                              const isDeactivation =
+                                mod.status === "inactive" ||
+                                mod.status === "cancelled" ||
+                                mod.action === "delete_account";
+
+                              if (isDeactivation) {
+                                const cutoff = mod.effectiveUntil || mod.contractEnd || mod.effectiveDate;
+                                return cutoff ? (
+                                  <p className="text-rose-600 dark:text-rose-400 font-medium text-[10px]">
+                                    Fecha final / Corte: {cutoff}
+                                  </p>
+                                ) : null;
+                              }
+
+                              const startDate = mod.effectiveDate || mod.anchorDate || mod.contractStart;
+                              const daysList = (mod.newDays && mod.newDays.length > 0)
+                                ? mod.newDays.join(", ")
+                                : (mod.daysOfWeek && mod.daysOfWeek.length > 0)
+                                ? mod.daysOfWeek.map((d: number) => ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d] || `Día ${d}`).join(", ")
+                                : startDate
+                                ? ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date(startDate + "T12:00:00").getDay()]
+                                : null;
+
+                              return (
+                                <div className="space-y-0.5 text-[10px]">
+                                  {startDate && (
+                                    <p className="text-emerald-600 dark:text-emerald-400 font-medium">
+                                      Inicio programado: <span className="font-semibold">{startDate}</span>
+                                    </p>
+                                  )}
+                                  {mod.frequency && (
+                                    <p className="text-muted-foreground">
+                                      Frecuencia: <strong className="text-foreground">{mod.frequency}</strong>
+                                    </p>
+                                  )}
+                                  {daysList && (
+                                    <p className="text-muted-foreground">
+                                      Día(s): <strong className="text-foreground capitalize">{daysList}</strong>
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
                             {typeof mod.newHours === "number" && mod.action !== "delete_account" && mod.newHours > 0 && (
-                              <p className="text-muted-foreground">
+                              <p className="text-muted-foreground text-[10px]">
                                 Horas: <strong className="text-foreground">{mod.newHours} hrs</strong>
                               </p>
                             )}
+                            {typeof mod.ratePerService === "number" && (
+                              <p className="text-muted-foreground text-[10px]">
+                                Tarifa por servicio: <strong className="text-foreground">${mod.ratePerService}</strong>
+                              </p>
+                            )}
                             {mod.cleanerName && (
-                              <p className="text-muted-foreground">
+                              <p className="text-muted-foreground text-[10px]">
                                 Cleaner asignada: <strong className="text-foreground">{mod.cleanerName}</strong>
                               </p>
                             )}
-                            {mod.notes && <p className="text-muted-foreground italic">{mod.notes}</p>}
+                            {mod.notes && <p className="text-muted-foreground italic text-[10px]">{mod.notes}</p>}
                           </div>
                         ))}
                       </div>

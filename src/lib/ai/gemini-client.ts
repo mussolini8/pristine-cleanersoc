@@ -179,7 +179,7 @@ export type SopCopilotResponse = {
     newDays?: string[];
     daysOfWeek?: number[];
     daysToDelete?: number[];
-    action?: "update" | "delete_account" | "delete_rule" | "reschedule" | "change_cleaner" | "activate_account" | "access_update";
+    action?: "update" | "update_schedule" | "delete_account" | "delete_rule" | "reschedule" | "change_cleaner" | "activate_account" | "access_update";
     newPricing?: number;
     newCleanerCost?: number;
     ratePerService?: number; // Labor Amount Per Service (including insurances)
@@ -193,6 +193,7 @@ export type SopCopilotResponse = {
     effectiveDate?: string; // YYYY-MM-DD
     anchorDate?: string; // YYYY-MM-DD
     frequency?: string;
+    frequencyInterval?: number;
     notes?: string;
   }[];
 
@@ -509,14 +510,29 @@ Core Superpowers and Capabilities:
          "accountName": "University Park Dental",
          "action": "activate_account",
          "status": "active",
+         "contractStart": "2026-09-14",
+         "effectiveDate": "2026-09-14",
+         "anchorDate": "2026-09-14",
          "contractEnd": "2027-12-31",
          "frequency": "Every 2 weeks",
+         "daysOfWeek": [1],
+         "newDays": ["lunes"],
          "newHours": 2.25,
          "ratePerService": 51.75,
-         "anchorDate": "2026-09-14",
-         "notes": "Cuenta activa en el schedule cada dos semanas (Biweekly) comenzando el 14 de sep a $51.75/servicio"
+         "notes": "Cuenta activada en el schedule cada dos semanas (Biweekly) los lunes comenzando el 14 de sep a $51.75/servicio"
        }
      ]
+   - MANDATORY RULES FOR SCHEDULE MODIFICATIONS & ACTIVATIONS:
+     1. ALWAYS specify "daysOfWeek" as an array of weekday integers [0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday].
+     2. When an anchor or start date is given (e.g. '14 de septiembre' -> 2026-09-14), compute its day of the week (2026-09-14 is Monday -> [1]), and ALWAYS set:
+        - "daysOfWeek": [1]
+        - "newDays": ["lunes"]
+        - "anchorDate": "2026-09-14"
+        - "effectiveDate": "2026-09-14"
+        - "contractStart": "2026-09-14"
+        - "contractEnd": "2027-12-31"
+     3. For biweekly cadences ('cada dos semanas', 'every 2 weeks', 'cada 14 días'), ALWAYS set "frequency": "Every 2 weeks".
+     4. NEVER omit "daysOfWeek" when setting a schedule rule.
 
 Return ONLY a valid JSON object matching this schema:
 {
