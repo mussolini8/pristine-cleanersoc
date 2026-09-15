@@ -2000,7 +2000,9 @@ export default function CommercialPage() {
                 });
               });
             }
+            await refreshAccounts();
             if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
               window.dispatchEvent(new CustomEvent("pristine:data-updated"));
             }
           }}

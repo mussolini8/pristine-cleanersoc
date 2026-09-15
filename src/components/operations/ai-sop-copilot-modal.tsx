@@ -34,6 +34,7 @@ import { exportSalesTrackToXLSX, exportSalesTrackToPDF, type SalesTrackItem } fr
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
 import type { ServiceBookingRow } from "@/lib/sales-tracker/types";
 import {
+  applyUniversalSupremeAction,
   applyBulkHourlyRateUpdateAction,
   applyUpdateAccountFinancialsAction,
   applyAccessUpdateAction,
@@ -292,21 +293,7 @@ export function AiSopCopilotModal({
 
     setLoading(true);
     try {
-      if (response.bulkHourlyRateUpdate) {
-        await applyBulkHourlyRateUpdateAction(response.bulkHourlyRateUpdate);
-      }
-
-      if (response.updateAccountFinancials && response.updateAccountFinancials.length > 0) {
-        await applyUpdateAccountFinancialsAction(response.updateAccountFinancials);
-      }
-
-      if (response.accessUpdate || (response.accessUpdates && response.accessUpdates.length > 0)) {
-        await applyAccessUpdateAction(response.accessUpdates || [response.accessUpdate!]);
-      }
-
-      if (response.sopModifications && response.sopModifications.length > 0) {
-        await applySopModificationsAction(response.sopModifications);
-      }
+      await applyUniversalSupremeAction(response);
 
       if (onApplyFullCopilotResponse) {
         await onApplyFullCopilotResponse(response);
@@ -404,12 +391,12 @@ export function AiSopCopilotModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-foreground">Pristiner (Copiloto IA)</h3>
-                <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary text-[10px]">
-                  Multimodal AI
+                <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[10px] font-black uppercase tracking-wider">
+                  ⚡ Poder Supremo Operacional
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                Ajusta horas, equipos, procesa schedules desde capturas de pantalla y crea el Sales Track Report.
+                Control total sin restricciones: modifica cuentas, turnos, cleaners, tarifas, tareas y accesos.
               </p>
             </div>
           </div>
@@ -1056,12 +1043,70 @@ export function AiSopCopilotModal({
                 </div>
               )}
 
+              {/* Task Modifications Card */}
+              {response.taskModifications && response.taskModifications.length > 0 && (
+                <div className="rounded-xl border border-border/80 bg-card p-4 text-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-foreground flex items-center gap-1.5">
+                      <TrendingUp className="size-4 text-primary" /> Tareas Operativas ({response.taskModifications.length})
+                    </span>
+                    <Badge variant="outline" className="text-[10px] border-primary/30 text-primary font-bold">
+                      Listo para Aplicar
+                    </Badge>
+                  </div>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    {response.taskModifications.map((t, idx) => (
+                      <div key={idx} className="rounded-lg bg-background p-2.5 border border-border/50 flex items-center justify-between">
+                        <div>
+                          <strong className="text-foreground">{t.taskTitle || "Tarea"}</strong>
+                          <p className="text-muted-foreground text-[10px]">
+                            {t.action.toUpperCase()} · Asignado: {t.newAssignee || "Unassigned"} · Vence: {t.newDueDate || "N/A"}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-[9px]">
+                          {t.priority || "normal"}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Universal Mutations Card */}
+              {response.universalMutations && response.universalMutations.length > 0 && (
+                <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-500/[0.05] p-4 text-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
+                      <Sparkles className="size-4 text-emerald-600" /> Mutaciones del Sistema ({response.universalMutations.length})
+                    </span>
+                    <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-700 dark:text-emerald-300 font-bold">
+                      Poder Supremo
+                    </Badge>
+                  </div>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    {response.universalMutations.map((m, idx) => (
+                      <div key={idx} className="rounded-lg bg-background p-2.5 border border-border/50 flex items-center justify-between">
+                        <div>
+                          <strong className="text-foreground">{m.description || `${m.action} ${m.entity}`}</strong>
+                          <p className="text-muted-foreground text-[10px]">
+                            Tabla: {m.entity} · Objetivo: {m.targetIdentifier || "General"}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-[9px] uppercase font-bold">
+                          {m.action}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Confirm / Apply Action Button */}
               <div className="flex items-center justify-between pt-3 border-t border-border/60">
                 <div className="text-xs text-muted-foreground">
                   {appliedSuccess ? (
                     <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
-                      <CheckCircle className="size-4" /> Cambios aplicados con éxito al sistema.
+                      <CheckCircle className="size-4" /> Cambios aplicados con éxito al sistema con Poder Supremo.
                     </span>
                   ) : (
                     "Revisa los datos antes de confirmar y aplicarlos a tu sistema."
@@ -1087,10 +1132,10 @@ export function AiSopCopilotModal({
                     size="sm"
                     onClick={handleApply}
                     disabled={appliedSuccess}
-                    className="h-8 text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+                    className="h-8 text-xs gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold shadow-sm"
                   >
-                    <CheckCircle className="size-3.5" />
-                    Confirmar & Aplicar al Sistema
+                    <Sparkles className="size-3.5" />
+                    ⚡ Aplicar Todo con Poder Supremo
                   </Button>
                 </div>
               </div>

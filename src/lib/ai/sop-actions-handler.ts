@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
-import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
+import type { SopCopilotResponse, UniversalMutation } from "@/lib/ai/gemini-client";
 import { importedCommercialAccounts } from "@/lib/commercial-accounts-data";
 
 export type SopActionResult = {
@@ -643,7 +643,17 @@ export async function applySopModificationsAction(
         updateData.cleaner_pay_type = "flat";
       }
       if (mod.frequency) updateData.frequency = mod.frequency;
-      if (mod.lockboxCode || mod.alarmCode) {
+      if (mod.city) updateData.city = mod.city;
+      if (mod.newName) updateData.name = mod.newName;
+      if (mod.pricingModel) updateData.pricing_model = mod.pricingModel;
+      if (mod.paymentMethod) updateData.payment_method = mod.paymentMethod;
+      if (mod.hasSupplies !== undefined) updateData.has_supplies = mod.hasSupplies;
+      if (mod.hasKeys !== undefined) updateData.has_keys = mod.hasKeys;
+      if (mod.suppliesNotes) updateData.supplies_notes = mod.suppliesNotes;
+      if (mod.cleanerPayType) updateData.cleaner_pay_type = mod.cleanerPayType;
+      if (mod.cleanerHourlyRate !== undefined) updateData.cleaner_hourly_rate = mod.cleanerHourlyRate;
+      if (mod.cleanerFlatRate !== undefined) updateData.cleaner_flat_rate = mod.cleanerFlatRate;
+      if (mod.lockboxCode || mod.alarmCode || mod.gateCode || mod.keyLocation) {
         updateData.has_keys = true;
       }
       if (mod.notes) updateData.supplies_notes = mod.notes;
@@ -703,44 +713,58 @@ export async function applySopModificationsAction(
         if (accounts && accounts.length > 0) {
           accountId = accounts[0].id;
           accountName = accounts[0].name;
+
+          if (mod.action === "delete_permanently") {
+            await supabase.from("commercial_account_schedule_rules").delete().eq("commercial_account_id", accountId);
+            await supabase.from("commercial_accounts").delete().eq("id", accountId);
+            appliedSupabase = true;
+            results.push(`"${accountName}" fue eliminada permanentemente del sistema.`);
+            continue;
+          }
         } else {
-          // If not in commercial_accounts yet, check importedCommercialAccounts and materialize
+          // If not in commercial_accounts yet, check importedCommercialAccounts or create brand new
           const imp = importedCommercialAccounts.find(
             (a) =>
               a.name.toLowerCase().trim() === canonicalAccName.toLowerCase().trim() ||
               a.name.toLowerCase().includes(canonicalAccName.toLowerCase().trim()) ||
               canonicalAccName.toLowerCase().trim().includes(a.name.toLowerCase().trim())
           );
-          if (imp) {
-            const effectiveEnd = isDeactivation
-              ? (cutoffDate || "2026-08-31")
-              : (mod.contractEnd || "2027-12-31");
-            const effectiveStart = !isDeactivation
-              ? (mod.anchorDate || mod.effectiveDate || mod.contractStart || imp.contract_start || null)
-              : (imp.contract_start || null);
-            const freq = mod.frequency || imp.frequency;
-            const { data: inserted } = await supabase
-              .from("commercial_accounts")
-              .insert({
-                name: imp.name,
-                city: imp.city || "Orange County",
-                cleaner_name: mod.cleanerName || imp.cleaner_name || null,
-                hours: mod.newHours !== undefined && !isDeactivation ? mod.newHours : Number(imp.hours) || 0,
-                frequency: freq,
-                revenue: mod.newPricing !== undefined ? mod.newPricing : imp.revenue,
-                cost: mod.newCleanerCost !== undefined ? mod.newCleanerCost : imp.cost,
-                pricing_model: imp.pricing_model,
-                contract_start: effectiveStart,
-                contract_end: effectiveEnd || null,
-                supplies_notes: mod.notes ? `${imp.supplies_notes || ""}; ${mod.notes}` : imp.supplies_notes,
-              })
-              .select()
-              .single();
+          const effectiveEnd = isDeactivation
+            ? (cutoffDate || "2026-08-31")
+            : (mod.contractEnd || "2027-12-31");
+          const effectiveStart = !isDeactivation
+            ? (mod.anchorDate || mod.effectiveDate || mod.contractStart || imp?.contract_start || new Date().toISOString().split("T")[0])
+            : (imp?.contract_start || null);
+          const freq = mod.frequency || imp?.frequency || "Weekly";
+          const { data: inserted } = await supabase
+            .from("commercial_accounts")
+            .insert({
+              name: mod.newName || (imp ? imp.name : canonicalAccName),
+              city: mod.city || imp?.city || "Orange County",
+              cleaner_name: mod.cleanerName || imp?.cleaner_name || null,
+              hours: mod.newHours !== undefined && !isDeactivation ? mod.newHours : Number(imp?.hours) || 2.5,
+              frequency: freq,
+              revenue: mod.newPricing !== undefined ? mod.newPricing : imp?.revenue || null,
+              cost: mod.newCleanerCost !== undefined ? mod.newCleanerCost : imp?.cost || null,
+              pricing_model: mod.pricingModel || imp?.pricing_model || "Monthly",
+              payment_method: mod.paymentMethod || imp?.payment_method || "ACH",
+              contract_start: effectiveStart,
+              contract_end: effectiveEnd || null,
+              has_supplies: mod.hasSupplies ?? imp?.has_supplies ?? false,
+              has_keys: mod.hasKeys ?? imp?.has_keys ?? Boolean(mod.lockboxCode || mod.alarmCode),
+              supplies_notes: mod.notes ? `${imp?.supplies_notes || ""}; ${mod.notes}` : (mod.suppliesNotes || imp?.supplies_notes || null),
+              rate_per_service: mod.ratePerService ?? imp?.rate_per_service ?? null,
+              cleaner_flat_rate: mod.cleanerFlatRate ?? mod.ratePerService ?? imp?.cleaner_flat_rate ?? null,
+              cleaner_hourly_rate: mod.cleanerHourlyRate ?? (imp as any)?.cleaner_hourly_rate ?? null,
+              cleaner_pay_type: mod.cleanerPayType ?? (imp as any)?.cleaner_pay_type ?? "hourly",
+            })
+            .select()
+            .single();
 
-            if (inserted) {
-              accountId = inserted.id;
-              accountName = inserted.name;
-            }
+          if (inserted) {
+            accountId = inserted.id;
+            accountName = inserted.name;
+            results.push(`Cuenta "${accountName}" creada en la base de datos.`);
           }
         }
 
@@ -1571,5 +1595,269 @@ export async function applyBulkHourlyRateUpdateAction(
   } catch (err: any) {
     return { success: false, message: `Error al aplicar tarifa masiva: ${err?.message || err}` };
   }
+}
+
+/**
+ * Universal Task Modifications Handler (Create, Delete, Update, Reschedule, Complete)
+ */
+export async function applyTaskModificationsAction(
+  tasks: NonNullable<SopCopilotResponse["taskModifications"]>
+): Promise<SopActionResult> {
+  if (!tasks || tasks.length === 0) {
+    return { success: true, message: "No se requirieron modificaciones de tareas." };
+  }
+
+  const supabase = createClient();
+  const results: string[] = [];
+
+  for (const t of tasks) {
+    try {
+      if (t.action === "create") {
+        if (supabase) {
+          await supabase.from("operation_tasks").insert({
+            title: t.taskTitle || "Nueva tarea operativa",
+            due_date: t.newDueDate || new Date().toISOString().split("T")[0],
+            assignee: t.newAssignee || "Unassigned",
+            priority: t.priority || "medium",
+            status: t.status || "todo",
+            category: t.category || "Operations",
+            account_name: t.accountName || null,
+            notes: t.notes || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+        results.push(`Tarea creada: "${t.taskTitle}" asignada a ${t.newAssignee || "Unassigned"}.`);
+      } else if (t.action === "delete" && (t.taskId || t.taskTitle)) {
+        if (supabase) {
+          let q = supabase.from("operation_tasks").delete();
+          if (t.taskId) q = q.eq("id", t.taskId);
+          else if (t.taskTitle) q = q.ilike("title", `%${t.taskTitle}%`);
+          await q;
+        }
+        results.push(`Tarea eliminada: "${t.taskTitle || t.taskId}".`);
+      } else if ((t.action === "complete" || t.action === "reschedule" || t.action === "reassign" || t.action === "update") && (t.taskId || t.taskTitle)) {
+        if (supabase) {
+          const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+          if (t.action === "complete" || t.status === "completed") updates.status = "completed";
+          if (t.newDueDate) updates.due_date = t.newDueDate;
+          if (t.newAssignee) updates.assignee = t.newAssignee;
+          if (t.priority) updates.priority = t.priority;
+          if (t.notes) updates.notes = t.notes;
+
+          let q = supabase.from("operation_tasks").update(updates);
+          if (t.taskId) q = q.eq("id", t.taskId);
+          else if (t.taskTitle) q = q.ilike("title", `%${t.taskTitle}%`);
+          await q;
+        }
+        results.push(`Tarea actualizada: "${t.taskTitle || t.taskId}".`);
+      }
+    } catch (err: any) {
+      console.error("Error modifying task:", err);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    window.dispatchEvent(new CustomEvent("tasks:updated"));
+  }
+
+  return {
+    success: true,
+    message: results.join("\n"),
+  };
+}
+
+/**
+ * Universal Mutations Handler - Supreme Power to mutate any table/entity directly
+ */
+export async function applyUniversalMutationsAction(
+  mutations: NonNullable<SopCopilotResponse["universalMutations"]>
+): Promise<SopActionResult> {
+  if (!mutations || mutations.length === 0) {
+    return { success: true, message: "No se requirieron mutaciones universales." };
+  }
+
+  const supabase = createClient();
+  const results: string[] = [];
+
+  for (const m of mutations) {
+    try {
+      if (!supabase) {
+        results.push(`[Local] ${m.description || `${m.action} on ${m.entity}`}`);
+        continue;
+      }
+
+      const table = m.entity;
+      if (m.action === "create" || m.action === "upsert") {
+        await supabase.from(table).insert({
+          ...(m.fields || {}),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        results.push(`[${table}] Creado: ${m.description || m.targetIdentifier}`);
+      } else if (m.action === "update") {
+        let q = supabase.from(table).update({
+          ...(m.fields || {}),
+          updated_at: new Date().toISOString(),
+        });
+        if (m.targetIdentifier) {
+          if (table === "commercial_accounts" || table === "staff_members") {
+            q = q.ilike("name", `%${m.targetIdentifier}%`);
+          } else if (table === "operation_tasks") {
+            q = q.ilike("title", `%${m.targetIdentifier}%`);
+          } else if (table === "qc_inspection_schedules") {
+            q = q.ilike("account_name", `%${m.targetIdentifier}%`);
+          } else {
+            q = q.eq("id", m.targetIdentifier);
+          }
+        }
+        await q;
+        results.push(`[${table}] Actualizado: ${m.description || m.targetIdentifier}`);
+      } else if (m.action === "delete") {
+        let q = supabase.from(table).delete();
+        if (m.targetIdentifier) {
+          if (table === "commercial_accounts" || table === "staff_members") {
+            q = q.ilike("name", `%${m.targetIdentifier}%`);
+          } else if (table === "operation_tasks") {
+            q = q.ilike("title", `%${m.targetIdentifier}%`);
+          } else if (table === "qc_inspection_schedules") {
+            q = q.ilike("account_name", `%${m.targetIdentifier}%`);
+          } else {
+            q = q.eq("id", m.targetIdentifier);
+          }
+        }
+        await q;
+        results.push(`[${table}] Eliminado: ${m.description || m.targetIdentifier}`);
+      }
+    } catch (err: any) {
+      console.error(`Error in universal mutation for ${m.entity}:`, err);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+    window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    window.dispatchEvent(new CustomEvent("tasks:updated"));
+    window.dispatchEvent(new CustomEvent("staff:updated"));
+  }
+
+  return {
+    success: true,
+    message: results.join("\n"),
+  };
+}
+
+/**
+ * MASTER SUPREME EXECUTION ENGINE:
+ * Executes ALL actionable operations staged in a SopCopilotResponse with Supreme Power.
+ */
+export async function applyUniversalSupremeAction(
+  response: SopCopilotResponse
+): Promise<SopActionResult> {
+  const executedActions: string[] = [];
+
+  // 1. Bulk Hourly Rate
+  if (response.bulkHourlyRateUpdate) {
+    const res = await applyBulkHourlyRateUpdateAction(response.bulkHourlyRateUpdate);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 2. Commercial Account Financials / Rates
+  if (response.updateAccountFinancials && response.updateAccountFinancials.length > 0) {
+    const res = await applyUpdateAccountFinancialsAction(response.updateAccountFinancials);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 3. Access Updates (Alarm, Lockbox, Gate)
+  if (response.accessUpdate || (response.accessUpdates && response.accessUpdates.length > 0)) {
+    const res = await applyAccessUpdateAction(response.accessUpdates || [response.accessUpdate!]);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 4. SOP & Commercial Account / Schedule Modifications
+  if (response.sopModifications && response.sopModifications.length > 0) {
+    const res = await applySopModificationsAction(response.sopModifications);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 5. Ingested Schedule from CleanGuru
+  if (response.ingestedSchedule) {
+    const res = await applyIngestScheduleAction(response.ingestedSchedule);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 6. QC Inspection Schedules
+  if (response.qcScheduleBatch && response.qcScheduleBatch.length > 0) {
+    const res = await applyQcScheduleBatchAction(response.qcScheduleBatch);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 7. Cleaning Occurrence Overrides
+  if (response.occurrenceOverride || (response.occurrenceOverrides && response.occurrenceOverrides.length > 0)) {
+    const overrides = response.occurrenceOverrides || [response.occurrenceOverride!];
+    for (const occ of overrides) {
+      if (!occ.accountName) continue;
+      const res = await applyOccurrenceOverrideAction({
+        accountName: occ.accountName,
+        date: occ.date || new Date().toISOString().split("T")[0],
+        cleanerTeam: occ.cleanerTeam || "Unassigned",
+        hours: occ.hours ?? 2.5,
+        notes: occ.notes,
+      });
+      if (res.message) executedActions.push(res.message);
+    }
+  }
+
+  // 8. Staff / Cleaner Modifications
+  if (response.staffModifications && response.staffModifications.length > 0) {
+    const res = await applyStaffModificationsAction(response.staffModifications);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 9. Add Staff
+  if (response.addStaff) {
+    const res = await applyAddStaffAction(response.addStaff);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 10. Staff Deduplication
+  if (response.cleanupStaffDuplicates?.enabled) {
+    const res = await applyCleanupStaffDuplicatesAction(response.cleanupStaffDuplicates);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 11. Event Bookings
+  if (response.eventBookings && response.eventBookings.length > 0) {
+    const res = await applyEventBookingsAction(response.eventBookings);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 12. Task Modifications
+  if (response.taskModifications && response.taskModifications.length > 0) {
+    const res = await applyTaskModificationsAction(response.taskModifications);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 13. Universal Mutations
+  if (response.universalMutations && response.universalMutations.length > 0) {
+    const res = await applyUniversalMutationsAction(response.universalMutations);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // Final event broadcast
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+    window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    window.dispatchEvent(new CustomEvent("tasks:updated"));
+    window.dispatchEvent(new CustomEvent("staff:updated"));
+  }
+
+  return {
+    success: true,
+    message: executedActions.length > 0
+      ? `⚡ Poder Supremo Ejecutado con Éxito:\n${executedActions.join("\n")}`
+      : "Todos los cambios fueron aplicados al sistema con Poder Supremo.",
+  };
 }
 

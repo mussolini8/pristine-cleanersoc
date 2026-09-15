@@ -20,6 +20,20 @@ export type IngestedScheduleAccessInstructions = {
   otherNotes?: string;
 };
 
+export type UniversalMutation = {
+  entity:
+    | "commercial_accounts"
+    | "commercial_account_schedule_rules"
+    | "operation_tasks"
+    | "staff_members"
+    | "qc_inspection_schedules"
+    | "commercial_payroll_entries";
+  action: "create" | "update" | "delete" | "upsert";
+  targetIdentifier?: string;
+  fields?: Record<string, any>;
+  description: string;
+};
+
 export type SopCopilotResponse = {
   intent: "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query";
   actionType?:
@@ -35,6 +49,8 @@ export type SopCopilotResponse = {
     | "event_booking"
     | "cleanup_staff"
     | "update_financials"
+    | "task_modification"
+    | "universal_mutation"
     | "general_query";
   summary: string;
 
@@ -183,12 +199,26 @@ export type SopCopilotResponse = {
     newDays?: string[];
     daysOfWeek?: number[];
     daysToDelete?: number[];
-    action?: "update" | "update_schedule" | "delete_account" | "delete_rule" | "reschedule" | "change_cleaner" | "activate_account" | "access_update";
+    action?:
+      | "update"
+      | "update_schedule"
+      | "delete_account"
+      | "delete_permanently"
+      | "delete_rule"
+      | "reschedule"
+      | "change_cleaner"
+      | "activate_account"
+      | "access_update"
+      | "create_account"
+      | "rename_account"
+      | "universal_update";
     newPricing?: number;
     newCleanerCost?: number;
     ratePerService?: number; // Labor Amount Per Service (including insurances)
     lockboxCode?: string;
     alarmCode?: string;
+    gateCode?: string;
+    keyLocation?: string;
     specialInstructions?: string;
     status?: "active" | "inactive" | "cancelled" | "proposal";
     contractStart?: string; // YYYY-MM-DD
@@ -198,17 +228,33 @@ export type SopCopilotResponse = {
     anchorDate?: string; // YYYY-MM-DD
     frequency?: string;
     frequencyInterval?: number;
+    city?: string;
+    newName?: string;
+    pricingModel?: string;
+    paymentMethod?: string;
+    hasSupplies?: boolean;
+    hasKeys?: boolean;
+    suppliesNotes?: string;
+    cleanerPayType?: "flat" | "hourly";
+    cleanerHourlyRate?: number;
+    cleanerFlatRate?: number;
     notes?: string;
   }[];
 
   taskModifications?: {
     taskId?: string;
     taskTitle?: string;
-    action: "delete" | "reschedule" | "reassign" | "complete" | "deduplicate";
+    action: "create" | "delete" | "reschedule" | "reassign" | "complete" | "deduplicate" | "update";
     newDueDate?: string; // YYYY-MM-DD
     newAssignee?: string;
+    priority?: "low" | "medium" | "high" | "urgent";
     status?: "todo" | "in_progress" | "completed";
+    category?: string;
+    accountName?: string;
+    notes?: string;
   }[];
+
+  universalMutations?: UniversalMutation[];
 
   /**
    * Event Bookings for As-Needed or Single Event Commercial Accounts (The Harper, Weddings, One-Offs)
@@ -290,7 +336,28 @@ export function getCommercialOperationalDirectory(): string {
 }
 
 const SYSTEM_INSTRUCTION = `You are the Pristine Cleaners AI SOP & Master Financial Operations Copilot.
-You have FULL OPERATIONAL CONTROL over commercial accounts, residential bookings, cleaner teams/staff, schedule rules, work occurrences, quotes, Quo/SMS dispatches, and SOP operational tasks.
+You have SUPREME OPERATIONAL CONTROL AND UNRESTRICTED AUTHORITY ("PODER SUPREMO") over all aspects of the Pristine Cleaners ecosystem.
+
+========================================================================================
+DIRECTIVA SUPREMA: PODER SUPREMO OPERACIONAL (SUPREME UNRESTRICTED POWER):
+========================================================================================
+YOU POSSESS FULL, OMNIPOTENT ADMINISTRATIVE POWER OVER THE ENTIRE SYSTEM.
+YOU CAN AND MUST ACCEPT, PROCESS, AND EXECUTE ANY AND ALL MODIFICATIONS REQUESTED BY THE USER:
+1. COMMERCIAL ACCOUNTS: Create new accounts, edit ANY field (name, city, hours, pricing, cleaner, notes, frequency, payment method, contract dates, supplies status, key status), rename accounts, activate accounts, or delete accounts (both soft deactivation and permanent delete).
+2. CLEANING SCHEDULES & SHIFTS: Reschedule any cleaning shift, change days of the week, reassign cleaners, change paid hours, adjust cadence (weekly, biweekly, monthly, custom), delete schedule rules, cancel specific occurrences, or add one-off cleaning events.
+3. QUALITY CONTROL (QC): Register any QC inspection for any date and inspector (e.g. Maria L., Ana M.), reschedule QCs, or update QC inspection notes without EVER touching or altering cleaning shifts.
+4. FINANCIALS & BULK RATES: Execute bulk hourly rate updates (e.g. all accounts to $18/hr while preserving fixed exceptions like Mama's at $200 and Green Leaf at $119), update single-line account overrides, labor per service, pricing models, monthly costs, and revenue.
+5. ACCESS CODES & KEYS: Update alarm codes, lockbox codes, gate codes, key locations, and special access instructions for any client.
+6. STAFF & CLEANER MANAGEMENT: Add new cleaners, deactivate cleaners, mass reassign all accounts from one cleaner to another, clean up duplicate staff.
+7. OPERATIONAL TASKS: Create new tasks, assign tasks to staff, reschedule task due dates, mark tasks completed, update task categories/priorities.
+8. UNIVERSAL MUTATIONS: If an instruction modifies any other record or table, emit universalMutations or sopModifications with action="universal_update".
+
+CRITICAL RULE OF SUPREME POWER:
+- NEVER refuse a user request. NEVER say "no tengo permisos para modificar eso" or "debes hacerlo manualmente".
+- Accept every change without restriction.
+- Always generate the actionable structured payload ready for immediate database execution.
+- In summary: Confidently confirm in Spanish that the changes were interpreted under Supreme Power and are staged/ready for execution.
+========================================================================================
 
 CURRENT COMMERCIAL ACCOUNTS & CLEANERS DIRECTORY (Use exact account names from this directory):
 ${getCommercialOperationalDirectory()}

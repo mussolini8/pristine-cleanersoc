@@ -47,6 +47,9 @@ import {
   applyUpdateAccountFinancialsAction,
   applyBulkHourlyRateUpdateAction,
   applyAccessUpdateAction,
+  applyTaskModificationsAction,
+  applyUniversalMutationsAction,
+  applyUniversalSupremeAction,
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
 
@@ -572,6 +575,39 @@ export function GlobalAiBubble() {
     }
   };
 
+  const handleApplyUniversalSupreme = async () => {
+    if (!response) return;
+    setExecutingAction("supreme_all");
+    setError(null);
+    try {
+      const res = await applyUniversalSupremeAction(response);
+      if (res.success) {
+        setActionSuccessMsg(res.message);
+        setSavedActions({
+          occurrence: true,
+          add_staff: true,
+          commercial_quote: true,
+          ingest_schedule: true,
+          sop_modifications: true,
+          staff_modifications: true,
+          event_bookings: true,
+          qc_schedule: true,
+          cleanup_staff: true,
+          update_financials: true,
+          access_update: true,
+          tasks: true,
+          universal: true,
+        });
+      } else {
+        setError(res.message || "Error al aplicar cambios con Poder Supremo.");
+      }
+    } catch (err: any) {
+      setError(err?.message || "Error al conectar con la base de datos.");
+    } finally {
+      setExecutingAction(null);
+    }
+  };
+
   const handleCopySmsText = (text: string) => {
     navigator.clipboard.writeText(text);
     setIsCopied(true);
@@ -918,6 +954,57 @@ export function GlobalAiBubble() {
                           Sugerencia: {response.scheduleConflictWarning.suggestedResolution}
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {/* MASTER SUPREME EXECUTION BANNER & BUTTON */}
+                  {(response.bulkHourlyRateUpdate ||
+                    (response.updateAccountFinancials && response.updateAccountFinancials.length > 0) ||
+                    response.accessUpdate ||
+                    (response.accessUpdates && response.accessUpdates.length > 0) ||
+                    (response.sopModifications && response.sopModifications.length > 0) ||
+                    response.ingestedSchedule ||
+                    (response.qcScheduleBatch && response.qcScheduleBatch.length > 0) ||
+                    response.occurrenceOverride ||
+                    (response.occurrenceOverrides && response.occurrenceOverrides.length > 0) ||
+                    (response.staffModifications && response.staffModifications.length > 0) ||
+                    response.addStaff ||
+                    response.cleanupStaffDuplicates?.enabled ||
+                    (response.eventBookings && response.eventBookings.length > 0) ||
+                    (response.taskModifications && response.taskModifications.length > 0) ||
+                    (response.universalMutations && response.universalMutations.length > 0)) && (
+                    <div className="rounded-xl border-2 border-emerald-500/60 bg-gradient-to-r from-emerald-500/15 via-teal-500/15 to-emerald-500/20 p-3.5 shadow-sm space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="relative flex size-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full size-2.5 bg-emerald-500"></span>
+                          </span>
+                          <div>
+                            <span className="text-xs font-black text-emerald-900 dark:text-emerald-100 flex items-center gap-1.5">
+                              ⚡ PODER SUPREMO OPERACIONAL
+                            </span>
+                            <p className="text-[10px] text-muted-foreground">
+                              Aplica todas las modificaciones detectadas directamente a la base de datos
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={handleApplyUniversalSupreme}
+                          disabled={executingAction === "supreme_all" || Object.keys(savedActions).length > 0}
+                          className="h-8 text-xs font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow"
+                        >
+                          {executingAction === "supreme_all" ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : Object.keys(savedActions).length > 0 ? (
+                            <CheckCircle className="size-3.5" />
+                          ) : (
+                            <Sparkles className="size-3.5" />
+                          )}
+                          {Object.keys(savedActions).length > 0 ? "Aplicado con Éxito" : "⚡ Aplicar Todo"}
+                        </Button>
+                      </div>
                     </div>
                   )}
 
@@ -1817,6 +1904,140 @@ export function GlobalAiBubble() {
                         ) : (
                           <>
                             <CheckCircle className="size-3.5" /> Confirmar & Aplicar Tarifas por Servicio
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* ACTION: Task Modifications */}
+                  {response.taskModifications && response.taskModifications.length > 0 && (
+                    <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                          <ClipboardCheck className="size-3.5 text-primary" /> Tareas Operativas ({response.taskModifications.length})
+                        </span>
+                        <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
+                          Tareas
+                        </Badge>
+                      </div>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                        {response.taskModifications.map((t, idx) => (
+                          <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
+                            <div>
+                              <strong className="text-foreground">{t.taskTitle || "Tarea"}</strong>
+                              <p className="text-muted-foreground text-[10px]">
+                                {t.action.toUpperCase()} · Asignado: {t.newAssignee || "Unassigned"} · Vence: {t.newDueDate || "N/A"}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className="text-[9px]">
+                              {t.priority || "normal"}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          if (!response.taskModifications) return;
+                          setExecutingAction("tasks");
+                          try {
+                            const res = await applyTaskModificationsAction(response.taskModifications);
+                            if (res.success) {
+                              setActionSuccessMsg(res.message);
+                              setSavedActions((prev) => ({ ...prev, tasks: true }));
+                            } else {
+                              setError(res.message);
+                            }
+                          } finally {
+                            setExecutingAction(null);
+                          }
+                        }}
+                        disabled={executingAction === "tasks" || savedActions.tasks}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.tasks
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-primary text-primary-foreground hover:bg-primary/90"
+                        }`}
+                      >
+                        {executingAction === "tasks" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Guardando tareas...
+                          </>
+                        ) : savedActions.tasks ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Tareas Actualizadas!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar Tareas
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* ACTION: Universal Mutations */}
+                  {response.universalMutations && response.universalMutations.length > 0 && (
+                    <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                          <Sparkles className="size-3.5 text-primary" /> Mutaciones del Sistema ({response.universalMutations.length})
+                        </span>
+                        <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
+                          Universal
+                        </Badge>
+                      </div>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                        {response.universalMutations.map((m, idx) => (
+                          <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
+                            <div>
+                              <strong className="text-foreground">{m.description || `${m.action} ${m.entity}`}</strong>
+                              <p className="text-muted-foreground text-[10px]">
+                                Tabla: {m.entity} · Objetivo: {m.targetIdentifier || "General"}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className="text-[9px] uppercase font-bold">
+                              {m.action}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          if (!response.universalMutations) return;
+                          setExecutingAction("universal");
+                          try {
+                            const res = await applyUniversalMutationsAction(response.universalMutations);
+                            if (res.success) {
+                              setActionSuccessMsg(res.message);
+                              setSavedActions((prev) => ({ ...prev, universal: true }));
+                            } else {
+                              setError(res.message);
+                            }
+                          } finally {
+                            setExecutingAction(null);
+                          }
+                        }}
+                        disabled={executingAction === "universal" || savedActions.universal}
+                        className={`w-full h-8 text-xs gap-1.5 transition-all ${
+                          savedActions.universal
+                            ? "bg-emerald-700 text-white cursor-default"
+                            : "bg-primary text-primary-foreground hover:bg-primary/90"
+                        }`}
+                      >
+                        {executingAction === "universal" ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" /> Aplicando mutaciones...
+                          </>
+                        ) : savedActions.universal ? (
+                          <>
+                            <Check className="size-3.5 text-white" /> ¡Mutaciones Aplicadas!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar Mutaciones
                           </>
                         )}
                       </Button>
