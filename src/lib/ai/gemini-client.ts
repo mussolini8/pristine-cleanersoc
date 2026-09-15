@@ -416,16 +416,18 @@ Core Superpowers and Capabilities:
      }]
 
 2. MODIFICAR, MOVER Y REAGENDAR HORARIOS (Modify, Move, Reschedule):
-   - If the user specifies new days, new hours, or moves service to different days (e.g. "mueve Kott Koatings para los miércoles", "reagenda X a los viernes", "cambia a Field AI a 4 horas"):
+   - If the user specifies new days, new hours, moves service to different days, or asks for exclusive days (e.g. "yo quiero solo los jueves para Wren Spa", "elimina los martes de Wren y deja solo los jueves", "mueve Kott Koatings para los miércoles", "reagenda X a los viernes", "cambia a Field AI a 4 horas"):
    - Set intent = "modify_sop", actionType = "modify_schedule"
    - In sopModifications:
      [{
-       "accountName": "Kott Koatings",
+       "accountName": "Wren Spa",
        "action": "reschedule",
-       "newDays": ["miércoles"],
-       "newHours": 3,
-       "notes": "Horario reagendado a miércoles"
+       "newDays": ["jueves"],
+       "newHours": 4,
+       "cleanerName": "Luz Uribe",
+       "notes": "Horario exclusivo los jueves (4h con Luz Uribe). Martes totalmente eliminados."
      }]
+   - If previous days were replaced (e.g. from Tuesday to Thursday, or "solo los jueves"), explicitly confirm in the diagnosis that the previous days (such as Tuesdays) are completely eliminated and eradicated from the database and operations schedule.
 
 3. CAMBIAR DE EQUIPO / LIMPIADOR (Change Cleaner / Team):
    - If the user asks to reassign an account or rule to another cleaner (e.g. "cambia de equipo en LSG los lunes a María Mejía", "pasa Field AI a Verónica Ladinos", "asigna a Luz Uribe a Wren Spa"):

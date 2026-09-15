@@ -254,10 +254,10 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
 }
 
 function normalizeAccountKey(account: Pick<Account, "name" | "city">) {
-  const city = !account.city || account.city.toLowerCase() === "unknown" ? "" : account.city;
-  return `${account.name} ${city}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
+  const normName = (account.name || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, " ");
+  const normCity = (!account.city || account.city.toLowerCase() === "unknown" ? "" : account.city).toLowerCase().trim().replace(/[^a-z0-9]+/g, " ");
+  const combined = (normCity && !normName.includes(normCity)) ? `${normName} ${normCity}` : normName;
+  return combined.replace(/[^a-z0-9]+/g, "");
 }
 
 function toAccount(account: ImportedCommercialAccount): Account {
@@ -272,6 +272,11 @@ function toAccount(account: ImportedCommercialAccount): Account {
     cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
     cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (account.rate_per_service ?? null),
   };
+}
+
+function isAssignedAccount(account: Pick<Account, "cleaner_name">) {
+  const cleaner = (account.cleaner_name || "").trim().toLowerCase();
+  return Boolean(cleaner && cleaner !== "unassigned" && cleaner !== "sin asignar");
 }
 
 function mergeImportedAccounts(remoteAccounts: Account[]) {
@@ -290,7 +295,7 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     console.warn("Could not read local commercial accounts:", e);
   }
 
-  const merged: Account[] = [];
+  const rawMerged: Account[] = [];
   const seenKeys = new Set<string>();
 
   for (const remote of remoteAccounts) {
@@ -304,7 +309,7 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const hours = isMoxi3CM ? 3 : numericHours(remote.hours || imported?.hours);
     const ratePerService = isMamas ? 200 : isGreenLeaf ? 119 : (imported?.rate_per_service ?? (hours > 0 ? hours * 18 : (remote.rate_per_service ?? null)));
 
-    merged.push({
+    rawMerged.push({
       ...imported,
       ...remote,
       hours,
@@ -322,25 +327,59 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     });
   }
 
-  // Include any local custom accounts that are not in remote yet
+  // Include local custom accounts ONLY if not already present in remote and not an unassigned duplicate
   for (const localAcc of localCustomAccounts) {
     const key = normalizeAccountKey(localAcc);
     if (!seenKeys.has(key)) {
-      seenKeys.add(key);
-      merged.push(localAcc);
+      // Avoid resurrecting unassigned duplicates
+      if (isAssignedAccount(localAcc)) {
+        seenKeys.add(key);
+        rawMerged.push(localAcc);
+      }
     }
   }
 
-  // Include all imported commercial accounts from CleanGuru not yet present in remote
+  // Include imported accounts not yet present in remote
   for (const [key, imported] of importedMap) {
     if (!seenKeys.has(key)) {
-      merged.push(imported);
+      seenKeys.add(key);
+      rawMerged.push(imported);
     }
   }
 
-  return merged.sort((a, b) =>
+  // Deduplicate strictly: if duplicate keys exist, always prioritize the one with an assigned cleaner and DB ID
+  const dedupedMap = new Map<string, Account>();
+  for (const acc of rawMerged) {
+    const key = normalizeAccountKey(acc);
+    const existing = dedupedMap.get(key);
+    if (!existing) {
+      dedupedMap.set(key, acc);
+      continue;
+    }
+    const existingAssigned = isAssignedAccount(existing);
+    const accAssigned = isAssignedAccount(acc);
+
+    if (!existingAssigned && accAssigned) {
+      dedupedMap.set(key, { ...existing, ...acc });
+    } else if (existingAssigned && !accAssigned) {
+      // keep existing assigned
+    } else if (isPersistedAccount(acc) && !isPersistedAccount(existing)) {
+      dedupedMap.set(key, { ...existing, ...acc });
+    }
+  }
+
+  const result = Array.from(dedupedMap.values()).sort((a, b) =>
     `${a.name} ${a.city ?? ""}`.localeCompare(`${b.name} ${b.city ?? ""}`),
   );
+
+  // Sync clean state back to localStorage to purge any old zombie accounts
+  try {
+    if (typeof window !== "undefined" && remoteAccounts.length > 0) {
+      localStorage.setItem("pristine_commercial_accounts", JSON.stringify(result));
+    }
+  } catch {}
+
+  return result;
 }
 
 // ─────────────────────────────────────────────

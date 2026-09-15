@@ -40,7 +40,7 @@ function startOfLocalDay(value: Date) {
 }
 
 function appliesToIntervalRule(rule: CommercialScheduleRule, serviceDate: Date) {
-  const interval = Math.max(1, Number(rule.frequency_interval ?? (rule.frequency_type === "biweekly" ? 2 : 1)) || 1);
+  const interval = rule.frequency_type === "biweekly" ? 2 : Math.max(1, Number(rule.frequency_interval) || 1);
   if (interval <= 1) return true;
   if (!rule.anchor_date) return false;
   const anchor = parseISODate(rule.anchor_date);
@@ -259,7 +259,7 @@ export function generateEntriesForAccount(
   if (activeRules.length > 0) {
     for (const rule of activeRules) {
       const extraExceptions: PayrollExceptionCode[] = [];
-      const interval = Math.max(1, Number(rule.frequency_interval ?? (rule.frequency_type === "biweekly" ? 2 : 1)) || 1);
+      const interval = rule.frequency_type === "biweekly" ? 2 : Math.max(1, Number(rule.frequency_interval) || 1);
       if (interval > 1 && !rule.anchor_date) {
         extraExceptions.push("missing_anchor_date");
       }

@@ -727,7 +727,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "Swing Easy Golf Club Yorba Linda",
     city: "Yorba Linda",
     pricing_model: "Flat rate",
-    cleaner_name: "Unassigned",
+    cleaner_name: "Sandra Hernandez",
     hours: 3,
     frequency: "Every 14 days",
     revenue: 486,

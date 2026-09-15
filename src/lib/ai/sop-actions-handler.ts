@@ -660,14 +660,17 @@ export async function applySopModificationsAction(
       if (isDeactivation) {
         updateData.contract_end = cutoffDate || "2026-08-31";
       } else {
-        if (
+        if (mod.contractEnd !== undefined) {
+          updateData.contract_end = mod.contractEnd;
+        } else if (
           mod.anchorDate ||
           mod.effectiveDate ||
           mod.action === "activate_account" ||
           mod.action === "update_schedule" ||
+          mod.action === "reschedule" ||
           mod.status === "active"
         ) {
-          updateData.contract_end = mod.contractEnd || "2027-12-31";
+          updateData.contract_end = null;
           if (mod.anchorDate || mod.effectiveDate) {
             updateData.contract_start = mod.anchorDate || mod.effectiveDate;
           }
@@ -816,7 +819,7 @@ export async function applySopModificationsAction(
             for (const d of mod.daysToDelete) {
               await supabase
                 .from("commercial_account_schedule_rules")
-                .update({ active: false, updated_at: new Date().toISOString() })
+                .delete()
                 .eq("commercial_account_id", accountId)
                 .eq("day_of_week", d);
             }
@@ -885,6 +888,58 @@ export async function applySopModificationsAction(
 
             const hours = typeof mod.newHours === "number" ? mod.newHours : (updateData.hours || 2.5);
             const cleaner = mod.cleanerName || updateData.cleaner_name || "Sin asignar";
+
+            // When specific targetDays are provided, purge obsolete rules for non-selected days!
+            if (targetDays.length > 0) {
+              await supabase
+                .from("commercial_account_schedule_rules")
+                .delete()
+                .eq("commercial_account_id", accountId)
+                .not("day_of_week", "in", `(${targetDays.join(",")})`);
+
+              // Clean up unverified, non-manual entries on removed days
+              try {
+                const { data: existingEntries } = await supabase
+                  .from("commercial_hours_entries")
+                  .select("id, work_date, status, verified, manual_entry")
+                  .eq("account_id", accountId)
+                  .is("deleted_at", null);
+
+                for (const entry of existingEntries || []) {
+                  if (entry.manual_entry === false && !entry.verified && entry.status !== "paid" && entry.status !== "approved") {
+                    const entryDate = new Date(entry.work_date + "T12:00:00");
+                    if (!isNaN(entryDate.getTime())) {
+                      if (!targetDays.includes(entryDate.getDay())) {
+                        await supabase
+                          .from("commercial_hours_entries")
+                          .delete()
+                          .eq("id", entry.id);
+                      }
+                    }
+                  }
+                }
+              } catch (cleanupErr) {
+                console.warn("Could not clean up obsolete commercial_hours_entries:", cleanupErr);
+              }
+
+              // Also purge from localStorage
+              if (typeof window !== "undefined") {
+                try {
+                  const storedRaw = localStorage.getItem("pristine_commercial_hours_entries");
+                  if (storedRaw) {
+                    const storedList: any[] = JSON.parse(storedRaw);
+                    const filtered = storedList.filter((e) => {
+                      const matchesAccount = e.account_id === accountId || (accountName && e.account_name?.toLowerCase().includes(accountName.toLowerCase()));
+                      if (!matchesAccount) return true;
+                      if (e.manual_entry || e.verified || e.status === "paid" || e.status === "approved") return true;
+                      const d = new Date(e.work_date + "T12:00:00");
+                      return isNaN(d.getTime()) || targetDays.includes(d.getDay());
+                    });
+                    localStorage.setItem("pristine_commercial_hours_entries", JSON.stringify(filtered));
+                  }
+                } catch {}
+              }
+            }
 
             for (const day of targetDays) {
               const { data: existingRule } = await supabase
@@ -1416,6 +1471,25 @@ export async function applyUpdateAccountFinancialsAction(
                 updatedCount++;
                 messages.push(`${inserted.name} (Labor/Serv: $${upd.ratePerService || inserted.cost})`);
               }
+            }
+          }
+
+          if (accountUpdatedInDb && (upd.cleanerName || upd.hours !== undefined)) {
+            const ruleSyncPayload: Record<string, any> = { updated_at: new Date().toISOString() };
+            if (upd.cleanerName) ruleSyncPayload.assigned_cleaner_name = upd.cleanerName;
+            if (upd.hours !== undefined) {
+              ruleSyncPayload.paid_hours = upd.hours;
+              ruleSyncPayload.scheduled_hours = upd.hours;
+            }
+            const { data: matchedAccs } = await supabase
+              .from("commercial_accounts")
+              .select("id")
+              .ilike("name", `%${canonicalName}%`);
+            for (const ma of matchedAccs || []) {
+              await supabase
+                .from("commercial_account_schedule_rules")
+                .update(ruleSyncPayload)
+                .eq("commercial_account_id", ma.id);
             }
           }
         } catch (dbErr) {
