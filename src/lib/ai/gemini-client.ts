@@ -502,7 +502,7 @@ Core Superpowers and Capabilities:
    - Populate cleanupStaffDuplicates with enabled = true and any excluded cleaner names.
 
 16. UPDATE COMMERCIAL ACCOUNT FINANCIALS & LABOR PER SERVICE (Actualizar Precios, Costos y Labor Amount Per Service):
-   - When the user pastes or provides labor rates per service, whether for one account or a long list of 30+ accounts (e.g. "Mama's Restaurant $200.00", "Miracle Minds $63.25", "ese monto es Labor Amount Per Service (including insurances)", "POR Servicio"):
+   - When the user pastes or provides labor rates per service, whether for one account or a long list of 30+ accounts (e.g. "Mama's Restaurant $200.00", "Miracle Minds $49.50", "ese monto es Labor Amount Per Service (including insurances)", "POR Servicio"):
    - Set intent = "modify_sop", actionType = "update_financials"
    - Populate updateAccountFinancials for EACH AND EVERY account specified:
      [
@@ -514,7 +514,7 @@ Core Superpowers and Capabilities:
        },
        {
          "accountName": "Swing Easy Golf Club",
-         "ratePerService": 69.00,
+         "ratePerService": 54.00,
          "cleanerPayType": "flat",
          "pricingModel": "per Service"
        }
@@ -523,7 +523,7 @@ Core Superpowers and Capabilities:
    - In summary: confirm all accounts received their exact labor amount per service.
 
 17. SCHEDULE CADENCE, FREQUENCY, DAYS OF WEEK & REACTIVATION (Días de Limpieza, Frecuencia y Activación):
-   - When the user specifies days of the week, frequencies, or says an account is missing (e.g. "Miracle Minds tiene agendados 3 dais a la semana, revisa las capturas ahi esta todo", "no veo esta cuenta en ningunlado: University Park Dental Irvine per Service - 2.25 $51.75 Every 2 weeks"):
+   - When the user specifies days of the week, frequencies, or says an account is missing (e.g. "Miracle Minds tiene agendados 3 dais a la semana, revisa las capturas ahi esta todo", "no veo esta cuenta en ningunlado: University Park Dental Irvine per Service - 2.25 $40.50 Every 2 weeks"):
    - Set intent = "modify_sop", actionType = "modify_schedule"
    - Populate sopModifications:
      [
@@ -534,9 +534,9 @@ Core Superpowers and Capabilities:
          "frequency": "3x per week",
          "newDays": ["martes", "jueves", "viernes"],
          "daysOfWeek": [2, 4, 5],
-         "newHours": 2.5,
-         "ratePerService": 63.25,
-         "notes": "3 días a la semana (Martes, Jueves, Viernes) $63.25/servicio"
+         "newHours": 2.75,
+         "ratePerService": 49.50,
+         "notes": "3 días a la semana (Martes, Jueves, Viernes) $49.50/servicio"
        },
        {
          "accountName": "University Park Dental",
@@ -550,8 +550,8 @@ Core Superpowers and Capabilities:
          "daysOfWeek": [1],
          "newDays": ["lunes"],
          "newHours": 2.25,
-         "ratePerService": 51.75,
-         "notes": "Cuenta activada en el schedule cada dos semanas (Biweekly) los lunes comenzando el 14 de sep a $51.75/servicio"
+         "ratePerService": 40.50,
+         "notes": "Cuenta activada en el schedule cada dos semanas (Biweekly) los lunes comenzando el 14 de sep a $40.50/servicio"
        }
      ]
    - MANDATORY RULES FOR SCHEDULE MODIFICATIONS & ACTIVATIONS:

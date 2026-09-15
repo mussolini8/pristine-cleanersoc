@@ -52,7 +52,7 @@ import {
 const QUICK_PROMPTS_ES = [
   {
     label: "💰 Labor per Service",
-    text: "Mama's Restaurant $200.00\nSwing Easy Golf Club $69.00\nMiracle Minds $63.25\nese monto es Labor Amount Per Service (including insurances)",
+    text: "Mama's Restaurant $200.00\nSwing Easy Golf Club $54.00\nMiracle Minds $49.50\nese monto es Labor Amount Per Service (including insurances)",
   },
   {
     label: "🔑 Códigos / Lockbox",
@@ -104,7 +104,7 @@ const QUICK_PROMPTS_ES = [
 const QUICK_PROMPTS_EN = [
   {
     label: "💰 Labor per Service",
-    text: "Mama's Restaurant $200.00\nSwing Easy Golf Club $69.00\nMiracle Minds $63.25\nthat amount is Labor Amount Per Service (including insurances)",
+    text: "Mama's Restaurant $200.00\nSwing Easy Golf Club $54.00\nMiracle Minds $49.50\nthat amount is Labor Amount Per Service (including insurances)",
   },
   {
     label: "🔑 Codes / Lockbox",

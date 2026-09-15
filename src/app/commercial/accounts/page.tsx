@@ -224,18 +224,31 @@ function isPersistedAccount(account: Pick<Account, "id"> | null | undefined) {
 
 // displayDate is imported from periods utility
 
-function numericHours(value: Account["hours"]) {
+function numericHours(value?: Account["hours"] | undefined) {
   return typeof value === "number" ? value : Number(value) || 0;
 }
 
 function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type" | "cleaner_hourly_rate" | "cleaner_flat_rate" | "rate_per_service" | "frequency">) {
   const visits = getVisitsPerMonth(account.frequency);
+  const norm = (account as any).name?.toLowerCase() || "";
+  if (norm.includes("mama")) {
+    const perServiceRate = account.rate_per_service ?? account.cleaner_flat_rate ?? 200;
+    return Number((perServiceRate * visits).toFixed(2));
+  }
+  if (norm.includes("green leaf")) {
+    const perServiceRate = account.rate_per_service ?? account.cleaner_flat_rate ?? 119;
+    return Number((perServiceRate * visits).toFixed(2));
+  }
   const perServiceRate = account.rate_per_service ?? account.cleaner_flat_rate;
   if (perServiceRate !== null && perServiceRate !== undefined && perServiceRate > 0) {
     return Number((perServiceRate * visits).toFixed(2));
   }
-  if (account.cleaner_pay_type === "hourly" && account.cleaner_hourly_rate !== null && account.cleaner_hourly_rate !== undefined) {
-    return Number((numericHours(account.hours) * account.cleaner_hourly_rate * visits).toFixed(2));
+  const hours = numericHours(account.hours);
+  const hourlyRate = (account.cleaner_hourly_rate !== null && account.cleaner_hourly_rate !== undefined && account.cleaner_hourly_rate > 0)
+    ? account.cleaner_hourly_rate
+    : 18;
+  if (hours > 0) {
+    return Number((hours * hourlyRate * visits).toFixed(2));
   }
   return account.cost ?? 0;
 }
@@ -249,24 +262,15 @@ function normalizeAccountKey(account: Pick<Account, "name" | "city">) {
 
 function toAccount(account: ImportedCommercialAccount): Account {
   const norm = account.name.toLowerCase().trim();
-  const isNonHourly = [
-    "green leaf",
-    "green leaf botanicals",
-    "mama's restaurant",
-    "mamas restaurant",
-    "globar",
-    "glo bar",
-    "the harper",
-  ].some((name) => norm.includes(name));
-
-  const hasPerServiceRate = typeof account.rate_per_service === "number";
+  const isMamas = norm.includes("mama");
+  const isGreenLeaf = norm.includes("green leaf");
 
   return {
     ...account,
     rate_per_service: account.rate_per_service ?? null,
-    cleaner_pay_type: hasPerServiceRate || isNonHourly ? "flat" : "hourly",
-    cleaner_hourly_rate: hasPerServiceRate || isNonHourly ? null : 18,
-    cleaner_flat_rate: account.rate_per_service ?? (isNonHourly ? (account.cost ?? null) : null),
+    cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
+    cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
+    cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (account.rate_per_service ?? null),
   };
 }
 
@@ -293,17 +297,25 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const key = normalizeAccountKey(remote);
     seenKeys.add(key);
     const imported = importedMap.get(key);
+    const norm = remote.name?.toLowerCase() || "";
+    const isMamas = norm.includes("mama");
+    const isGreenLeaf = norm.includes("green leaf");
+    const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
+    const hours = isMoxi3CM ? 3 : numericHours(remote.hours || imported?.hours);
+    const ratePerService = isMamas ? 200 : isGreenLeaf ? 119 : (imported?.rate_per_service ?? (hours > 0 ? hours * 18 : (remote.rate_per_service ?? null)));
+
     merged.push({
       ...imported,
       ...remote,
-      rate_per_service: remote.rate_per_service ?? imported?.rate_per_service ?? null,
-      cleaner_flat_rate: remote.cleaner_flat_rate ?? remote.rate_per_service ?? imported?.cleaner_flat_rate ?? null,
+      hours,
+      rate_per_service: ratePerService,
+      cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
+      cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
+      cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
       supply_delivery_date: remote.supply_delivery_date ?? imported?.supply_delivery_date ?? null,
       estimated_fill_date: remote.estimated_fill_date ?? imported?.estimated_fill_date ?? null,
       source_sheet: remote.source_sheet ?? imported?.source_sheet ?? "Manual entry",
       supplies_notes: remote.supplies_notes ?? imported?.supplies_notes ?? null,
-      cleaner_pay_type: remote.cleaner_pay_type ?? imported?.cleaner_pay_type ?? null,
-      cleaner_hourly_rate: remote.cleaner_hourly_rate ?? imported?.cleaner_hourly_rate ?? null,
       net_price_per_booking: remote.net_price_per_booking ?? null,
       monthly_gross_profit: remote.monthly_gross_profit ?? null,
       qc_monthly_cost: remote.qc_monthly_cost ?? null,

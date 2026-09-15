@@ -50,21 +50,16 @@ function normalizeAccountKey(account: Pick<CommercialAccount, "name" | "city">) 
 
 function toCommercialAccount(account: ImportedCommercialAccount): CommercialAccount {
   const norm = account.name.toLowerCase().trim();
-  const isNonHourly = [
-    "green leaf",
-    "green leaf botanicals",
-    "mama's restaurant",
-    "mamas restaurant",
-    "globar",
-    "glo bar",
-    "the harper",
-  ].some((name) => norm.includes(name));
+  const isMamas = norm.includes("mama");
+  const isGreenLeaf = norm.includes("green leaf");
+  const isHarper = norm.includes("the harper");
+  const isFlat = isMamas || isGreenLeaf || isHarper;
 
   return {
     ...account,
-    cleaner_pay_type: isNonHourly ? "flat" : "hourly",
-    cleaner_hourly_rate: isNonHourly ? null : 18,
-    cleaner_flat_rate: isNonHourly ? (account.cost ?? null) : null,
+    cleaner_pay_type: isFlat ? "flat" : "hourly",
+    cleaner_hourly_rate: isFlat ? null : 18,
+    cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : isHarper ? 90 : null,
   };
 }
 
