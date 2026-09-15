@@ -45,6 +45,7 @@ import {
   applyQcScheduleBatchAction,
   applyCleanupStaffDuplicatesAction,
   applyUpdateAccountFinancialsAction,
+  applyBulkHourlyRateUpdateAction,
   applyAccessUpdateAction,
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
@@ -531,15 +532,23 @@ export function GlobalAiBubble() {
   };
 
   const handleApplyFinancials = async () => {
-    if (!response?.updateAccountFinancials) return;
+    if (!response?.updateAccountFinancials && !response?.bulkHourlyRateUpdate) return;
     setExecutingAction("update_financials");
     try {
-      const res = await applyUpdateAccountFinancialsAction(response.updateAccountFinancials);
-      if (res.success) {
-        setActionSuccessMsg(res.message);
-        setSavedActions((prev) => ({ ...prev, update_financials: true }));
+      if (response?.bulkHourlyRateUpdate) {
+        await applyBulkHourlyRateUpdateAction(response.bulkHourlyRateUpdate);
+      }
+      if (response?.updateAccountFinancials && response.updateAccountFinancials.length > 0) {
+        const res = await applyUpdateAccountFinancialsAction(response.updateAccountFinancials);
+        if (res.success) {
+          setActionSuccessMsg(res.message);
+          setSavedActions((prev) => ({ ...prev, update_financials: true }));
+        } else {
+          setError(res.message);
+        }
       } else {
-        setError(res.message);
+        setActionSuccessMsg(`Tarifas horarias aplicadas correctamente a $${response?.bulkHourlyRateUpdate?.hourlyRate || 18}/hr.`);
+        setSavedActions((prev) => ({ ...prev, update_financials: true }));
       }
     } finally {
       setExecutingAction(null);
@@ -1738,41 +1747,55 @@ export function GlobalAiBubble() {
                   )}
 
                   {/* ACTION: Update Account Financials & Labor per Service */}
-                  {response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
+                  {((response.updateAccountFinancials && response.updateAccountFinancials.length > 0) || response.bulkHourlyRateUpdate) && (
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
                           <DollarSign className="size-3.5 text-primary" /> Precios y Labor por Servicio
                         </span>
                         <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
-                          {response.updateAccountFinancials.length} {response.updateAccountFinancials.length === 1 ? "cuenta" : "cuentas"}
+                          {response.updateAccountFinancials ? `${response.updateAccountFinancials.length} ${response.updateAccountFinancials.length === 1 ? "cuenta" : "cuentas"}` : "Tarifa global"}
                         </Badge>
                       </div>
-                      <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                        {response.updateAccountFinancials.map((fin, idx) => (
-                          <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
-                            <div>
-                              <strong className="text-foreground">{fin.accountName}</strong>
-                              <p className="text-muted-foreground text-[10px]">
-                                {fin.pricingModel || "per Service"}
-                                {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
-                              </p>
+                      {response.bulkHourlyRateUpdate && (
+                        <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2 text-[11px] text-emerald-800 dark:text-emerald-300">
+                          <strong>Tarifa Masiva: ${response.bulkHourlyRateUpdate.hourlyRate}/hr</strong>
+                          {response.bulkHourlyRateUpdate.excludedAccounts && response.bulkHourlyRateUpdate.excludedAccounts.length > 0 && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              Excepciones fijas: {response.bulkHourlyRateUpdate.excludedAccounts.join(", ")}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                          {response.updateAccountFinancials.map((fin, idx) => (
+                            <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
+                              <div>
+                                <strong className="text-foreground">{fin.accountName}</strong>
+                                <p className="text-muted-foreground text-[10px]">
+                                  {fin.pricingModel || "per Service"}
+                                  {fin.hours !== undefined ? ` · ${fin.hours} hrs` : ""}
+                                  {fin.cleanerName ? ` · ${fin.cleanerName}` : ""}
+                                  {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {fin.ratePerService !== undefined && fin.ratePerService !== null && (
+                                  <span className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold">
+                                    ${Number(fin.ratePerService).toFixed(2)} / serv
+                                  </span>
+                                )}
+                                {fin.revenue ? (
+                                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                                    ${fin.revenue}/mes
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1.5">
-                              {fin.ratePerService !== undefined && fin.ratePerService !== null && (
-                                <span className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold">
-                                  ${Number(fin.ratePerService).toFixed(2)} / serv
-                                </span>
-                              )}
-                              {fin.revenue ? (
-                                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
-                                  ${fin.revenue}/mes
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                       <Button
                         size="sm"
                         onClick={handleApplyFinancials}

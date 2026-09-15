@@ -1323,10 +1323,22 @@ export async function applyUpdateAccountFinancialsAction(
       if (upd.cleanerRate !== undefined) payload.cleaner_hourly_rate = upd.cleanerRate;
       if (upd.frequency) payload.frequency = upd.frequency;
 
+      if (upd.hours !== undefined) payload.hours = upd.hours;
+      if (upd.cleanerName) payload.cleaner_name = upd.cleanerName;
+      if (upd.city) payload.city = upd.city;
+
       if (upd.ratePerService !== undefined && upd.ratePerService !== null) {
         payload.cleaner_flat_rate = upd.ratePerService;
-        payload.cost = upd.ratePerService;
-        payload.cleaner_pay_type = "flat";
+        const normLower = canonicalName.toLowerCase();
+        const isFixedFlat = normLower.includes("mama") || normLower.includes("green leaf");
+        if (isFixedFlat) {
+          payload.cleaner_pay_type = "flat";
+        }
+        if (payload.cost === undefined) {
+          // If cost was not explicitly specified, calculate monthly cost
+          const visits = getVisitsPerMonth(upd.frequency || "Weekly");
+          payload.cost = Number((upd.ratePerService * visits).toFixed(2));
+        }
         if (!payload.pricing_model) payload.pricing_model = "per Service";
         localRateMap[canonicalName.toLowerCase()] = upd.ratePerService;
       }
@@ -1339,14 +1351,16 @@ export async function applyUpdateAccountFinancialsAction(
             .from("commercial_accounts")
             .update(payload)
             .ilike("name", `%${canonicalName}%`)
-            .select("name, revenue, cost, pricing_model, cleaner_flat_rate");
+            .select("name, revenue, cost, pricing_model, cleaner_flat_rate, hours, cleaner_name");
 
           if (!error && data && data.length > 0) {
             accountUpdatedInDb = true;
             updatedCount++;
             const item = data[0];
             const rateMsg = upd.ratePerService !== undefined ? `Labor/Serv: $${upd.ratePerService}` : `Rev: $${item.revenue}, Costo: $${item.cost}`;
-            messages.push(`${item.name} (${rateMsg})`);
+            const hrsMsg = upd.hours !== undefined ? `, ${upd.hours}h` : "";
+            const clMsg = upd.cleanerName ? `, Cleaner: ${upd.cleanerName}` : "";
+            messages.push(`${item.name} (${rateMsg}${hrsMsg}${clMsg})`);
           } else {
             // If not found in commercial_accounts table yet, materialize from importedCommercialAccounts
             const imp = importedCommercialAccounts.find(
@@ -1357,15 +1371,16 @@ export async function applyUpdateAccountFinancialsAction(
                 .from("commercial_accounts")
                 .insert({
                   name: imp.name,
-                  city: imp.city || "Orange County",
-                  cleaner_name: imp.cleaner_name || null,
-                  hours: Number(imp.hours) || 2.5,
-                  frequency: imp.frequency || "Weekly",
+                  city: upd.city || imp.city || "Orange County",
+                  cleaner_name: upd.cleanerName || imp.cleaner_name || null,
+                  hours: upd.hours !== undefined ? upd.hours : (Number(imp.hours) || 2.5),
+                  frequency: upd.frequency || imp.frequency || "Weekly",
                   revenue: upd.revenue !== undefined ? upd.revenue : imp.revenue,
-                  cost: upd.ratePerService !== undefined ? upd.ratePerService : (upd.cost !== undefined ? upd.cost : imp.cost),
+                  cost: payload.cost !== undefined ? payload.cost : imp.cost,
                   cleaner_flat_rate: upd.ratePerService !== undefined ? upd.ratePerService : imp.rate_per_service,
                   pricing_model: upd.pricingModel || imp.pricing_model || "per Service",
-                  cleaner_pay_type: "flat",
+                  cleaner_pay_type: payload.cleaner_pay_type || "hourly",
+                  cleaner_hourly_rate: upd.cleanerRate !== undefined ? upd.cleanerRate : 18,
                   contract_start: imp.contract_start || null,
                   contract_end: imp.contract_end || "2027-12-31",
                 })
@@ -1388,10 +1403,11 @@ export async function applyUpdateAccountFinancialsAction(
       const impMatch = importedCommercialAccounts.find(
         (a) => a.name.toLowerCase().includes(canonicalName.toLowerCase()) || canonicalName.toLowerCase().includes(a.name.toLowerCase())
       );
-      if (impMatch && upd.ratePerService !== undefined) {
-        impMatch.rate_per_service = upd.ratePerService;
-        impMatch.cleaner_flat_rate = upd.ratePerService;
-        impMatch.cost = upd.ratePerService;
+      if (impMatch) {
+        if (upd.ratePerService !== undefined) impMatch.rate_per_service = upd.ratePerService;
+        if (upd.hours !== undefined) impMatch.hours = upd.hours;
+        if (upd.cleanerName) impMatch.cleaner_name = upd.cleanerName;
+        if (payload.cost !== undefined) impMatch.cost = payload.cost;
       }
 
       // Fallback/sync in localStorage
@@ -1420,14 +1436,16 @@ export async function applyUpdateAccountFinancialsAction(
             const newEntry = {
               id: `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
               name: canonicalName,
-              city: impMatch?.city || "Orange County",
-              hours: impMatch?.hours || 2.5,
-              frequency: impMatch?.frequency || "Weekly",
+              city: upd.city || impMatch?.city || "Orange County",
+              cleaner_name: upd.cleanerName || impMatch?.cleaner_name || null,
+              hours: upd.hours !== undefined ? upd.hours : (impMatch?.hours || 2.5),
+              frequency: upd.frequency || impMatch?.frequency || "Weekly",
               revenue: upd.revenue || impMatch?.revenue || 0,
-              cost: upd.ratePerService || upd.cost || impMatch?.cost || 0,
+              cost: payload.cost || impMatch?.cost || 0,
               rate_per_service: upd.ratePerService,
               cleaner_flat_rate: upd.ratePerService,
-              cleaner_pay_type: "flat",
+              cleaner_pay_type: payload.cleaner_pay_type || "hourly",
+              cleaner_hourly_rate: upd.cleanerRate || 18,
               pricing_model: upd.pricingModel || "per Service",
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
@@ -1448,6 +1466,7 @@ export async function applyUpdateAccountFinancialsAction(
         localStorage.setItem("pristine_rate_per_service_map", JSON.stringify(localRateMap));
       } catch {}
       window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+      window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
     }
 
     return {
@@ -1457,6 +1476,100 @@ export async function applyUpdateAccountFinancialsAction(
     };
   } catch (err: any) {
     return { success: false, message: `Error al actualizar finanzas: ${err.message}` };
+  }
+}
+
+function getVisitsPerMonth(frequency: string | null | undefined): number {
+  if (!frequency) return 4.33;
+  const f = frequency.toLowerCase();
+  if (f.includes("7x") || f.includes("daily")) return 30.4;
+  if (f.includes("6x")) return 26;
+  if (f.includes("5x")) return 21.67;
+  if (f.includes("4x")) return 17.33;
+  if (f.includes("3x")) return 13;
+  if (f.includes("2x") || f.includes("twice")) return 8.66;
+  if (f.includes("biweekly") || f.includes("every 2 weeks") || f.includes("every 14 days")) return 2.17;
+  if (f.includes("every 21 days") || f.includes("every 3 weeks")) return 1.44;
+  if (f.includes("monthly") || f.includes("month on")) return 1;
+  return 4.33;
+}
+
+/**
+ * Apply bulk hourly rate updates to all accounts with exclusions
+ */
+export async function applyBulkHourlyRateUpdateAction(
+  bulk: NonNullable<SopCopilotResponse["bulkHourlyRateUpdate"]>
+): Promise<SopActionResult> {
+  try {
+    const supabase = createClient();
+    const hourlyRate = bulk.hourlyRate || 18;
+    const exclusions = (bulk.excludedAccounts || ["mama", "green leaf"]).map((e) => e.toLowerCase());
+
+    const updatedAccounts: string[] = [];
+    const localRateMap: Record<string, number> = {};
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("pristine_rate_per_service_map") || "{}";
+        Object.assign(localRateMap, JSON.parse(raw));
+      } catch {}
+    }
+
+    if (supabase) {
+      const { data: accounts, error } = await supabase.from("commercial_accounts").select("*");
+      if (!error && accounts) {
+        for (const acc of accounts) {
+          const norm = acc.name.toLowerCase();
+          const isExcluded = exclusions.some((exc) => norm.includes(exc));
+          if (isExcluded) continue;
+
+          const hours = Number(acc.hours) || 2.5;
+          const newRatePerService = Number((hours * hourlyRate).toFixed(2));
+          const visits = getVisitsPerMonth(acc.frequency);
+          const newCost = Number((newRatePerService * visits).toFixed(2));
+
+          const patch: any = {
+            cleaner_hourly_rate: hourlyRate,
+            cost: newCost,
+            updated_at: new Date().toISOString(),
+          };
+          if (acc.cleaner_flat_rate && Number(acc.cleaner_flat_rate) > 0) {
+            patch.cleaner_flat_rate = newRatePerService;
+          }
+
+          await supabase.from("commercial_accounts").update(patch).eq("id", acc.id);
+          localRateMap[acc.name.toLowerCase()] = newRatePerService;
+          updatedAccounts.push(`${acc.name} ($${newRatePerService}/serv)`);
+        }
+      }
+    }
+
+    // In-memory update
+    for (const imp of importedCommercialAccounts) {
+      const norm = imp.name.toLowerCase();
+      if (!exclusions.some((exc) => norm.includes(exc))) {
+        const h = Number(imp.hours) || 2.5;
+        const rps = Number((h * hourlyRate).toFixed(2));
+        imp.rate_per_service = rps;
+        imp.cleaner_flat_rate = rps;
+        imp.cost = Number((rps * getVisitsPerMonth(imp.frequency)).toFixed(2));
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("pristine_rate_per_service_map", JSON.stringify(localRateMap));
+      } catch {}
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+      window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+    }
+
+    return {
+      success: true,
+      message: `Tarifa de $${hourlyRate}/hr aplicada a ${updatedAccounts.length} cuenta(s) (exclusiones: ${bulk.excludedAccounts?.join(", ") || "Mama's, Green Leaf"}).`,
+      data: { updatedCount: updatedAccounts.length, accounts: updatedAccounts },
+    };
+  } catch (err: any) {
+    return { success: false, message: `Error al aplicar tarifa masiva: ${err?.message || err}` };
   }
 }
 

@@ -34,6 +34,7 @@ import { exportSalesTrackToXLSX, exportSalesTrackToPDF, type SalesTrackItem } fr
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
 import type { ServiceBookingRow } from "@/lib/sales-tracker/types";
 import {
+  applyBulkHourlyRateUpdateAction,
   applyUpdateAccountFinancialsAction,
   applyAccessUpdateAction,
   applySopModificationsAction,
@@ -291,6 +292,10 @@ export function AiSopCopilotModal({
 
     setLoading(true);
     try {
+      if (response.bulkHourlyRateUpdate) {
+        await applyBulkHourlyRateUpdateAction(response.bulkHourlyRateUpdate);
+      }
+
       if (response.updateAccountFinancials && response.updateAccountFinancials.length > 0) {
         await applyUpdateAccountFinancialsAction(response.updateAccountFinancials);
       }
@@ -770,41 +775,55 @@ export function AiSopCopilotModal({
               )}
 
               {/* Commercial Account Financials / Labor per Service Card */}
-              {response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
+              {((response.updateAccountFinancials && response.updateAccountFinancials.length > 0) || response.bulkHourlyRateUpdate) && (
                 <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-500/[0.06] p-4 text-xs space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
-                      <DollarSign className="size-4 text-emerald-600" /> Tarifas y Labor por Servicio ({response.updateAccountFinancials.length} cuentas)
+                      <DollarSign className="size-4 text-emerald-600" /> Tarifas y Labor por Servicio
                     </span>
                     <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-700 dark:text-emerald-300 font-bold">
-                      Listo para Aplicar
+                      {response.updateAccountFinancials ? `${response.updateAccountFinancials.length} cuentas` : "Tarifa global"}
                     </Badge>
                   </div>
-                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                    {response.updateAccountFinancials.map((fin, idx) => (
-                      <div key={idx} className="rounded-lg bg-background p-2.5 border border-border/50 flex items-center justify-between">
-                        <div>
-                          <strong className="text-foreground font-semibold">{fin.accountName}</strong>
-                          <p className="text-muted-foreground text-[10px]">
-                            {fin.pricingModel || "per Service"}
-                            {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
-                          </p>
+                  {response.bulkHourlyRateUpdate && (
+                    <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2.5 text-xs text-emerald-800 dark:text-emerald-300">
+                      <strong>Tarifa Masiva: ${response.bulkHourlyRateUpdate.hourlyRate}/hr</strong>
+                      {response.bulkHourlyRateUpdate.excludedAccounts && response.bulkHourlyRateUpdate.excludedAccounts.length > 0 && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Excepciones fijas: {response.bulkHourlyRateUpdate.excludedAccounts.join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                      {response.updateAccountFinancials.map((fin, idx) => (
+                        <div key={idx} className="rounded-lg bg-background p-2.5 border border-border/50 flex items-center justify-between">
+                          <div>
+                            <strong className="text-foreground font-semibold">{fin.accountName}</strong>
+                            <p className="text-muted-foreground text-[10px]">
+                              {fin.pricingModel || "per Service"}
+                              {fin.hours !== undefined ? ` · ${fin.hours} hrs` : ""}
+                              {fin.cleanerName ? ` · ${fin.cleanerName}` : ""}
+                              {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {fin.ratePerService !== undefined && fin.ratePerService !== null && (
+                              <span className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold">
+                                ${Number(fin.ratePerService).toFixed(2)} / serv
+                              </span>
+                            )}
+                            {fin.revenue ? (
+                              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                                ${fin.revenue}/mes
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          {fin.ratePerService !== undefined && fin.ratePerService !== null && (
-                            <span className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold">
-                              ${Number(fin.ratePerService).toFixed(2)} / serv
-                            </span>
-                          )}
-                          {fin.revenue ? (
-                            <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-xs">
-                              ${fin.revenue}/mes
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

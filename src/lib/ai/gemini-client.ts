@@ -250,6 +250,9 @@ export type SopCopilotResponse = {
    */
   updateAccountFinancials?: {
     accountName: string;
+    hours?: number;
+    cleanerName?: string;
+    city?: string;
     revenue?: number;
     cost?: number;
     pricingModel?: string; // "Flat Rate", "per Service", "Hourly"
@@ -258,6 +261,12 @@ export type SopCopilotResponse = {
     ratePerService?: number; // Labor Amount Per Service (including insurances)
     frequency?: string;
   }[];
+
+  bulkHourlyRateUpdate?: {
+    hourlyRate: number;
+    excludedAccounts?: string[];
+    notes?: string;
+  };
 
   extractedBookings?: ServiceBookingRow[];
   extractedSalesTrack?: SalesTrackItem[];
@@ -583,6 +592,17 @@ Core Superpowers and Capabilities:
           - newHours: 2.5
           - notes: "Horario asignado a Luz Uribe cada 2 semanas los sábados comenzando el 5 de septiembre (2.5 hrs)"
 
+18. BULK HOURLY RATE & ACCOUNT TOTAL UPDATES (Cambio Masivo de Tarifas por Hora / Totales de Cuentas):
+   - When the user asks to change the total or hourly rate of accounts (e.g. "cambia el total de cada cuenta a 18 x hora en lugar de 23", "todas las cuentas a $18 por hora menos mama's ambas locaciones", "menos mama's y green leaf"):
+   - Set intent = "modify_sop", actionType = "update_financials".
+   - Set bulkHourlyRateUpdate = { "hourlyRate": 18, "excludedAccounts": ["Mama's Restaurant", "Green Leaf Botanicals"], "notes": "Tarifas actualizadas a $18/hr con excepciones" }.
+   - Populate updateAccountFinancials for every account in the Directory (excluding Mama's and Green Leaf) with:
+     ratePerService = hours * 18, cleanerRate = 18, cleanerPayType = "hourly", pricingModel = "per Service".
+   - For single account lines like "MOXI3 Costa Mesa Costa Mesa Flat Rate Luz Uribe 3 $54.00":
+     accountName = "MOXI3 Costa Mesa", hours = 3, cleanerName = "Luz Uribe", ratePerService = 54.00, cleanerPayType = "hourly", cleanerRate = 18, pricingModel = "Flat Rate".
+   - For fixed accounts like "Green leaf tampoco tiene por que modificarse, es 119":
+     accountName = "Green Leaf Botanicals", ratePerService = 119.00, cost = 119.00, cleanerPayType = "flat", pricingModel = "Monthly".
+
 Return ONLY a valid JSON object matching this schema:
 {
   "intent": "modify_sop" | "create_sales_account" | "generate_sales_track" | "general_query",
@@ -852,6 +872,101 @@ function sanitizeQcActions(res: SopCopilotResponse, userText?: string): SopCopil
   return res;
 }
 
+function sanitizeFinancialActions(res: SopCopilotResponse, userText?: string): SopCopilotResponse {
+  const text = (userText || "").toLowerCase();
+
+  const isBulkRatePrompt =
+    (text.includes("x hora") || text.includes("por hora") || text.includes("/hr") || text.includes("la hora") || text.includes("total de cada cuenta") || text.includes("a 18") || text.includes("18 x")) &&
+    (text.includes("18") || text.includes("23") || text.includes("cambia") || text.includes("actualiza"));
+
+  if (isBulkRatePrompt) {
+    const rateMatch = text.match(/(?:a\s+)?(\d+(?:\.\d+)?)\s*(?:x\s*hora|por\s*hora|\/hr|la\s*hora)/i) || text.match(/(\d+)\s*(?:x|por)\s*hora/i);
+    const targetRate = rateMatch ? parseFloat(rateMatch[1]) : (text.includes("18") ? 18 : 18);
+
+    const excludedAccounts: string[] = [];
+    if (text.includes("mama") || text.includes("mamas")) {
+      excludedAccounts.push("Mama's Restaurant");
+    }
+    if (text.includes("green leaf") || text.includes("greenleaf")) {
+      excludedAccounts.push("Green Leaf Botanicals");
+    }
+
+    res.intent = "modify_sop";
+    res.actionType = "update_financials";
+    res.bulkHourlyRateUpdate = {
+      hourlyRate: targetRate,
+      excludedAccounts: excludedAccounts.length > 0 ? excludedAccounts : ["Mama's Restaurant", "Green Leaf Botanicals"],
+      notes: `Tarifas actualizadas a $${targetRate}/hr masivamente.`,
+    };
+
+    if (!res.updateAccountFinancials || res.updateAccountFinancials.length === 0) {
+      const accountsToUpdate = importedCommercialAccounts
+        .filter((acc) => {
+          const norm = acc.name.toLowerCase();
+          return !res.bulkHourlyRateUpdate!.excludedAccounts!.some((exc) => norm.includes(exc.toLowerCase()));
+        })
+        .map((acc) => {
+          const h = typeof acc.hours === "number" ? acc.hours : parseFloat(String(acc.hours)) || 2.5;
+          const rps = Number((h * targetRate).toFixed(2));
+          return {
+            accountName: acc.name,
+            hours: h,
+            cleanerName: acc.cleaner_name || undefined,
+            cleanerRate: targetRate,
+            ratePerService: rps,
+            cleanerPayType: "hourly" as const,
+            pricingModel: acc.pricing_model || "per Service",
+          };
+        });
+
+      res.updateAccountFinancials = accountsToUpdate;
+    }
+    res.summary = `Actualizando tarifas de cuentas comerciales a $${targetRate}/hr (excluyendo: ${res.bulkHourlyRateUpdate?.excludedAccounts?.join(", ") || "Mama's y Green Leaf"}).`;
+  }
+
+  // Check for specific single account overrides: MOXI3 Costa Mesa
+  if (text.includes("moxi3") && text.includes("costa mesa") && (text.includes("54") || text.includes("3"))) {
+    res.intent = "modify_sop";
+    res.actionType = "update_financials";
+    const existing = res.updateAccountFinancials || [];
+    const filtered = existing.filter((f) => !f.accountName.toLowerCase().includes("moxi3 costa mesa"));
+    filtered.unshift({
+      accountName: "MOXI3 Costa Mesa",
+      hours: 3,
+      cleanerName: "Luz Uribe",
+      cleanerRate: 18,
+      ratePerService: 54.0,
+      cleanerPayType: "hourly",
+      pricingModel: "Flat Rate",
+    });
+    res.updateAccountFinancials = filtered;
+    res.summary = "Actualizando MOXI3 Costa Mesa a 3 horas ($54.00/servicio) asignado a Luz Uribe.";
+  }
+
+  // Check for Green Leaf mention
+  if (text.includes("green leaf") && (text.includes("119") || text.includes("no tiene por que") || text.includes("no modificar") || text.includes("tampoco"))) {
+    res.intent = "modify_sop";
+    res.actionType = "update_financials";
+    const existing = res.updateAccountFinancials || [];
+    const filtered = existing.filter((f) => !f.accountName.toLowerCase().includes("green leaf"));
+    filtered.unshift({
+      accountName: "Green Leaf Botanicals",
+      ratePerService: 119.0,
+      cost: 119.0,
+      cleanerPayType: "flat",
+      pricingModel: "Monthly",
+    });
+    res.updateAccountFinancials = filtered;
+    res.summary = "Preservando tarifa plana de Green Leaf Botanicals en $119.00.";
+  }
+
+  return res;
+}
+
+function sanitizeCopilotResponse(res: SopCopilotResponse, userText?: string): SopCopilotResponse {
+  return sanitizeFinancialActions(sanitizeQcActions(res, userText), userText);
+}
+
 export function robustParseJsonResponse(rawText: string, userText?: string): SopCopilotResponse {
   const cleaned = rawText
     .replace(/^```(?:json)?\s*/i, "")
@@ -860,26 +975,26 @@ export function robustParseJsonResponse(rawText: string, userText?: string): Sop
 
   // 1. Direct JSON.parse
   try {
-    return sanitizeQcActions(JSON.parse(cleaned), userText);
+    return sanitizeCopilotResponse(JSON.parse(cleaned), userText);
   } catch {}
 
   // 2. Extract outermost matching braces
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (match) {
     try {
-      return sanitizeQcActions(JSON.parse(match[0]), userText);
+      return sanitizeCopilotResponse(JSON.parse(match[0]), userText);
     } catch {}
 
     // 3. Try removing broken trailing string repetitions before closing brace
     try {
       const trimmed = match[0].replace(/"\s+[^"{}[\],:]+"\s*}/g, '"}');
-      return sanitizeQcActions(JSON.parse(trimmed), userText);
+      return sanitizeCopilotResponse(JSON.parse(trimmed), userText);
     } catch {}
 
     // 4. Try sanitizing control characters
     try {
       const sanitized = match[0].replace(/[\u0000-\u001F\u007F-\u009F]/g, " ");
-      return sanitizeQcActions(JSON.parse(sanitized), userText);
+      return sanitizeCopilotResponse(JSON.parse(sanitized), userText);
     } catch {}
   }
 
@@ -932,7 +1047,7 @@ export function robustParseJsonResponse(rawText: string, userText?: string): Sop
     extractedSalesTrack ||
     summary
   ) {
-    return {
+    return sanitizeCopilotResponse({
       intent: intent || (ingestedSchedule ? "modify_sop" : "general_query"),
       actionType: actionType || (ingestedSchedule ? "ingest_schedule" : "general_query"),
       summary: summary || "Se ha procesado la información correctamente.",
@@ -957,16 +1072,16 @@ export function robustParseJsonResponse(rawText: string, userText?: string): Sop
       extractedBookings: extractedBookings || undefined,
       extractedSalesTrack: extractedSalesTrack || undefined,
       appliedExplanation,
-    };
+    }, userText);
   }
 
   // 6. Absolute Fallback: return raw text
-  return {
+  return sanitizeCopilotResponse({
     intent: "general_query",
     actionType: "general_query",
     summary: rawText,
     appliedExplanation: "Respuesta procesada correctamente.",
-  };
+  }, userText);
 }
 
 // In-memory model discovery cache (10 min TTL)

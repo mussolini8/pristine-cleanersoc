@@ -1234,6 +1234,16 @@ export default function CommercialPage() {
     }
 
     loadAccounts();
+
+    const handleUpdated = () => {
+      refreshAccounts();
+    };
+    window.addEventListener("commercial-accounts-updated", handleUpdated);
+    window.addEventListener("pristine:data-updated", handleUpdated);
+    return () => {
+      window.removeEventListener("commercial-accounts-updated", handleUpdated);
+      window.removeEventListener("pristine:data-updated", handleUpdated);
+    };
   }, [supabase]);
 
   async function refreshAccounts() {
@@ -1932,6 +1942,26 @@ export default function CommercialPage() {
             });
           }}
           onApplyFullCopilotResponse={async (fullResp) => {
+            if (fullResp.bulkHourlyRateUpdate) {
+              const { hourlyRate, excludedAccounts } = fullResp.bulkHourlyRateUpdate;
+              const excluded = (excludedAccounts || ["mama", "green leaf"]).map((e) => e.toLowerCase());
+              setAccounts((prev) =>
+                prev.map((acc) => {
+                  const isExcluded = excluded.some((ex) => acc.name.toLowerCase().includes(ex));
+                  if (isExcluded) return acc;
+                  const newRate = Number((numericHours(acc.hours) * hourlyRate).toFixed(2));
+                  const visits = getVisitsPerMonth(acc.frequency);
+                  const newCost = Number((newRate * visits).toFixed(2));
+                  return {
+                    ...acc,
+                    rate_per_service: newRate,
+                    cleaner_flat_rate: newRate,
+                    cleaner_hourly_rate: hourlyRate,
+                    cost: newCost,
+                  };
+                })
+              );
+            }
             if (fullResp.updateAccountFinancials && fullResp.updateAccountFinancials.length > 0) {
               setAccounts((prev) => {
                 return prev.map((acc) => {
@@ -1940,6 +1970,9 @@ export default function CommercialPage() {
                   const newRate = match.ratePerService !== undefined ? match.ratePerService : acc.rate_per_service;
                   return {
                     ...acc,
+                    hours: match.hours !== undefined ? match.hours : acc.hours,
+                    cleaner_name: match.cleanerName || acc.cleaner_name,
+                    city: match.city || acc.city,
                     revenue: match.revenue !== undefined ? match.revenue : acc.revenue,
                     cost: match.cost !== undefined ? match.cost : (newRate !== undefined ? newRate : acc.cost),
                     rate_per_service: newRate,
