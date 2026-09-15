@@ -748,12 +748,13 @@ function AccountStudio({
   const visits = getVisitsPerMonth(draft.frequency);
   const revenue = draft.revenue ?? 0;
   const cost = getRealCost(draft);
+  const insuranceCost = Number((cost * 0.2266).toFixed(2));
   const qcCost = draft.qc_monthly_cost ?? 0;
   const autoNetPrice = visits > 0 && draft.revenue !== null && draft.revenue !== undefined ? Number((draft.revenue / visits).toFixed(2)) : (draft.revenue ?? null);
-  const autoGrossProfit = draft.revenue !== null && draft.revenue !== undefined ? Number((draft.revenue - cost - qcCost).toFixed(2)) : null;
+  const autoGrossProfit = draft.revenue !== null && draft.revenue !== undefined ? Number((draft.revenue - cost - qcCost - insuranceCost).toFixed(2)) : null;
   const displayNetPrice = draft.net_price_per_booking !== null && draft.net_price_per_booking !== undefined ? draft.net_price_per_booking : autoNetPrice;
   const displayGrossProfit = draft.monthly_gross_profit !== null && draft.monthly_gross_profit !== undefined ? draft.monthly_gross_profit : autoGrossProfit;
-  const profit = displayGrossProfit ?? (revenue - cost - qcCost);
+  const profit = displayGrossProfit ?? (revenue - cost - qcCost - insuranceCost);
   const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
   const isEdit = mode === "edit";
 
@@ -1065,6 +1066,7 @@ function AccountStudio({
           <div className="preview-line"><span>Monthly Revenue</span><strong>${revenue.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
           <div className="preview-line"><span>Labor / Service</span><strong>${((draft.rate_per_service ?? draft.cleaner_flat_rate) ?? 0).toFixed(2)}</strong></div>
           <div className="preview-line"><span>Monthly Labor</span><strong>${cost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
+          <div className="preview-line"><span>Insurance (22.66%)</span><strong>${insuranceCost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
           {qcCost > 0 && <div className="preview-line"><span>QC Cost</span><strong>${qcCost.toFixed(2)}</strong></div>}
           <div className="preview-line"><span>Last QC Check</span><strong>{displayDate(draft.last_qcc_date)}</strong></div>
           <div className="preview-line"><span>Last Contact</span><strong>{displayDate(draft.last_contact_date)}</strong></div>
@@ -1439,8 +1441,10 @@ export default function CommercialPage() {
       name, value, pct: ((value / total) * 100).toFixed(1) + "%",
     }));
 
-  const totalRevenue = accounts.reduce((s, a) => s + (a.revenue ?? 0), 0);
-  const totalCost    = accounts.reduce((s, a) => s + getRealCost(a), 0);
+  const totalRevenue   = accounts.reduce((s, a) => s + (a.revenue ?? 0), 0);
+  const totalCost      = accounts.reduce((s, a) => s + getRealCost(a), 0);
+  const totalInsurance = totalCost * 0.2266;
+  const totalProfit    = totalRevenue - totalCost - totalInsurance;
   const accountsNeedingQc = accounts.filter((account) => !account.last_qcc_date).length;
   const supplyReady = accounts.filter((account) => account.has_supplies).length;
   const keyedAccounts = accounts.filter((account) => account.has_keys).length;
@@ -1582,7 +1586,7 @@ export default function CommercialPage() {
         .schedule-note { margin:0; color:hsl(var(--muted-foreground)); font-size:.8rem; font-weight:800; }
         .schedule-warning { margin:0; border:1px solid hsl(42 92% 50%/.28); background:hsl(42 92% 50%/.1); color:hsl(32 90% 34%); border-radius:8px; padding:9px 10px; font-size:.78rem; font-weight:900; }
 
-        .stat-bar { display:grid; grid-template-columns:1.4fr 1fr 1fr 1.2fr 1fr 1fr; gap:10px; }
+        .stat-bar { display:grid; grid-template-columns:1.2fr 1fr 1fr 1fr 1.2fr 1fr 1fr; gap:10px; }
         .stat-card { min-width:0; padding:12px 14px; border-radius:12px; background:hsl(var(--card)/.96); border:1px solid hsl(var(--border)/.55);
           box-shadow:0 8px 24px -20px hsl(210 40% 20%); }
         .stat-card.accent { background:linear-gradient(135deg, hsl(var(--primary)), hsl(160 42% 28%)); border-color:hsl(var(--primary)); }
@@ -1592,8 +1596,8 @@ export default function CommercialPage() {
         .stat-card.accent .stat-value { color:hsl(var(--primary-foreground)); }
         .stat-note { margin-top:5px; font-size:.68rem; font-weight:800; color:hsl(var(--muted-foreground)); }
         .stat-card.accent .stat-note { color:hsl(var(--primary-foreground)/.72); }
-        @media (max-width:1120px) { .stat-bar { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
-        @media (max-width:660px) { .stat-bar { grid-template-columns:1fr 1fr; } }
+        @media (max-width:1200px) { .stat-bar { grid-template-columns:repeat(4, minmax(0, 1fr)); } }
+        @media (max-width:768px) { .stat-bar { grid-template-columns:1fr 1fr; } }
 
         .analytics-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
         @media (max-width:900px) { .analytics-grid { grid-template-columns:1fr; } }
@@ -1779,7 +1783,8 @@ export default function CommercialPage() {
           <div className="stat-card"><div className="stat-label">Total Accounts</div><div className="stat-value">{accounts.length}</div><div className="stat-note">{filteredAccounts.length} visible</div></div>
           <div className="stat-card"><div className="stat-label">Monthly Revenue</div><div className="stat-value">${totalRevenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">Booked billing</div></div>
           <div className="stat-card"><div className="stat-label">Monthly Cost</div><div className="stat-value">${totalCost.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">Cleaner cost</div></div>
-          <div className="stat-card accent"><div className="stat-label">Monthly Profit</div><div className="stat-value">${(totalRevenue - totalCost).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">{totalRevenue ? Math.round(((totalRevenue - totalCost) / totalRevenue) * 100) : 0}% margin</div></div>
+          <div className="stat-card"><div className="stat-label">Insurance Costs</div><div className="stat-value">${totalInsurance.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">10.57% Tax + 12.09% Comp</div></div>
+          <div className="stat-card accent"><div className="stat-label">Monthly Profit</div><div className="stat-value">${totalProfit.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">{totalRevenue ? Math.round((totalProfit / totalRevenue) * 100) : 0}% margin</div></div>
           <div className="stat-card"><div className="stat-label">Supplies Ready</div><div className="stat-value">{supplyReady}/{accounts.length}</div><div className="stat-note">{accountsNeedingQc} need QC</div></div>
           <div className="stat-card"><div className="stat-label">Keys Secured</div><div className="stat-value">{keyedAccounts}/{accounts.length}</div><div className="stat-note">Access tracked</div></div>
         </div>
