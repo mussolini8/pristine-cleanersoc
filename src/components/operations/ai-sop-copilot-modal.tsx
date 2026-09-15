@@ -122,6 +122,8 @@ export function AiSopCopilotModal({
   useEffect(() => {
     const stored = localStorage.getItem("pristine_gemini_api_key");
     if (stored) setApiKey(stored);
+    const storedLang = localStorage.getItem("pristine_copilot_lang") as "es-US" | "en-US" | null;
+    if (storedLang) setSpeechLang(storedLang);
 
     // Check Speech Recognition support
     if (typeof window !== "undefined") {
@@ -537,12 +539,13 @@ export function AiSopCopilotModal({
                       onClick={() => {
                         const next = speechLang === "es-US" ? "en-US" : "es-US";
                         setSpeechLang(next);
+                        localStorage.setItem("pristine_copilot_lang", next);
                         if (isListening && recognitionRef.current) {
                           recognitionRef.current.lang = next;
                         }
                       }}
-                      className="h-8 rounded-lg border border-border/80 bg-muted/50 px-2 text-[11px] font-bold text-foreground hover:bg-muted transition-colors flex items-center gap-1"
-                      title="Cambiar idioma de dictado (Español / English)"
+                      className="h-8 rounded-lg border border-border/80 bg-muted/50 px-2 text-[11px] font-bold text-foreground hover:bg-muted transition-colors flex items-center gap-1 cursor-pointer"
+                      title={speechLang === "en-US" ? "Switch to Spanish (ES)" : "Switch to English (EN)"}
                     >
                       {speechLang === "es-US" ? "🇪🇸 ES" : "🇺🇸 EN"}
                     </button>

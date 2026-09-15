@@ -31,6 +31,10 @@ export type SopCopilotResponse = {
     | "cleaner_audit"
     | "booking_ingest"
     | "ingest_schedule"
+    | "qc_schedule"
+    | "event_booking"
+    | "cleanup_staff"
+    | "update_financials"
     | "general_query";
   summary: string;
 
@@ -282,6 +286,30 @@ You have FULL OPERATIONAL CONTROL over commercial accounts, residential bookings
 CURRENT COMMERCIAL ACCOUNTS & CLEANERS DIRECTORY (Use exact account names from this directory):
 ${getCommercialOperationalDirectory()}
 
+========================================================================================
+CRITICAL RULE: QUALITY CONTROL (QC) INSPECTIONS vs CLEANING SHIFTS (REGLA DE QC):
+========================================================================================
+Whenever the user mentions:
+- "hizo el qc", "hizo el control de calidad", "auditoría", "inspección", "qc para [Cuenta]", "añade un qc", "cambio en el qc", "did the qc", "qc inspection"
+- OR mentions inspectors Maria L. / Ana M. performing a "QC" (Quality Control) for an account on any date (e.g., "maria hizo el qc para GLO Bar el pasado 8 de septiembre"):
+
+YOU MUST FOLLOW THESE MANDATORY RULES:
+1. THIS IS 100% A QC INSPECTION ACTION (actionType = "qc_schedule", intent = "modify_sop").
+2. IT IS NOT A CLEANING SHIFT. DO NOT CREATE AN occurrenceOverride or occurrenceOverrides.
+3. DO NOT MODIFY THE CLEANING SCHEDULE OR CADENCE (sopModifications MUST BE EMPTY). Cleanings remain on their own regular cleaning days (e.g., if GLO Bar is cleaned on Wednesdays, that Wednesday cleaning is NOT affected by a QC done on Tuesday Sept 8!).
+4. POPULATE qcScheduleBatch:
+   [
+     {
+       "accountName": "GLO Bar",
+       "date": "2026-09-08",
+       "inspectorName": "Maria L.",
+       "notes": "QC realizado por Maria L."
+     }
+   ]
+5. RESPECT THE EXACT DATE MENTIONED BY THE USER (e.g. "8 de septiembre" -> "2026-09-08"). NEVER shift or snap a QC date to a cleaning day!
+6. In summary: Explicitly state that the QC inspection is registered on the exact date by the inspector, and confirm that regular cleaning shifts are unaffected.
+========================================================================================
+
 Core Superpowers and Capabilities:
 
 1. ELIMINAR CUENTAS O HORARIOS (Delete / Deactivate / Remove from Commercial Schedule):
@@ -461,9 +489,13 @@ Core Superpowers and Capabilities:
    - When the user wants to add one or more single event cleaning dates (e.g. "añade un evento a The Harper el 15 de agosto de 12am a 7am con Juan Romero, cobra $230 y paga $90", or wedding dates from a list or capture):
    - Populate eventBookings with the exact account, dates, hours, and cleaner.
 
-14. QC INSPECTIONS BATCH SCHEDULING (Inspecciones de Control de Calidad por Lotes):
-   - When the user uploads a QC calendar screenshot or gives a list of QC inspections for a month (e.g. "este es el schedule para los qc de septiembre, Ana primero y María las que tienen más qc"):
-   - Extract account names, dates, times, and assign the appropriate inspector (Ana M. or Maria L.) into qcScheduleBatch.
+14. QC INSPECTIONS & QUALITY CONTROL (Inspecciones de Control de Calidad Individuales o por Lotes):
+   - When the user asks to add, record, schedule, or report ANY Quality Control (QC) inspection (e.g. "maria hizo el qc para GLO Bar el pasado 8 de septiembre", "añade un qc para The Harper el 15 de septiembre con Ana", "este es el schedule para los qc de septiembre"):
+   - Set intent = "modify_sop", actionType = "qc_schedule"
+   - ALWAYS populate qcScheduleBatch with the exact account, exact date mentioned (e.g. "2026-09-08"), and inspector (Maria L. or Ana M.).
+   - NEVER move or snap the QC date to the account's cleaning service day! If GLO Bar is cleaned on Wednesdays, and Maria did the QC on Tuesday September 8, the date MUST be "2026-09-08".
+   - NEVER touch or alter the cleaning shifts, hours, or assigned cleaning staff in sopModifications or occurrenceOverrides. Cleaning and QC are separate dimensions!
+   - In summary: State that the QC inspection for [Account] was recorded on [Date] by inspector [Inspector], and regular cleanings remain untouched.
 
 15. CLEANUP STAFF DUPLICATES (Mantenimiento y Deduplicación de Limpiadores):
    - When the user asks to remove duplicate employees, fix double staff, or remove unneeded cleaners (e.g. "no quiero doble empleado, limpia los duplicados", "elimina a john ivanpal"):
@@ -785,7 +817,42 @@ function extractStringField(text: string, key: string): string {
   return match ? match[1] : "";
 }
 
-export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
+function sanitizeQcActions(res: SopCopilotResponse, userText?: string): SopCopilotResponse {
+  const text = (userText || "").toLowerCase();
+  const isQcPrompt = text.includes("qc") || text.includes("control de calidad") || text.includes("inspeccion") || text.includes("inspección");
+
+  if (res.qcScheduleBatch && res.qcScheduleBatch.length > 0) {
+    res.actionType = "qc_schedule";
+    res.intent = "modify_sop";
+    delete res.occurrenceOverride;
+    delete res.occurrenceOverrides;
+    if (res.sopModifications) {
+      res.sopModifications = res.sopModifications.filter((m: any) => m.action !== "reschedule" && m.action !== "change_cleaner");
+      if (res.sopModifications.length === 0) delete res.sopModifications;
+    }
+  } else if (isQcPrompt) {
+    const ov = res.occurrenceOverride || (res.occurrenceOverrides && res.occurrenceOverrides[0]);
+    if (ov) {
+      res.actionType = "qc_schedule";
+      res.intent = "modify_sop";
+      res.qcScheduleBatch = [{
+        accountName: ov.accountName,
+        date: ov.date || "",
+        inspectorName: ov.cleanerTeam || "Maria L.",
+        notes: ov.notes || `QC realizado por ${ov.cleanerTeam || "Maria L."}`,
+      }];
+      delete res.occurrenceOverride;
+      delete res.occurrenceOverrides;
+      if (res.sopModifications) {
+        res.sopModifications = res.sopModifications.filter((m: any) => m.action !== "reschedule" && m.action !== "change_cleaner");
+        if (res.sopModifications.length === 0) delete res.sopModifications;
+      }
+    }
+  }
+  return res;
+}
+
+export function robustParseJsonResponse(rawText: string, userText?: string): SopCopilotResponse {
   const cleaned = rawText
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
@@ -793,26 +860,26 @@ export function robustParseJsonResponse(rawText: string): SopCopilotResponse {
 
   // 1. Direct JSON.parse
   try {
-    return JSON.parse(cleaned);
+    return sanitizeQcActions(JSON.parse(cleaned), userText);
   } catch {}
 
   // 2. Extract outermost matching braces
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (match) {
     try {
-      return JSON.parse(match[0]);
+      return sanitizeQcActions(JSON.parse(match[0]), userText);
     } catch {}
 
     // 3. Try removing broken trailing string repetitions before closing brace
     try {
       const trimmed = match[0].replace(/"\s+[^"{}[\],:]+"\s*}/g, '"}');
-      return JSON.parse(trimmed);
+      return sanitizeQcActions(JSON.parse(trimmed), userText);
     } catch {}
 
     // 4. Try sanitizing control characters
     try {
       const sanitized = match[0].replace(/[\u0000-\u001F\u007F-\u009F]/g, " ");
-      return JSON.parse(sanitized);
+      return sanitizeQcActions(JSON.parse(sanitized), userText);
     } catch {}
   }
 
@@ -1041,7 +1108,7 @@ export async function callGeminiSopCopilot({
         const result = await response.json();
         const textOutput = result?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (textOutput) {
-          return robustParseJsonResponse(textOutput);
+          return robustParseJsonResponse(textOutput, userText);
         }
       }
 
@@ -1080,7 +1147,7 @@ export async function callGeminiSopCopilot({
           const fallbackResult = await fallbackResponse.json();
           const fallbackText = fallbackResult?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (fallbackText) {
-            return robustParseJsonResponse(fallbackText);
+            return robustParseJsonResponse(fallbackText, userText);
           }
         } else {
           const errText = await fallbackResponse.text();

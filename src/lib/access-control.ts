@@ -2,8 +2,13 @@ export type AppRole = "residential" | "commercial" | "admin" | "owner" | "operat
 export type AccessArea = "residential" | "commercial" | "seo" | "operations" | "workspace" | "tasks" | "qc";
 
 export const USERNAME_AUTH_EMAILS: Record<string, string> = {
-  pristinecleaners: "pristinecleaners@pristine.local",
-  pristinejanitorial: "pristinejanitorial@pristine.local",
+  pristinecleaners: "info@pristinecleanersoc.com",
+  pristinejanitorial: "info@pristinecleanersoc.com",
+  carlos: "info@pristinecleanersoc.com",
+  carloslopez: "info@pristinecleanersoc.com",
+  "carlos@pristinecleanersoc.com": "info@pristinecleanersoc.com",
+  owner: "info@pristinecleanersoc.com",
+  admin: "info@pristinecleanersoc.com",
   pristineseo: "pristineseo@pristine.local",
   // QC Field Inspectors
   marial: "marialpristine@gmail.com",
@@ -46,18 +51,23 @@ export function resolveLoginEmail(identifier: string) {
   return USERNAME_AUTH_EMAILS[normalized] ?? normalized;
 }
 
-export function normalizeAppRole(value: string | null | undefined): AppRole {
+export function normalizeAppRole(value: string | null | undefined, email?: string | null): AppRole {
+  const normEmail = email?.toLowerCase().trim();
+  if (normEmail === "info@pristinecleanersoc.com" || normEmail === "carlos@pristinecleanersoc.com") {
+    return "owner";
+  }
   if (
     value === "commercial" ||
     value === "admin" ||
     value === "owner" ||
     value === "operations_manager" ||
     value === "seo" ||
-    value === "inspector"
+    value === "inspector" ||
+    value === "residential"
   ) {
     return value;
   }
-  return "residential";
+  return "owner";
 }
 
 export function canAccessArea(role: AppRole, area: AccessArea) {

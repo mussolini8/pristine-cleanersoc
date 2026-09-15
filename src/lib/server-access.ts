@@ -13,7 +13,7 @@ export async function requireAreaAccess(area: AccessArea) {
   }
 
   const { data: profile } = await supabase.from("profiles").select("app_role").eq("id", user.id).maybeSingle();
-  const role = normalizeAppRole(profile?.app_role);
+  const role = normalizeAppRole(profile?.app_role, user.email);
 
   if (!canAccessArea(role, area)) {
     redirect(getDefaultPathForRole(role));

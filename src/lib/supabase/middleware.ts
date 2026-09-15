@@ -65,7 +65,7 @@ export async function updateSession(request: NextRequest) {
 
   if (access && user) {
     const { data: profile } = await supabase.from("profiles").select("app_role").eq("id", user.id).maybeSingle();
-    const role = normalizeAppRole(profile?.app_role);
+    const role = normalizeAppRole(profile?.app_role, user.email);
     if (!canAccessArea(role, access.area)) {
       const url = request.nextUrl.clone();
       url.pathname = getDefaultPathForRole(role);

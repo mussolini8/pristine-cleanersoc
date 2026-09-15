@@ -869,6 +869,7 @@ export function SimpleOperationsClient({
   const [monthlySopImportSummary, setMonthlySopImportSummary] = useState<MonthlySopImportSummary | null>(null);
   const [scheduleTab, setScheduleTab] = useState<"commercial" | "residential" | "qc">("commercial");
   const [scheduleAnchor, setScheduleAnchor] = useState<Date>(() => new Date());
+  const [scheduleViewMode, setScheduleViewMode] = useState<CalendarView>("week");
   const [selectedScheduleEvent, setSelectedScheduleEvent] = useState<NormalizedCalendarEvent | null>(null);
   const [scheduleActionType, setScheduleActionType] = useState<null | "reschedule" | "reassign" | "cancel">(null);
   const [scheduleActionDate, setScheduleActionDate] = useState<string>("");
@@ -4143,8 +4144,17 @@ export function SimpleOperationsClient({
 
   function renderSchedules() {
     let events: NormalizedCalendarEvent[] = [];
-    const calendarStart = startOfWeek(scheduleAnchor);
-    const calendarDays = Array.from({ length: 7 }, (_, index) => addDays(calendarStart, index));
+    let calendarDays: Date[] = [];
+    if (scheduleViewMode === "day") {
+      calendarDays = [scheduleAnchor];
+    } else if (scheduleViewMode === "month") {
+      const monthStart = new Date(scheduleAnchor.getFullYear(), scheduleAnchor.getMonth(), 1);
+      const calendarStart = startOfWeek(monthStart);
+      calendarDays = Array.from({ length: 42 }, (_, index) => addDays(calendarStart, index));
+    } else {
+      const calendarStart = startOfWeek(scheduleAnchor);
+      calendarDays = Array.from({ length: 7 }, (_, index) => addDays(calendarStart, index));
+    }
     
     if (scheduleTab === "commercial") {
       for (const day of calendarDays) {
@@ -4473,16 +4483,17 @@ export function SimpleOperationsClient({
         
         <OperationsCalendar 
           events={events} 
-          viewMode="week" 
+          viewMode={scheduleViewMode}
+          onViewModeChange={setScheduleViewMode}
           anchor={scheduleAnchor}
           onAnchorChange={setScheduleAnchor}
           onEventSelect={(ev) => handleOpenScheduleEvent(ev)}
           emptyMessage={
             scheduleTab === "commercial" 
-              ? "No commercial cleanings scheduled this week." 
+              ? "No commercial cleanings scheduled for this period." 
               : scheduleTab === "residential" 
-              ? "No residential cleanings scheduled this week." 
-              : "No QC inspections scheduled this week."
+              ? "No residential cleanings scheduled for this period." 
+              : "No QC inspections scheduled for this period."
           } 
         />
       </div>

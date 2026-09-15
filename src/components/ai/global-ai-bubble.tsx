@@ -49,7 +49,7 @@ import {
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
 
-const QUICK_PROMPTS = [
+const QUICK_PROMPTS_ES = [
   {
     label: "💰 Labor per Service",
     text: "Mama's Restaurant $200.00\nSwing Easy Golf Club $69.00\nMiracle Minds $63.25\nese monto es Labor Amount Per Service (including insurances)",
@@ -68,7 +68,7 @@ const QUICK_PROMPTS = [
   },
   {
     label: "🔍 Agenda de QC",
-    text: "Programa las inspecciones de control de calidad para Ana y María.",
+    text: "maria hizo el qc para GLO Bar el pasado 8 de septiembre.",
   },
   {
     label: "🧹 Limpiar Personal",
@@ -101,6 +101,57 @@ const QUICK_PROMPTS = [
   },
 ];
 
+const QUICK_PROMPTS_EN = [
+  {
+    label: "💰 Labor per Service",
+    text: "Mama's Restaurant $200.00\nSwing Easy Golf Club $69.00\nMiracle Minds $63.25\nthat amount is Labor Amount Per Service (including insurances)",
+  },
+  {
+    label: "🔑 Codes / Lockbox",
+    text: "For Moxi3 Costa Mesa: Lockbox code 3400. Alarm code: 1480. Saturday training room and 1st/3rd Sat pilates mats deep clean (+2h).",
+  },
+  {
+    label: "🗓️ Days / Cadence",
+    text: "Miracle Minds is scheduled 3 days a week (Tuesday, Thursday, Friday).",
+  },
+  {
+    label: "📅 Event / Booking",
+    text: "Add an event to The Harper on August 15 from 12am to 7am with Juan Romero.",
+  },
+  {
+    label: "🔍 QC Schedule",
+    text: "maria did the qc for GLO Bar on September 8.",
+  },
+  {
+    label: "🧹 Clean Staff",
+    text: "Deduplicate staff members in the database and keep only unique active employees.",
+  },
+  {
+    label: "🔄 Shift / Replacement",
+    text: "Ana will do University Park Dental next week with 2.25 hrs.",
+  },
+  {
+    label: "👤 Add Cleaner",
+    text: "Add Susana as commercial cleaner at $20/hr and phone 949-555-0123.",
+  },
+  {
+    label: "📲 Dispatch SMS / Quo",
+    text: "Generate the dispatch message for Susana for the Field AI cleaning today.",
+  },
+  {
+    label: "💡 Quote Office",
+    text: "Quote a 4,000 sq ft office in Newport Beach, 3 times per week, with 4 bathrooms.",
+  },
+  {
+    label: "📊 Audit Cleaner",
+    text: "Give me the performance and hours summary for Ana Morales this month.",
+  },
+  {
+    label: "📅 Ingest Schedule",
+    text: "__OPEN_FILE_PICKER__",
+  },
+];
+
 export function GlobalAiBubble() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -118,7 +169,7 @@ export function GlobalAiBubble() {
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [smsSentSuccess, setSmsSentSuccess] = useState<string | null>(null);
 
-  // Speech Recognition state
+  // Speech & UI Language state
   const [isListening, setIsListening] = useState(false);
   const [speechLang, setSpeechLang] = useState<"es-US" | "en-US">("es-US");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -127,7 +178,12 @@ export function GlobalAiBubble() {
   useEffect(() => {
     const stored = localStorage.getItem("pristine_gemini_api_key");
     if (stored) setApiKey(stored);
+    const storedLang = localStorage.getItem("pristine_copilot_lang") as "es-US" | "en-US" | null;
+    if (storedLang) setSpeechLang(storedLang);
   }, []);
+
+  const isEn = speechLang === "en-US";
+  const quickPrompts = isEn ? QUICK_PROMPTS_EN : QUICK_PROMPTS_ES;
 
   const handleSaveApiKey = (key: string) => {
     setApiKey(key);
@@ -250,12 +306,15 @@ export function GlobalAiBubble() {
     try {
       const storedKey = typeof window !== "undefined" ? localStorage.getItem("pristine_gemini_api_key") : "";
       const effectiveKey = apiKey || storedKey || undefined;
+      const langInstruction = speechLang === "en-US"
+        ? "\n\n[LANGUAGE INSTRUCTION: Please formulate your summary and human-readable responses in ENGLISH.]"
+        : "\n\n[INSTRUCCIÓN DE IDIOMA: Por favor formula tu resumen y respuestas en ESPAÑOL.]";
 
       const res = await fetch("/api/ai/sop-copilot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt,
+          prompt: prompt ? prompt + langInstruction : "",
           images,
           apiKey: effectiveKey,
         }),
@@ -577,8 +636,12 @@ export function GlobalAiBubble() {
                 <img src="/pristiner-logo.png" alt="Pristiner" className="size-5 object-contain" />
               </div>
               <div>
-                <h3 className="text-xs font-black text-foreground">Pristiner · Copiloto IA</h3>
-                <p className="text-[10px] text-muted-foreground">Control total de cuentas, turnos y personal</p>
+                <h3 className="text-xs font-black text-foreground">
+                  {isEn ? "Pristiner · AI Copilot" : "Pristiner · Copiloto IA"}
+                </h3>
+                <p className="text-[10px] text-muted-foreground">
+                  {isEn ? "Total control of accounts, shifts and staff" : "Control total de cuentas, turnos y personal"}
+                </p>
               </div>
             </div>
 
@@ -587,34 +650,35 @@ export function GlobalAiBubble() {
                 onClick={() => {
                   const next = speechLang === "es-US" ? "en-US" : "es-US";
                   setSpeechLang(next);
+                  localStorage.setItem("pristine_copilot_lang", next);
                   if (isListening && recognitionRef.current) recognitionRef.current.lang = next;
                 }}
-                className="h-6 rounded-md border border-border/80 bg-background px-1.5 text-[10px] font-bold text-foreground hover:bg-muted transition-colors"
-                title="Cambiar idioma (Español / English)"
+                className="h-6 rounded-md border border-border/80 bg-background px-1.5 text-[10px] font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                title={isEn ? "Cambiar a Español (ES)" : "Switch to English (EN)"}
               >
                 {speechLang === "es-US" ? "🇪🇸 ES" : "🇺🇸 EN"}
               </button>
 
               <button
                 onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-                className="size-6 rounded-md text-muted-foreground hover:text-foreground flex items-center justify-center"
-                title="Configurar API Key"
+                className="size-6 rounded-md text-muted-foreground hover:text-foreground flex items-center justify-center cursor-pointer"
+                title={isEn ? "Configure API Key" : "Configurar API Key"}
               >
                 <Key className="size-3.5" />
               </button>
 
               <button
                 onClick={() => setIsMinimized(!isMinimized)}
-                className="size-6 rounded-md text-muted-foreground hover:text-foreground flex items-center justify-center"
-                title={isMinimized ? "Maximizar" : "Minimizar"}
+                className="size-6 rounded-md text-muted-foreground hover:text-foreground flex items-center justify-center cursor-pointer"
+                title={isMinimized ? (isEn ? "Maximize" : "Maximizar") : (isEn ? "Minimize" : "Minimizar")}
               >
                 {isMinimized ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
               </button>
 
               <button
                 onClick={() => setIsOpen(false)}
-                className="size-6 rounded-md text-muted-foreground hover:text-destructive flex items-center justify-center"
-                title="Cerrar"
+                className="size-6 rounded-md text-muted-foreground hover:text-destructive flex items-center justify-center cursor-pointer"
+                title={isEn ? "Close" : "Cerrar"}
               >
                 <X className="size-3.5" />
               </button>
@@ -625,7 +689,7 @@ export function GlobalAiBubble() {
           {showApiKeyInput && (
             <div className="border-b border-border/60 bg-amber-500/10 p-3 text-xs space-y-2">
               <span className="font-bold text-[11px] text-amber-900 dark:text-amber-200">
-                Clave de Google Gemini (GEMINI_API_KEY)
+                {isEn ? "Google Gemini API Key (GEMINI_API_KEY)" : "Clave de Google Gemini (GEMINI_API_KEY)"}
               </span>
               <div className="flex gap-2">
                 <input
@@ -636,7 +700,7 @@ export function GlobalAiBubble() {
                   className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <Button size="sm" onClick={() => handleSaveApiKey(apiKey)} className="h-7 text-xs">
-                  Guardar
+                  {isEn ? "Save" : "Guardar"}
                 </Button>
               </div>
             </div>
@@ -648,22 +712,26 @@ export function GlobalAiBubble() {
               {/* Quick Action Chips */}
               <div className="space-y-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Acciones Rápidas
+                  {isEn ? "Quick Actions" : "Acciones Rápidas"}
                 </span>
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-                  {QUICK_PROMPTS.map((qp, idx) => (
+                  {quickPrompts.map((qp, idx) => (
                     <button
                       key={idx}
                       onClick={() => {
                         if (qp.text === "__OPEN_FILE_PICKER__") {
                           // Special: set the ingestion prompt and open file picker
-                          setPrompt("Analiza esta captura de CleanGuru e ingresa el schedule completo del cliente al sistema, incluyendo notas de acceso.");
+                          setPrompt(
+                            isEn
+                              ? "Analyze this CleanGuru screenshot and ingest the full client schedule into the system, including access notes."
+                              : "Analiza esta captura de CleanGuru e ingresa el schedule completo del cliente al sistema, incluyendo notas de acceso."
+                          );
                           setTimeout(() => fileInputRef.current?.click(), 50);
                         } else {
                           setPrompt(qp.text);
                         }
                       }}
-                      className="whitespace-nowrap rounded-lg border border-border/70 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-primary/10 hover:border-primary/30 transition-colors"
+                      className="whitespace-nowrap rounded-lg border border-border/70 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-primary/10 hover:border-primary/30 transition-colors cursor-pointer"
                     >
                       {qp.label}
                     </button>
@@ -675,18 +743,20 @@ export function GlobalAiBubble() {
               {images.length > 0 && !prompt.trim() && (
                 <div className="flex items-center justify-between rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
                   <span className="text-foreground font-medium flex items-center gap-1.5">
-                    🖼️ Imagen detectada — ¿Ingresar schedule desde esta captura?
+                    {isEn ? "🖼️ Image detected — Ingest schedule from this capture?" : "🖼️ Imagen detectada — ¿Ingresar schedule desde esta captura?"}
                   </span>
                   <button
                     type="button"
                     onClick={() =>
                       setPrompt(
-                        "Analiza esta captura de CleanGuru e ingresa el schedule completo del cliente al sistema, incluyendo notas de acceso."
+                        isEn
+                          ? "Analyze this CleanGuru screenshot and ingest the full client schedule into the system, including access notes."
+                          : "Analiza esta captura de CleanGuru e ingresa el schedule completo del cliente al sistema, incluyendo notas de acceso."
                       )
                     }
-                    className="ml-2 flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-bold text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap"
+                    className="ml-2 flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-bold text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap cursor-pointer"
                   >
-                    Sí, analizar →
+                    {isEn ? "Yes, analyze →" : "Sí, analizar →"}
                   </button>
                 </div>
               )}
@@ -697,7 +767,11 @@ export function GlobalAiBubble() {
                   <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Escribe o dicta por voz: 'Field AI el 22 de agosto lo hizo Susana con 2.5 hrs' o 'Añade a Susana como cleaner a $20/hr'..."
+                    placeholder={
+                      isEn
+                        ? "Type or dictate: 'Ana will do University Park Dental next week' or 'maria did the qc for GLO Bar on September 8'..."
+                        : "Escribe o dicta por voz: 'Field AI el 22 de agosto lo hizo Susana con 2.5 hrs' o 'maria hizo el qc para GLO Bar el pasado 8 de septiembre'..."
+                    }
                     className="w-full min-h-[70px] resize-none bg-transparent text-xs placeholder:text-muted-foreground/60 focus:outline-none"
                   />
 
@@ -733,17 +807,17 @@ export function GlobalAiBubble() {
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="h-7 rounded-md border border-border/80 px-2 text-[11px] font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1"
-                        title="Subir captura de pantalla"
+                        className="h-7 rounded-md border border-border/80 px-2 text-[11px] font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1 cursor-pointer"
+                        title={isEn ? "Upload screenshot" : "Subir captura de pantalla"}
                       >
                         <Upload className="size-3" />
-                        Imagen
+                        {isEn ? "Image" : "Imagen"}
                       </button>
 
                       <button
                         type="button"
                         onClick={toggleListening}
-                        className={`h-7 rounded-md px-2 text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        className={`h-7 rounded-md px-2 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
                           isListening
                             ? "animate-pulse bg-rose-600 text-white shadow-sm"
                             : "border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10"
@@ -752,19 +826,19 @@ export function GlobalAiBubble() {
                         {isListening ? (
                           <>
                             <MicOff className="size-3" />
-                            Detener
+                            {isEn ? "Stop" : "Detener"}
                           </>
                         ) : (
                           <>
                             <Mic className="size-3" />
-                            Voz
+                            {isEn ? "Voice" : "Voz"}
                           </>
                         )}
                       </button>
 
                       {isListening && (
                         <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 animate-pulse">
-                          Escuchando...
+                          {isEn ? "Listening in English... speak now" : "Escuchando en español... habla ahora"}
                         </span>
                       )}
                     </div>
@@ -773,17 +847,17 @@ export function GlobalAiBubble() {
                       type="submit"
                       disabled={loading || (!prompt.trim() && images.length === 0)}
                       size="sm"
-                      className="h-7 text-xs gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700"
+                      className="h-7 text-xs gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 cursor-pointer"
                     >
                       {loading ? (
                         <>
                           <Loader2 className="size-3 animate-spin" />
-                          Analizando...
+                          {isEn ? "Analyzing..." : "Analizando..."}
                         </>
                       ) : (
                         <>
                           <Send className="size-3" />
-                          Ejecutar
+                          {isEn ? "Execute" : "Ejecutar"}
                         </>
                       )}
                     </Button>
@@ -795,7 +869,7 @@ export function GlobalAiBubble() {
               {error && (
                 <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-destructive">
                   <div className="font-bold flex items-center gap-1.5 text-[11px]">
-                    <AlertTriangle className="size-3.5" /> Error
+                    <AlertTriangle className="size-3.5" /> {isEn ? "Error" : "Error"}
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed">{error}</p>
                 </div>
@@ -805,7 +879,7 @@ export function GlobalAiBubble() {
               {actionSuccessMsg && (
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-emerald-700 dark:text-emerald-300">
                   <div className="font-bold flex items-center gap-1.5 text-[11px]">
-                    <CheckCircle className="size-3.5 text-emerald-600" /> Acción Ejecutada
+                    <CheckCircle className="size-3.5 text-emerald-600" /> {isEn ? "Action Executed" : "Acción Ejecutada"}
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed font-medium">{actionSuccessMsg}</p>
                 </div>
@@ -817,7 +891,7 @@ export function GlobalAiBubble() {
                   {/* Summary Box */}
                   <div className="rounded-xl bg-muted/40 p-3 text-xs text-foreground space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                      <Sparkles className="size-3 text-primary" /> Diagnóstico de la IA
+                      <Sparkles className="size-3 text-primary" /> {isEn ? "AI Diagnostics & Summary" : "Diagnóstico de la IA"}
                     </span>
                     <p className="leading-relaxed">{response.summary}</p>
                   </div>
