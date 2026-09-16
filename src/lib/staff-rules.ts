@@ -20,6 +20,19 @@ export function normalizePersonName(name: string | null | undefined) {
   return String(name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/**
+ * Standardizes common typos and variations to official canonical names.
+ * e.g., "Maria Mejias" -> "Maria Mejia"
+ */
+export function canonicalizeStaffName(name: string | null | undefined): string {
+  if (!name) return "";
+  const norm = normalizePersonName(name);
+  if (norm === "maria mejias" || norm === "maria mejia") {
+    return "Maria Mejia";
+  }
+  return name.trim();
+}
+
 export function isCommercialPayrollEligible(name: string | null | undefined) {
   const normalized = normalizePersonName(name);
   return !MIXED_ROUTE_COMMERCIAL_PAYROLL_EXCLUDED.some((excluded) => normalizePersonName(excluded) === normalized);

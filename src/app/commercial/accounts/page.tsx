@@ -30,7 +30,7 @@ import {
 import { applyCommercialAccountChangesGoingForward } from "@/lib/payroll";
 import { displayDate } from "@/lib/dates/periods";
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
-import { getCleanerDefaultHourlyRate } from "@/lib/staff-rules";
+import { getCleanerDefaultHourlyRate, canonicalizeStaffName } from "@/lib/staff-rules";
 
 // ─────────────────────────────────────────────
 type AccountScheduleRule = {
@@ -1448,7 +1448,7 @@ export default function CommercialPage() {
 
   async function loadCleanerNames(currentAccounts: Account[]) {
     const names = new Set<string>();
-    CLEANERS.forEach((c) => { if (c) names.add(c.trim()); });
+    CLEANERS.forEach((c) => { if (c) names.add(canonicalizeStaffName(c.trim())); });
 
     try {
       const { data: staffData } = await supabase
@@ -1457,7 +1457,7 @@ export default function CommercialPage() {
         .order("name");
       if (staffData) {
         staffData.forEach((s: any) => {
-          if (s.name && s.name.trim()) names.add(s.name.trim());
+          if (s.name && s.name.trim()) names.add(canonicalizeStaffName(s.name.trim()));
         });
       }
     } catch {}
@@ -1467,7 +1467,7 @@ export default function CommercialPage() {
         const localStaff = JSON.parse(localStorage.getItem("pristine_staff_members") || "[]");
         if (Array.isArray(localStaff)) {
           localStaff.forEach((s: any) => {
-            if (s.name && s.name.trim()) names.add(s.name.trim());
+            if (s.name && s.name.trim()) names.add(canonicalizeStaffName(s.name.trim()));
           });
         }
       }
@@ -1475,7 +1475,7 @@ export default function CommercialPage() {
 
     currentAccounts.forEach((a) => {
       if (a.cleaner_name && a.cleaner_name !== "Unassigned" && a.cleaner_name !== "Sin asignar") {
-        names.add(a.cleaner_name.trim());
+        names.add(canonicalizeStaffName(a.cleaner_name.trim()));
       }
     });
 

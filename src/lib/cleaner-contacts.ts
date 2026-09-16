@@ -33,6 +33,7 @@ export const CLEANER_PHONE_DIRECTORY: Record<string, string> = {
   "luz uribe": "951-622-4922",
   "maria lopez": "714-499-0339",
   "maria mejia": "951-407-2157",
+  "maria mejias": "951-407-2157",
   "mirna contreras": "657-397-3158",
   "rossy legorreta": "714-757-5641",
   "sandra hernandez": "714-483-5971",

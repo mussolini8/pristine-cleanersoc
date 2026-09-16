@@ -50,6 +50,7 @@ import { getCleanerPhone } from "@/lib/cleaner-contacts";
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
 import { resolveCanonicalAccountName } from "@/lib/ai/sop-actions-handler";
+import { canonicalizeStaffName } from "@/lib/staff-rules";
 import { importedCommercialAccounts, importedCommercialEventEntries } from "@/lib/commercial-accounts-data";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
@@ -1123,10 +1124,12 @@ export function SimpleOperationsClient({
           const dedupeStaffList = (list: StaffMemberRow[]) => {
             const map = new Map<string, StaffMemberRow>();
             for (const s of list) {
-              const key = s.name.trim().toLowerCase();
+              const canonicalName = canonicalizeStaffName(s.name);
+              const key = canonicalName.trim().toLowerCase();
               if (key.includes("john ivanpal") || key.includes("john ivan-pal")) continue;
+              const normalizedPerson = s.name !== canonicalName ? { ...s, name: canonicalName } : s;
               if (!map.has(key) || (s.active && !map.get(key)?.active)) {
-                map.set(key, s);
+                map.set(key, normalizedPerson);
               }
             }
             return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -1142,10 +1145,12 @@ export function SimpleOperationsClient({
         const dedupeStaffList = (list: StaffMemberRow[]) => {
           const map = new Map<string, StaffMemberRow>();
           for (const s of list) {
-            const key = s.name.trim().toLowerCase();
+            const canonicalName = canonicalizeStaffName(s.name);
+            const key = canonicalName.trim().toLowerCase();
             if (key.includes("john ivanpal") || key.includes("john ivan-pal")) continue;
+            const normalizedPerson = s.name !== canonicalName ? { ...s, name: canonicalName } : s;
             if (!map.has(key) || (s.active && !map.get(key)?.active)) {
-              map.set(key, s);
+              map.set(key, normalizedPerson);
             }
           }
           return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
