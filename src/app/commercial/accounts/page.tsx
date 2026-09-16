@@ -269,14 +269,32 @@ function toAccount(account: ImportedCommercialAccount): Account {
   const isMamas = norm.includes("mama");
   const isGreenLeaf = norm.includes("green leaf");
   const isSteripax = norm.includes("steripax");
+  const hours = numericHours(account.hours);
+  const visits = getVisitsPerMonth(account.frequency);
+  const isExcluded = isMamas || isGreenLeaf || isSteripax;
+  const ratePerService = isMamas
+    ? 200
+    : isGreenLeaf
+    ? 119
+    : (account.rate_per_service ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
+  const cost = isSteripax
+    ? (account.cost ?? 3386.06)
+    : (account.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
+  const revenue = account.revenue ?? null;
+  const qcCost = (account as any).qc_monthly_cost ?? 0;
+  const insuranceCost = cost !== null ? Number((cost * 0.2266).toFixed(2)) : 0;
+  const autoGrossProfit = revenue !== null && cost !== null ? Number((revenue - cost - insuranceCost - qcCost).toFixed(2)) : null;
+  const autoNetPrice = visits > 0 && revenue !== null ? Number((revenue / visits).toFixed(2)) : revenue;
 
   return {
     ...account,
-    cost: isSteripax ? (account.cost ?? 3386.06) : account.cost,
-    rate_per_service: account.rate_per_service ?? null,
+    cost,
+    rate_per_service: ratePerService,
     cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
     cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
-    cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (account.rate_per_service ?? null),
+    cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
+    monthly_gross_profit: autoGrossProfit,
+    net_price_per_booking: autoNetPrice,
   };
 }
 
@@ -303,36 +321,53 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
 
   const rawMerged: Account[] = [];
   const seenKeys = new Set<string>();
+  const localMap = new Map<string, Account>();
+  for (const localAcc of localCustomAccounts) {
+    localMap.set(normalizeAccountKey(localAcc), localAcc);
+  }
 
   for (const remote of remoteAccounts) {
     const key = normalizeAccountKey(remote);
     seenKeys.add(key);
     const imported = importedMap.get(key);
-    const norm = remote.name?.toLowerCase() || "";
+    const local = localMap.get(key);
+    const base = { ...imported, ...remote, ...local };
+    const norm = (base.name || "").toLowerCase();
     const isMamas = norm.includes("mama");
     const isGreenLeaf = norm.includes("green leaf");
     const isSteripax = norm.includes("steripax");
     const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
-    const hours = isMoxi3CM ? 3 : numericHours(remote.hours || imported?.hours);
-    const ratePerService = isMamas ? 200 : isGreenLeaf ? 119 : (imported?.rate_per_service ?? (hours > 0 ? hours * 18 : (remote.rate_per_service ?? null)));
-    const cost = isSteripax ? (remote.cost || imported?.cost || 3386.06) : (remote.cost ?? imported?.cost ?? null);
+    const hours = isMoxi3CM ? 3 : numericHours(base.hours);
+    const isExcluded = isMamas || isGreenLeaf || isSteripax;
+    const ratePerService = isMamas
+      ? 200
+      : isGreenLeaf
+      ? 119
+      : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
+    const visits = getVisitsPerMonth(base.frequency);
+    const cost = isSteripax
+      ? (base.cost || 3386.06)
+      : (base.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
+    const revenue = base.revenue ?? null;
+    const qcCost = base.qc_monthly_cost ?? 0;
+    const insuranceCost = cost !== null ? Number((cost * 0.2266).toFixed(2)) : 0;
+    const autoGrossProfit = revenue !== null && cost !== null ? Number((revenue - cost - insuranceCost - qcCost).toFixed(2)) : null;
 
     rawMerged.push({
-      ...imported,
-      ...remote,
+      ...base,
       hours,
       cost,
       rate_per_service: ratePerService,
       cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
       cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
       cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
-      supply_delivery_date: remote.supply_delivery_date ?? imported?.supply_delivery_date ?? null,
-      estimated_fill_date: remote.estimated_fill_date ?? imported?.estimated_fill_date ?? null,
-      source_sheet: remote.source_sheet ?? imported?.source_sheet ?? "Manual entry",
-      supplies_notes: remote.supplies_notes ?? imported?.supplies_notes ?? null,
-      net_price_per_booking: remote.net_price_per_booking ?? null,
-      monthly_gross_profit: remote.monthly_gross_profit ?? null,
-      qc_monthly_cost: remote.qc_monthly_cost ?? null,
+      supply_delivery_date: base.supply_delivery_date ?? null,
+      estimated_fill_date: base.estimated_fill_date ?? null,
+      source_sheet: base.source_sheet ?? "Manual entry",
+      supplies_notes: base.supplies_notes ?? null,
+      net_price_per_booking: base.net_price_per_booking ?? null,
+      monthly_gross_profit: autoGrossProfit ?? base.monthly_gross_profit ?? null,
+      qc_monthly_cost: base.qc_monthly_cost ?? null,
     });
   }
 
@@ -340,7 +375,6 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
   for (const localAcc of localCustomAccounts) {
     const key = normalizeAccountKey(localAcc);
     if (!seenKeys.has(key)) {
-      // Avoid resurrecting unassigned duplicates
       if (isAssignedAccount(localAcc)) {
         seenKeys.add(key);
         rawMerged.push(localAcc);
@@ -352,7 +386,39 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
   for (const [key, imported] of importedMap) {
     if (!seenKeys.has(key)) {
       seenKeys.add(key);
-      rawMerged.push(imported);
+      const local = localMap.get(key);
+      const base = { ...imported, ...local };
+      const norm = (base.name || "").toLowerCase();
+      const isMamas = norm.includes("mama");
+      const isGreenLeaf = norm.includes("green leaf");
+      const isSteripax = norm.includes("steripax");
+      const hours = numericHours(base.hours);
+      const isExcluded = isMamas || isGreenLeaf || isSteripax;
+      const ratePerService = isMamas
+        ? 200
+        : isGreenLeaf
+        ? 119
+        : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
+      const visits = getVisitsPerMonth(base.frequency);
+      const cost = isSteripax
+        ? (base.cost || 3386.06)
+        : (base.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
+      const revenue = base.revenue ?? null;
+      const qcCost = base.qc_monthly_cost ?? 0;
+      const insuranceCost = cost !== null ? Number((cost * 0.2266).toFixed(2)) : 0;
+      const autoGrossProfit = revenue !== null && cost !== null ? Number((revenue - cost - insuranceCost - qcCost).toFixed(2)) : null;
+
+      rawMerged.push({
+        ...base,
+        hours,
+        cost,
+        rate_per_service: ratePerService,
+        cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
+        cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
+        cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
+        revenue,
+        monthly_gross_profit: autoGrossProfit ?? base.monthly_gross_profit ?? null,
+      });
     }
   }
 
@@ -410,7 +476,9 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
   const [expanded, setExpanded] = useState(false);
 
   const realCost = getRealCost(acc);
-  const profit = (acc.revenue ?? 0) - realCost;
+  const insuranceCost = Number((realCost * 0.2266).toFixed(2));
+  const calculatedProfit = Number(((acc.revenue ?? 0) - realCost - insuranceCost - (acc.qc_monthly_cost ?? 0)).toFixed(2));
+  const profit = acc.monthly_gross_profit !== null && acc.monthly_gross_profit !== undefined ? acc.monthly_gross_profit : calculatedProfit;
 
   return (
     <>
@@ -424,6 +492,32 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
             <div className="account-primary">
               <span className="acc-name">{acc.name}</span>
               <span className="acc-city-badge">{acc.city ?? "No city"}</span>
+              <div className="account-inline-actions">
+                <button
+                  type="button"
+                  className="account-inline-btn edit"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(acc);
+                  }}
+                  title={`Edit ${acc.name}`}
+                  aria-label={`Edit ${acc.name}`}
+                >
+                  <Edit2 size={12} />
+                </button>
+                <button
+                  type="button"
+                  className="account-inline-btn delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(acc);
+                  }}
+                  title={`Delete ${acc.name}`}
+                  aria-label={`Delete ${acc.name}`}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             </div>
           </div>
         </td>
@@ -511,7 +605,7 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
                 ["Pricing Model", acc.pricing_model],
                 ["Hours", acc.hours],
                 ["Cleaner Pay", acc.cleaner_pay_type === "hourly" ? `$${acc.cleaner_hourly_rate ?? 0}/hr` : acc.cleaner_pay_type === "flat" ? `$${acc.cleaner_flat_rate ?? 0} flat` : "Legacy cost"],
-                ["Labor / Service (w/ Ins)", acc.rate_per_service ? `$${Number(acc.rate_per_service).toFixed(2)}` : (acc.cleaner_flat_rate ? `$${Number(acc.cleaner_flat_rate).toFixed(2)}` : "—")],
+                ["Labor / Service", acc.rate_per_service ? `$${Number(acc.rate_per_service).toFixed(2)}` : (acc.cleaner_flat_rate ? `$${Number(acc.cleaner_flat_rate).toFixed(2)}` : "—")],
                 ["Frequency", acc.frequency],
                 ["Payment Method", acc.payment_method],
                 ["Last Contact", displayDate(acc.last_contact_date)],
@@ -808,13 +902,13 @@ function AccountStudio({
   const visits = getVisitsPerMonth(draft.frequency);
   const revenue = draft.revenue ?? 0;
   const cost = getRealCost(draft);
-  const insuranceCost = Number((cost * 0.2266).toFixed(2));
   const qcCost = draft.qc_monthly_cost ?? 0;
+  const insuranceCost = Number((cost * 0.2266).toFixed(2));
   const autoNetPrice = visits > 0 && draft.revenue !== null && draft.revenue !== undefined ? Number((draft.revenue / visits).toFixed(2)) : (draft.revenue ?? null);
-  const autoGrossProfit = draft.revenue !== null && draft.revenue !== undefined ? Number((draft.revenue - cost - qcCost - insuranceCost).toFixed(2)) : null;
+  const autoGrossProfit = draft.revenue !== null && draft.revenue !== undefined ? Number((draft.revenue - cost - insuranceCost - qcCost).toFixed(2)) : null;
   const displayNetPrice = draft.net_price_per_booking !== null && draft.net_price_per_booking !== undefined ? draft.net_price_per_booking : autoNetPrice;
   const displayGrossProfit = draft.monthly_gross_profit !== null && draft.monthly_gross_profit !== undefined ? draft.monthly_gross_profit : autoGrossProfit;
-  const profit = displayGrossProfit ?? (revenue - cost - qcCost - insuranceCost);
+  const profit = displayGrossProfit ?? (revenue - cost - insuranceCost - qcCost);
   const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
   const isEdit = mode === "edit";
 
@@ -834,13 +928,47 @@ function AccountStudio({
   ].filter(Boolean).length;
   const readiness = Math.round((readyChecks / 12) * 100);
 
-  // Contract expiry helpers
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const contractEndDate = draft.contract_end ? new Date(draft.contract_end) : null;
-  const daysUntilExpiry = contractEndDate
-    ? Math.round((contractEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    : null;
+  const [quoLoading, setQuoLoading] = useState(false);
+  const [quoStatus, setQuoStatus] = useState<string | null>(null);
+
+  // Contract expiry helpers (UTC normalized to eliminate timezone drift)
+  const daysUntilExpiry = useMemo(() => {
+    if (!draft.contract_end) return null;
+    const parts = draft.contract_end.split("-").map(Number);
+    if (parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return null;
+    const targetUTC = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+    const now = new Date();
+    const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.round((targetUTC - todayUTC) / (1000 * 60 * 60 * 24));
+  }, [draft.contract_end]);
+
+  async function handleSendQuoReminder() {
+    if (!draft.name) return;
+    setQuoLoading(true);
+    setQuoStatus(null);
+    try {
+      const res = await fetch("/api/commercial/renewal-reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          testAccountName: draft.name,
+          toPhone: "+12039091380",
+          isTest: true,
+          customAccounts: [draft],
+        }),
+      });
+      const data = await res.json();
+      if (data.results && data.results[0]?.success) {
+        setQuoStatus(`✅ SMS renewal alert transmitted to Jake (+1 203-909-1380) via Quo! (${daysUntilExpiry ?? 0} days remaining)`);
+      } else {
+        setQuoStatus(`❌ Failed to send via Quo: ${data.results?.[0]?.message || data.error || "Unknown error"}`);
+      }
+    } catch (err: any) {
+      setQuoStatus(`❌ Error sending Quo reminder: ${err?.message || String(err)}`);
+    } finally {
+      setQuoLoading(false);
+    }
+  }
 
   return (
     <form className="account-studio" onSubmit={onSubmit}>
@@ -900,14 +1028,29 @@ function AccountStudio({
                 value={draft.hours ?? ""}
                 onChange={(e) => {
                   const val = e.target.value ? Number(e.target.value) : null;
-                  onChange({ ...draft, hours: val });
+                  const norm = (draft.name || "").toLowerCase();
+                  const isExcluded = norm.includes("mama") || norm.includes("green leaf") || norm.includes("steripax");
+                  const newRate = (!isExcluded && val !== null) ? Number((val * 18).toFixed(2)) : draft.rate_per_service;
+                  const newCost = (!isExcluded && newRate !== null && newRate !== undefined) ? Number((newRate * visits).toFixed(2)) : draft.cost;
+                  const newInsurance = newCost ? Number((newCost * 0.2266).toFixed(2)) : 0;
+                  const newProfit = (draft.revenue !== null && draft.revenue !== undefined && newCost !== null)
+                    ? Number((draft.revenue - newCost - newInsurance - qcCost).toFixed(2))
+                    : null;
+                  onChange({
+                    ...draft,
+                    hours: val,
+                    rate_per_service: newRate,
+                    cleaner_flat_rate: newRate,
+                    cost: newCost,
+                    monthly_gross_profit: newProfit,
+                  });
                 }}
-                placeholder="e.g. 2.25"
+                placeholder="e.g. 2.5"
               />
             </label>
-            {/* 6. Labor Amount Per Service (including insurances) */}
+            {/* 6. Labor Amount Per Service */}
             <label className="studio-field">
-              <span>Labor Amount Per Service (including insurances)</span>
+              <span>Labor Amount Per Service</span>
               <input
                 min="0"
                 step="0.01"
@@ -916,14 +1059,19 @@ function AccountStudio({
                 onChange={(e) => {
                   const val = e.target.value ? Number(e.target.value) : null;
                   const newCost = val ? Number((val * visits).toFixed(2)) : null;
+                  const newInsurance = newCost ? Number((newCost * 0.2266).toFixed(2)) : 0;
+                  const newProfit = (draft.revenue !== null && draft.revenue !== undefined && newCost !== null)
+                    ? Number((draft.revenue - newCost - newInsurance - qcCost).toFixed(2))
+                    : null;
                   onChange({
                     ...draft,
                     rate_per_service: val,
                     cleaner_flat_rate: val,
                     cost: newCost,
+                    monthly_gross_profit: newProfit,
                   });
                 }}
-                placeholder="e.g. 69.00"
+                placeholder="e.g. 45.00"
               />
             </label>
             {/* 7. Frequency */}
@@ -936,10 +1084,15 @@ function AccountStudio({
                   const nextVisits = getVisitsPerMonth(freq);
                   const curRate = draft.rate_per_service ?? draft.cleaner_flat_rate;
                   const newCost = curRate ? Number((curRate * nextVisits).toFixed(2)) : draft.cost;
+                  const newInsurance = newCost ? Number((newCost * 0.2266).toFixed(2)) : 0;
+                  const newProfit = (draft.revenue !== null && draft.revenue !== undefined && newCost !== null)
+                    ? Number((draft.revenue - newCost - newInsurance - qcCost).toFixed(2))
+                    : null;
                   onChange({
                     ...draft,
                     frequency: freq,
                     cost: newCost,
+                    monthly_gross_profit: newProfit,
                   });
                 }}
               >
@@ -974,7 +1127,10 @@ function AccountStudio({
                 value={draft.revenue ?? ""}
                 onChange={(e) => {
                   const val = e.target.value ? Number(e.target.value) : null;
-                  onChange({ ...draft, revenue: val });
+                  const newProfit = (val !== null && cost !== null)
+                    ? Number((val - cost - insuranceCost - qcCost).toFixed(2))
+                    : null;
+                  onChange({ ...draft, revenue: val, monthly_gross_profit: newProfit });
                 }}
                 placeholder="e.g. 1200.00"
               />
@@ -1004,7 +1160,10 @@ function AccountStudio({
                 value={draft.qc_monthly_cost ?? ""}
                 onChange={(e) => {
                   const val = e.target.value ? Number(e.target.value) : null;
-                  onChange({ ...draft, qc_monthly_cost: val });
+                  const newProfit = (draft.revenue !== null && cost !== null)
+                    ? Number((draft.revenue - cost - insuranceCost - (val ?? 0)).toFixed(2))
+                    : null;
+                  onChange({ ...draft, qc_monthly_cost: val, monthly_gross_profit: newProfit });
                 }}
                 placeholder="0.00"
               />
@@ -1042,13 +1201,15 @@ function AccountStudio({
             </label>
             {/* 13. Renewal Date */}
             <label className="studio-field">
-              <span>Renewal Date</span>
+              <span className="field-label-header">
+                <span>Renewal Date</span>
+                {daysUntilExpiry !== null && (
+                  <span className={`contract-expiry-badge ${daysUntilExpiry < 0 ? "expired" : daysUntilExpiry <= 35 ? "expiring-soon" : "expiring-ok"}`}>
+                    {daysUntilExpiry < 0 ? "Expired" : daysUntilExpiry === 0 ? "Expires today" : `${daysUntilExpiry}d left`}
+                  </span>
+                )}
+              </span>
               <input type="date" lang="en-US" value={draft.contract_end ?? ""} onChange={(e) => onChange({ ...draft, contract_end: e.target.value || null })} />
-              {daysUntilExpiry !== null && (
-                <span className={`contract-expiry-badge ${daysUntilExpiry < 0 ? "expired" : daysUntilExpiry <= 30 ? "expiring-soon" : "expiring-ok"}`}>
-                  {daysUntilExpiry < 0 ? "Expired" : daysUntilExpiry === 0 ? "Expires today" : `${daysUntilExpiry}d left`}
-                </span>
-              )}
             </label>
           </div>
 
@@ -1064,6 +1225,28 @@ function AccountStudio({
               <input type="date" lang="en-US" value={draft.last_qcc_date ?? ""} onChange={(e) => onChange({ ...draft, last_qcc_date: e.target.value || null })} />
             </label>
           </div>
+
+          {draft.contract_end && (
+            <div className="renewal-reminder-box">
+              <div className="renewal-reminder-info">
+                <strong>Quo Contract Renewal Alert (35-Day Advance Notice)</strong>
+                <span>Automated SMS sent to Jake (+1 203-909-1380) 35 days before contract end to review terms & discuss rate adjustments.</span>
+              </div>
+              <button
+                type="button"
+                className="quo-test-btn"
+                disabled={quoLoading}
+                onClick={handleSendQuoReminder}
+              >
+                {quoLoading ? "Sending SMS..." : "📲 Test Quo SMS to Jake"}
+              </button>
+            </div>
+          )}
+          {quoStatus && (
+            <div className={quoStatus.startsWith("✅") ? "studio-success" : "studio-error"}>
+              {quoStatus}
+            </div>
+          )}
 
           {/* Section 5: Supplies & Operations (Logistics) */}
           <div className="studio-section-title"><Package size={15} /> 5. Supplies & Access Logistics</div>
@@ -1346,12 +1529,17 @@ export default function CommercialPage() {
 
   function buildAccountPayload(draft: AccountDraft, id = crypto.randomUUID()): Account {
     const visits = getVisitsPerMonth(draft.frequency);
-    const perServiceRate = numberOrNull(draft.rate_per_service ?? draft.cleaner_flat_rate);
+    const norm = (draft.name || "").toLowerCase();
+    const isExcluded = norm.includes("mama") || norm.includes("green leaf") || norm.includes("steripax");
+    const perServiceRate = numberOrNull(
+      draft.rate_per_service ?? draft.cleaner_flat_rate ?? (!isExcluded && draft.hours ? Number(draft.hours) * 18 : null)
+    );
     const cost = getRealCost(draft);
     const revenue = numberOrNull(draft.revenue);
     const qc_cost = numberOrNull(draft.qc_monthly_cost);
+    const insuranceCost = cost ? Number((cost * 0.2266).toFixed(2)) : 0;
     const autoNetPrice = visits > 0 && revenue !== null ? Number((revenue / visits).toFixed(2)) : revenue;
-    const autoGrossProfit = revenue !== null ? Number((revenue - cost - (qc_cost ?? 0)).toFixed(2)) : null;
+    const autoGrossProfit = revenue !== null ? Number((revenue - cost - insuranceCost - (qc_cost ?? 0)).toFixed(2)) : null;
 
     return {
       id,
@@ -1428,15 +1616,15 @@ export default function CommercialPage() {
     }
 
     setSavingNew(true);
-    const localPayload = buildAccountPayload(
-      newAccount,
-      accountFormMode === "edit" && isPersistedAccount(editingAccount) && editingAccount ? editingAccount.id : crypto.randomUUID(),
-    );
+    const targetId = accountFormMode === "edit" && editingAccount ? editingAccount.id : crypto.randomUUID();
+    const localPayload = buildAccountPayload(newAccount, targetId);
 
     // 1. Immediately update state and localStorage
     setAccounts((current) => {
-      const exists = current.some((a) => a.id === localPayload.id);
-      const next = exists ? current.map((a) => (a.id === localPayload.id ? localPayload : a)) : [localPayload, ...current];
+      const exists = current.some((a) => a.id === localPayload.id || normalizeAccountKey(a) === normalizeAccountKey(localPayload));
+      const next = exists
+        ? current.map((a) => (a.id === localPayload.id || normalizeAccountKey(a) === normalizeAccountKey(localPayload) ? localPayload : a))
+        : [localPayload, ...current];
       try {
         if (typeof window !== "undefined") {
           localStorage.setItem("pristine_commercial_accounts", JSON.stringify(next));
@@ -1448,28 +1636,56 @@ export default function CommercialPage() {
       return next;
     });
 
-    if (accountFormMode === "edit" && editingAccount && isPersistedAccount(editingAccount)) {
+    if (accountFormMode === "edit" && editingAccount) {
       try {
-        const { error } = await supabase
-          .from("commercial_accounts")
-          .update(toDbPayload(localPayload))
-          .eq("id", editingAccount.id);
+        if (isPersistedAccount(editingAccount)) {
+          const { error } = await supabase
+            .from("commercial_accounts")
+            .update(toDbPayload(localPayload))
+            .eq("id", editingAccount.id);
 
-        if (error) {
-          console.warn("Supabase update error:", error.message);
-        } else {
-          if (saveIntent === "apply-forward") {
-            const { data: userData } = await supabase.auth.getUser();
-            const result = await applyCommercialAccountChangesGoingForward(editingAccount.id, { userId: userData.user?.id ?? null });
-            setFormNotice(
-              result.refreshedPeriods > 0
-                ? `Account saved. Refreshed ${result.refreshedPeriods} open commercial payroll period(s) and ${result.refreshedEntries} synced entries.`
-                : "Account saved. No open future commercial payroll periods needed recalculation.",
-            );
-          } else {
-            await supabase.from("payroll_audit_log").insert({ entity_type: "commercial_account", entity_id: editingAccount.id, action: "account_settings_saved_only", new_value: JSON.stringify(toDbPayload(localPayload)), changed_by: null });
-            setFormNotice("Account settings saved.");
+          if (error) {
+            console.warn("Supabase update error:", error.message);
           }
+        } else {
+          // Account was imported: check if already in Supabase by name & city
+          const { data: existingRemote } = await supabase
+            .from("commercial_accounts")
+            .select("id")
+            .ilike("name", localPayload.name.trim())
+            .maybeSingle();
+
+          if (existingRemote?.id) {
+            await supabase
+              .from("commercial_accounts")
+              .update(toDbPayload(localPayload))
+              .eq("id", existingRemote.id);
+          } else {
+            const dbPayload: Record<string, unknown> = { ...toDbPayload(localPayload) };
+            delete dbPayload.updated_at;
+            const { data: inserted, error: insErr } = await supabase
+              .from("commercial_accounts")
+              .insert(dbPayload)
+              .select("id")
+              .maybeSingle();
+            if (!insErr && inserted?.id) {
+              localPayload.id = inserted.id;
+              setAccounts((curr) => curr.map((a) => (a.id === targetId ? { ...a, id: inserted.id } : a)));
+            }
+          }
+        }
+
+        if (saveIntent === "apply-forward") {
+          const { data: userData } = await supabase.auth.getUser();
+          const result = await applyCommercialAccountChangesGoingForward(editingAccount.id, { userId: userData.user?.id ?? null });
+          setFormNotice(
+            result.refreshedPeriods > 0
+              ? `Account saved. Refreshed ${result.refreshedPeriods} open commercial payroll period(s) and ${result.refreshedEntries} synced entries.`
+              : "Account saved. No open future commercial payroll periods needed recalculation.",
+          );
+        } else {
+          await supabase.from("payroll_audit_log").insert({ entity_type: "commercial_account", entity_id: editingAccount.id, action: "account_settings_saved_only", new_value: JSON.stringify(toDbPayload(localPayload)), changed_by: null });
+          setFormNotice("Account settings saved.");
         }
       } catch (err) {
         console.warn("Supabase update exception:", err);
@@ -1477,6 +1693,7 @@ export default function CommercialPage() {
       setSavingNew(false);
       setEditingAccount(localPayload);
       setNewAccount(accountToDraft(localPayload));
+      closeAccountStudio();
       return;
     }
 
@@ -1514,7 +1731,12 @@ export default function CommercialPage() {
   const totalRevenue   = accounts.reduce((s, a) => s + (a.revenue ?? 0), 0);
   const totalCost      = accounts.reduce((s, a) => s + getRealCost(a), 0);
   const totalInsurance = totalCost * 0.2266;
-  const totalProfit    = totalRevenue - totalCost - totalInsurance;
+  const totalProfit    = accounts.reduce((s, a) => {
+    const realCost = getRealCost(a);
+    const insuranceCost = Number((realCost * 0.2266).toFixed(2));
+    const calculatedProfit = Number(((a.revenue ?? 0) - realCost - insuranceCost - (a.qc_monthly_cost ?? 0)).toFixed(2));
+    return s + (a.monthly_gross_profit !== null && a.monthly_gross_profit !== undefined ? a.monthly_gross_profit : calculatedProfit);
+  }, 0);
   const accountsNeedingQc = accounts.filter((account) => !account.last_qcc_date).length;
   const supplyReady = accounts.filter((account) => account.has_supplies).length;
   const keyedAccounts = accounts.filter((account) => account.has_keys).length;
@@ -1583,14 +1805,34 @@ export default function CommercialPage() {
         .form-grid.four { grid-template-columns:repeat(4, minmax(0, 1fr)); }
         @media (max-width:900px) { .form-grid.two, .form-grid.three, .form-grid.four { grid-template-columns:1fr 1fr; } }
         @media (max-width:560px) { .form-grid.two, .form-grid.three, .form-grid.four { grid-template-columns:1fr; } }
-        .studio-field { display:flex; flex-direction:column; gap:5px; min-width:0; }
-        .studio-field span { font-size:.68rem; font-weight:900; color:hsl(var(--muted-foreground));
-          text-transform:uppercase; letter-spacing:.06em; }
-        .studio-field input, .studio-field select, .studio-field textarea { width:100%; min-width:0; border:1px solid hsl(var(--border));
+        .studio-field { display:flex; flex-direction:column; justify-content:flex-end; min-width:0; }
+        .studio-field > span:first-child,
+        .studio-field .field-label-header { font-size:.68rem; font-weight:900; color:hsl(var(--muted-foreground));
+          text-transform:uppercase; letter-spacing:.06em; min-height:28px; display:flex; align-items:flex-end;
+          line-height:1.2; margin-bottom:6px; }
+        .field-label-header { display:flex; align-items:flex-end; justify-content:space-between; gap:6px; width:100%; }
+        .studio-field input, .studio-field select { width:100%; min-width:0; height:38px; border:1px solid hsl(var(--border));
           background:hsl(var(--background)); color:hsl(var(--foreground)); border-radius:8px; padding:8px 10px;
-          font:inherit; font-size:.82rem; outline:none; box-sizing:border-box; }
-        .studio-field textarea { min-height:76px; resize:vertical; }
+          font:inherit; font-size:.82rem; outline:none; box-sizing:border-box; line-height:normal; }
+        .studio-field textarea { width:100%; min-width:0; min-height:76px; border:1px solid hsl(var(--border));
+          background:hsl(var(--background)); color:hsl(var(--foreground)); border-radius:8px; padding:8px 10px;
+          font:inherit; font-size:.82rem; outline:none; box-sizing:border-box; resize:vertical; }
         .studio-field input:focus, .studio-field select:focus, .studio-field textarea:focus { border-color:hsl(var(--primary)); box-shadow:0 0 0 3px hsl(var(--primary)/.1); }
+        .renewal-reminder-box {
+          display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+          padding:12px 14px; border-radius:8px; border:1px solid hsl(var(--primary)/.25);
+          background:hsl(var(--primary)/.06); margin-top:6px;
+        }
+        .renewal-reminder-info { display:flex; flex-direction:column; gap:2px; }
+        .renewal-reminder-info strong { font-size:.78rem; font-weight:900; color:hsl(var(--foreground)); }
+        .renewal-reminder-info span { font-size:.72rem; color:hsl(var(--muted-foreground)); font-weight:600; }
+        .quo-test-btn {
+          display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:7px;
+          border:1px solid hsl(var(--primary)); background:hsl(var(--primary)); color:hsl(var(--primary-foreground));
+          font-size:.74rem; font-weight:800; cursor:pointer; transition:all .15s ease;
+        }
+        .quo-test-btn:hover { opacity:.9; transform:translateY(-1px); }
+        .quo-test-btn:disabled { opacity:.6; cursor:not-allowed; transform:none; }
         .toggle-row { display:flex; flex-wrap:wrap; gap:9px; }
         .choice { display:flex; align-items:center; gap:7px; padding:8px 12px; border-radius:999px;
           border:1px solid hsl(var(--border)); background:hsl(var(--background)); color:hsl(var(--muted-foreground));
@@ -1616,7 +1858,7 @@ export default function CommercialPage() {
         .preview-line strong { text-align:right; font-size:.82rem; }
         .preview-meter { height:7px; border-radius:999px; background:hsl(var(--border)); overflow:hidden; }
         .preview-meter span { display:block; height:100%; border-radius:999px; background:hsl(var(--primary)); }
-        .contract-expiry-badge { display:inline-block; margin-top:4px; border-radius:999px; padding:2px 8px; font-size:.68rem; font-weight:900; }
+        .contract-expiry-badge { display:inline-flex; align-items:center; border-radius:999px; padding:2px 8px; font-size:.66rem; font-weight:900; line-height:1.2; }
         .contract-expiry-badge.expiring-ok { background:hsl(142 76% 36%/.15); color:hsl(142 76% 28%); }
         .contract-expiry-badge.expiring-soon { background:hsl(38 92% 50%/.15); color:hsl(38 92% 32%); }
         .contract-expiry-badge.expired { background:hsl(0 84% 60%/.12); color:hsl(0 84% 45%); }
@@ -1700,7 +1942,7 @@ export default function CommercialPage() {
         .table-wrap { overflow-x:auto; scrollbar-gutter:stable; }
 
         table.main-table { width:100%; min-width:1280px; border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:0.78rem; }
-        table.main-table th:nth-child(1), table.main-table td:nth-child(1) { width:300px; }
+        table.main-table th:nth-child(1), table.main-table td:nth-child(1) { width:340px; }
         table.main-table th:nth-child(2), table.main-table td:nth-child(2) { width:190px; }
         table.main-table th:nth-child(3), table.main-table td:nth-child(3) { width:118px; }
         table.main-table th:nth-child(4), table.main-table td:nth-child(4),
@@ -1727,11 +1969,18 @@ export default function CommercialPage() {
         .acc-cell:first-child { background:hsl(var(--card)) !important; }
         .acc-row:hover .acc-cell:first-child { background:hsl(var(--accent)) !important; }
         .account-cell-content { display:grid; grid-template-columns:28px minmax(0, 1fr); align-items:center; gap:10px; min-width:0; }
-        .account-primary { display:grid; grid-template-columns:minmax(0, max-content) auto; align-items:center; justify-content:start; gap:7px; min-width:0; }
+        .account-primary { display:flex; align-items:center; justify-content:start; gap:7px; min-width:0; flex-wrap:nowrap; }
         .acc-name { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
           font-size:.84rem; font-weight:900; color:hsl(var(--foreground)); }
         .acc-city-badge { min-width:0; max-width:128px; overflow:hidden; text-overflow:ellipsis; font-size:0.66rem; font-weight:800;
           padding:3px 9px; border-radius:99px; background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); white-space:nowrap; }
+        .account-inline-actions { display:inline-flex; align-items:center; gap:4px; margin-left:2px; flex-shrink:0; }
+        .account-inline-btn { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px;
+          border-radius:6px; border:1px solid hsl(var(--border)); background:hsl(var(--background));
+          color:hsl(var(--muted-foreground)); cursor:pointer; transition:all .14s ease; }
+        .account-inline-btn:hover { transform:translateY(-1px); }
+        .account-inline-btn.edit:hover { background:hsl(var(--primary)/.15); color:hsl(var(--primary)); border-color:hsl(var(--primary)/.35); }
+        .account-inline-btn.delete:hover { background:hsl(0 84% 60%/.15); color:hsl(0 84% 45%); border-color:hsl(0 84% 60%/.35); }
         .cleaner-name-cell { display:flex; flex-direction:column; gap:3px; min-width:0; }
         .cleaner-name-cell strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
           font-size:.8rem; font-weight:900; color:hsl(var(--foreground)); }
