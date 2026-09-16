@@ -18,12 +18,13 @@ export function computeBookingFormulas(
   const teamEarningsWithoutTips = Number(input.teamEarningsWithoutTips) || 0;
   const merchantFee = Number(input.merchantFee) || 0;
   const stripeFee = Number(input.stripeFee) || 0;
+  const processingFee = Number(input.processingFee) || 0;
   const actualHours = Number(input.actualHours) || Number(input.durationHours) || 0;
 
   const finalAmount = subTotal + salesTax;
   const teamEarningsTotal = teamEarningsWithoutTips + tip;
   const laborPct = subTotal > 0 ? teamEarningsWithoutTips / subTotal : 0;
-  const pcEarnings = subTotal - teamEarningsWithoutTips - merchantFee - stripeFee;
+  const pcEarnings = subTotal - teamEarningsWithoutTips - merchantFee - stripeFee - processingFee;
   const pcProfitPct = subTotal > 0 ? pcEarnings / subTotal : 0;
 
   return {

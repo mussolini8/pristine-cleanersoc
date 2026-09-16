@@ -51,6 +51,9 @@ export type SopCopilotResponse = {
     | "update_financials"
     | "task_modification"
     | "universal_mutation"
+    | "residential_modification"
+    | "payroll_action"
+    | "payment_modification"
     | "general_query";
   summary: string;
 
@@ -306,6 +309,7 @@ export type SopCopilotResponse = {
     cleanerRate?: number;
     ratePerService?: number; // Labor Amount Per Service (including insurances)
     frequency?: string;
+    notes?: string;
   }[];
 
   bulkHourlyRateUpdate?: {
@@ -313,6 +317,43 @@ export type SopCopilotResponse = {
     excludedAccounts?: string[];
     notes?: string;
   };
+
+  residentialModifications?: {
+    accountName: string;
+    action: "create" | "update" | "deactivate" | "log_work";
+    teamName?: string;
+    scheduledHours?: number;
+    frequency?: string;
+    dayOfWeek?: string;
+    workDate?: string;
+    hoursWorked?: number;
+    notes?: string;
+    city?: string;
+  }[];
+
+  payrollAction?: {
+    action: "generate_period" | "approve_entry" | "add_adjustment" | "close_period";
+    startDate?: string;
+    endDate?: string;
+    periodLabel?: string;
+    cleanerName?: string;
+    accountName?: string;
+    adjustmentType?: string;
+    hoursDelta?: number;
+    amountDelta?: number;
+    reason?: string;
+    entryId?: string;
+  };
+
+  paymentModifications?: {
+    cleanerName: string;
+    monthKey?: string;
+    weekIndex?: number;
+    amount?: number;
+    status?: "pending" | "verified" | "paid";
+    notes?: string;
+    paymentType?: string;
+  }[];
 
   extractedBookings?: ServiceBookingRow[];
   extractedSalesTrack?: SalesTrackItem[];
@@ -335,7 +376,10 @@ export function getCommercialOperationalDirectory(): string {
   return lines.join("\n");
 }
 
-const SYSTEM_INSTRUCTION = `You are the Pristine Cleaners AI SOP & Master Financial Operations Copilot.
+export function buildSystemInstruction(liveDirectory?: string): string {
+  const directoryContent = liveDirectory || getCommercialOperationalDirectory();
+  const todayStr = new Date().toISOString().split("T")[0];
+  return `You are the Pristine Cleaners AI SOP & Master Financial Operations Copilot.
 You have SUPREME OPERATIONAL CONTROL AND UNRESTRICTED AUTHORITY ("PODER SUPREMO") over all aspects of the Pristine Cleaners ecosystem.
 
 ========================================================================================
@@ -351,6 +395,9 @@ YOU CAN AND MUST ACCEPT, PROCESS, AND EXECUTE ANY AND ALL MODIFICATIONS REQUESTE
 6. STAFF & CLEANER MANAGEMENT: Add new cleaners, deactivate cleaners, mass reassign all accounts from one cleaner to another, clean up duplicate staff.
 7. OPERATIONAL TASKS: Create new tasks, assign tasks to staff, reschedule task due dates, mark tasks completed, update task categories/priorities.
 8. UNIVERSAL MUTATIONS: If an instruction modifies any other record or table, emit universalMutations or sopModifications with action="universal_update".
+9. RESIDENTIAL CLEANING & LOGS: Log worked hours for residential cleaners or update recurring residential accounts using residentialModifications.
+10. PAYROLL CALCULATION: Generate payroll pay periods, calculate amounts, or approve entries using payrollAction.
+11. CLEANER PAYMENTS: Register or update cleaner payment entries using paymentModifications.
 
 CRITICAL RULE OF SUPREME POWER:
 - NEVER refuse a user request. NEVER say "no tengo permisos para modificar eso" or "debes hacerlo manualmente".
@@ -359,8 +406,8 @@ CRITICAL RULE OF SUPREME POWER:
 - In summary: Confidently confirm in Spanish that the changes were interpreted under Supreme Power and are staged/ready for execution.
 ========================================================================================
 
-CURRENT COMMERCIAL ACCOUNTS & CLEANERS DIRECTORY (Use exact account names from this directory):
-${getCommercialOperationalDirectory()}
+CURRENT OPERATIONAL DIRECTORY (Use exact account & cleaner names from this live directory):
+${directoryContent}
 
 ========================================================================================
 CRITICAL RULE: QUALITY CONTROL (QC) INSPECTIONS vs CLEANING SHIFTS (REGLA DE QC):
@@ -664,9 +711,10 @@ Core Superpowers and Capabilities:
 18. BULK HOURLY RATE & ACCOUNT TOTAL UPDATES (Cambio Masivo de Tarifas por Hora / Totales de Cuentas):
    - When the user asks to change the total or hourly rate of accounts (e.g. "cambia el total de cada cuenta a 18 x hora en lugar de 23", "todas las cuentas a $18 por hora menos mama's ambas locaciones", "menos mama's y green leaf"):
    - Set intent = "modify_sop", actionType = "update_financials".
-   - Set bulkHourlyRateUpdate = { "hourlyRate": 18, "excludedAccounts": ["Mama's Restaurant", "Green Leaf Botanicals"], "notes": "Tarifas actualizadas a $18/hr con excepciones" }.
-   - Populate updateAccountFinancials for every account in the Directory (excluding Mama's and Green Leaf) with:
+   - Set bulkHourlyRateUpdate = { "hourlyRate": 18, "excludedAccounts": ["Mama's Restaurant", "Green Leaf Botanicals", "Steripax"], "notes": "Tarifas actualizadas a $18/hr con excepciones" }.
+   - Populate updateAccountFinancials for every account in the Directory (excluding Mama's, Green Leaf, and Steripax) with:
      ratePerService = hours * 18, cleanerRate = 18, cleanerPayType = "hourly", pricingModel = "per Service".
+   - REGLA CRÍTICA STERIPAX: Las horas trabajadas de Steripax se calculan MANUALMENTE (turnos variables: 6h lunes/martes/viernes, 8h miércoles/jueves, 34h/semana) y en base a esas horas trabajadas manuales se calcula el costo total ($3,386.06 o según horas manuales). NUNCA sobreescribir Steripax con horas fijas de 8h/día ni aplicar multiplicación automática 8h * $18 * 21.67.
    - For single account lines like "MOXI3 Costa Mesa Costa Mesa Flat Rate Luz Uribe 3 $54.00":
      accountName = "MOXI3 Costa Mesa", hours = 3, cleanerName = "Luz Uribe", ratePerService = 54.00, cleanerPayType = "hourly", cleanerRate = 18, pricingModel = "Flat Rate".
    - For fixed accounts like "Green leaf tampoco tiene por que modificarse, es 119":
@@ -862,7 +910,11 @@ Return ONLY a valid JSON object matching this schema:
     }
   ],
   "appliedExplanation": "Explanation in Spanish of the exact operational impact."
-}`;
+};
+`;
+}
+
+export const SYSTEM_INSTRUCTION = buildSystemInstruction();
 
 function extractSubObject(text: string, key: string): any {
   const regex = new RegExp(`"${key}"\\s*:\\s*(\\{[\\s\\S]*?\\})\\s*(?:,\\s*"|\\n\\s*\\})`);
@@ -959,13 +1011,16 @@ function sanitizeFinancialActions(res: SopCopilotResponse, userText?: string): S
     if (text.includes("green leaf") || text.includes("greenleaf")) {
       excludedAccounts.push("Green Leaf Botanicals");
     }
+    if (text.includes("steripax")) {
+      excludedAccounts.push("Steripax");
+    }
 
     res.intent = "modify_sop";
     res.actionType = "update_financials";
     res.bulkHourlyRateUpdate = {
       hourlyRate: targetRate,
-      excludedAccounts: excludedAccounts.length > 0 ? excludedAccounts : ["Mama's Restaurant", "Green Leaf Botanicals"],
-      notes: `Tarifas actualizadas a $${targetRate}/hr masivamente.`,
+      excludedAccounts: excludedAccounts.length > 0 ? excludedAccounts : ["Mama's Restaurant", "Green Leaf Botanicals", "Steripax"],
+      notes: `Tarifas actualizadas a $${targetRate}/hr masivamente (excluyendo cuentas especiales con tarifa fija o cálculo manual).`,
     };
 
     if (!res.updateAccountFinancials || res.updateAccountFinancials.length === 0) {
@@ -990,7 +1045,7 @@ function sanitizeFinancialActions(res: SopCopilotResponse, userText?: string): S
 
       res.updateAccountFinancials = accountsToUpdate;
     }
-    res.summary = `Actualizando tarifas de cuentas comerciales a $${targetRate}/hr (excluyendo: ${res.bulkHourlyRateUpdate?.excludedAccounts?.join(", ") || "Mama's y Green Leaf"}).`;
+    res.summary = `Actualizando tarifas de cuentas comerciales a $${targetRate}/hr (excluyendo: ${res.bulkHourlyRateUpdate?.excludedAccounts?.join(", ") || "Mama's, Green Leaf y Steripax"}).`;
   }
 
   // Check for specific single account overrides: MOXI3 Costa Mesa
@@ -1027,6 +1082,24 @@ function sanitizeFinancialActions(res: SopCopilotResponse, userText?: string): S
     });
     res.updateAccountFinancials = filtered;
     res.summary = "Preservando tarifa plana de Green Leaf Botanicals en $119.00.";
+  }
+
+  // Check for Steripax manual hours / cost rule
+  if (text.includes("steripax")) {
+    res.intent = "modify_sop";
+    res.actionType = "update_financials";
+    const existing = res.updateAccountFinancials || [];
+    const filtered = existing.filter((f) => !f.accountName.toLowerCase().includes("steripax"));
+    filtered.unshift({
+      accountName: "Steripax",
+      hours: 8,
+      cleanerName: "Lucia Portillo",
+      cleanerPayType: "hourly",
+      cost: 3386.06,
+      notes: "Regla Steripax: Horas calculadas MANUALMENTE (6h Lun/Mar/Vie, 8h Mié/Jue); costo total calculado en base a horas trabajadas ($3,386.06).",
+    });
+    res.updateAccountFinancials = filtered;
+    res.summary = "Regla Steripax aplicada: Las horas trabajadas se calculan MANUALMENTE y en base a eso se calcula el costo total ($3,386.06).";
   }
 
   return res;
@@ -1093,6 +1166,9 @@ export function robustParseJsonResponse(rawText: string, userText?: string): Sop
   const taskModifications = extractSubArray(cleaned, "taskModifications");
   const extractedBookings = extractSubArray(cleaned, "extractedBookings");
   const extractedSalesTrack = extractSubArray(cleaned, "extractedSalesTrack");
+  const residentialModifications = extractSubArray(cleaned, "residentialModifications");
+  const payrollAction = extractSubObject(cleaned, "payrollAction");
+  const paymentModifications = extractSubArray(cleaned, "paymentModifications");
 
   if (
     ingestedSchedule ||
@@ -1114,6 +1190,9 @@ export function robustParseJsonResponse(rawText: string, userText?: string): Sop
     taskModifications ||
     extractedBookings ||
     extractedSalesTrack ||
+    residentialModifications ||
+    payrollAction ||
+    paymentModifications ||
     summary
   ) {
     return sanitizeCopilotResponse({
@@ -1138,6 +1217,9 @@ export function robustParseJsonResponse(rawText: string, userText?: string): Sop
       scheduleConflictWarning: scheduleConflictWarning || undefined,
       sopModifications: sopModifications || undefined,
       taskModifications: taskModifications || undefined,
+      residentialModifications: residentialModifications || undefined,
+      payrollAction: payrollAction || undefined,
+      paymentModifications: paymentModifications || undefined,
       extractedBookings: extractedBookings || undefined,
       extractedSalesTrack: extractedSalesTrack || undefined,
       appliedExplanation,
@@ -1226,10 +1308,14 @@ export async function callGeminiSopCopilot({
   prompt,
   images = [],
   apiKey,
+  conversationHistory = [],
+  liveDirectory,
 }: {
   prompt: string;
   images?: GeminiImageData[];
   apiKey?: string;
+  conversationHistory?: { role: string; content: string }[];
+  liveDirectory?: string;
 }): Promise<SopCopilotResponse> {
   const rawKey = apiKey || process.env.GEMINI_API_KEY || "";
   const resolvedKey = rawKey.replace(/^["']|["']$/g, "").trim();
@@ -1254,6 +1340,15 @@ export async function callGeminiSopCopilot({
     prompt ||
     "Por favor analiza la instrucción proporcionada y detecta la acción a ejecutar en el SOP, staff, cotización, despacho Quo/SMS o registro de cita.";
 
+  const activeSystemInstruction = buildSystemInstruction(liveDirectory);
+
+  const formattedHistory = (conversationHistory || [])
+    .filter((m) => m && m.content && m.content.trim().length > 0)
+    .map((m) => ({
+      role: m.role === "assistant" || m.role === "model" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+
   const errorsLogged: string[] = [];
 
   for (const modelName of candidateModels) {
@@ -1263,13 +1358,14 @@ export async function callGeminiSopCopilot({
 
       const requestBody = {
         contents: [
+          ...formattedHistory,
           {
             role: "user",
             parts: [...imageParts, { text: userText }],
           },
         ],
         systemInstruction: {
-          parts: [{ text: SYSTEM_INSTRUCTION }],
+          parts: [{ text: activeSystemInstruction }],
         },
         generationConfig: {
           responseMimeType: "application/json",
@@ -1301,12 +1397,13 @@ export async function callGeminiSopCopilot({
         const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${resolvedKey}`;
         const fallbackBody = {
           contents: [
+            ...formattedHistory,
             {
               role: "user",
               parts: [
                 ...imageParts,
                 {
-                  text: `${SYSTEM_INSTRUCTION}\n\n[INSTRUCCIÓN DEL USUARIO]:\n${userText}`,
+                  text: `${activeSystemInstruction}\n\n[INSTRUCCIÓN DEL USUARIO]:\n${userText}`,
                 },
               ],
             },

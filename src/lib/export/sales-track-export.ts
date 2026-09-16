@@ -459,7 +459,9 @@ export async function exportSalesTrackToXLSX(filename: string, items: SalesTrack
     "Frequency": item.serviceFrequency || "—",
     "Monthly Revenue ($)": item.monthlyRevenue,
     "Cleaner Cost ($)": item.cleanerCost,
-    "Gross Profit ($)": item.grossProfit ?? (item.monthlyRevenue - item.cleanerCost),
+    "Gross Profit ($)": item.grossProfit !== undefined
+      ? item.grossProfit
+      : item.monthlyRevenue - item.cleanerCost - Math.round(item.monthlyRevenue * 0.03 * 100) / 100,
     "Margin (%)": `${item.marginPct ?? 0}%`,
     "Status": item.status.toUpperCase(),
   }));
@@ -486,10 +488,10 @@ export async function exportSalesTrackToPDF(filename: string, items: SalesTrackI
     teamEarningsWithoutTips: item.cleanerCost,
     teamEarningsTotal: item.cleanerCost,
     laborPct: item.monthlyRevenue > 0 ? item.cleanerCost / item.monthlyRevenue : 0,
-    merchantFee: 0,
+    merchantFee: Math.round(item.monthlyRevenue * 0.03 * 100) / 100,
     stripeFee: 0,
-    pcEarnings: item.monthlyRevenue - item.cleanerCost,
-    pcProfitPct: item.monthlyRevenue > 0 ? (item.monthlyRevenue - item.cleanerCost) / item.monthlyRevenue : 0,
+    pcEarnings: item.monthlyRevenue - item.cleanerCost - Math.round(item.monthlyRevenue * 0.03 * 100) / 100,
+    pcProfitPct: item.monthlyRevenue > 0 ? (item.monthlyRevenue - item.cleanerCost - Math.round(item.monthlyRevenue * 0.03 * 100) / 100) / item.monthlyRevenue : 0,
     durationHours: typeof item.hoursPerVisit === "number" ? item.hoursPerVisit : 3,
     actualHours: typeof item.hoursPerVisit === "number" ? item.hoursPerVisit : 3,
     status: "completed",

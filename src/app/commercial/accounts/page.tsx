@@ -239,6 +239,10 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
     const perServiceRate = account.rate_per_service ?? account.cleaner_flat_rate ?? 119;
     return Number((perServiceRate * visits).toFixed(2));
   }
+  if (norm.includes("steripax")) {
+    // Regla Steripax: Las horas trabajadas se calculan MANUALMENTE y en base a eso se calcula el costo total
+    return account.cost ?? 3386.06;
+  }
   const perServiceRate = account.rate_per_service ?? account.cleaner_flat_rate;
   if (perServiceRate !== null && perServiceRate !== undefined && perServiceRate > 0) {
     return Number((perServiceRate * visits).toFixed(2));
@@ -264,9 +268,11 @@ function toAccount(account: ImportedCommercialAccount): Account {
   const norm = account.name.toLowerCase().trim();
   const isMamas = norm.includes("mama");
   const isGreenLeaf = norm.includes("green leaf");
+  const isSteripax = norm.includes("steripax");
 
   return {
     ...account,
+    cost: isSteripax ? (account.cost ?? 3386.06) : account.cost,
     rate_per_service: account.rate_per_service ?? null,
     cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
     cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
@@ -305,14 +311,17 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const norm = remote.name?.toLowerCase() || "";
     const isMamas = norm.includes("mama");
     const isGreenLeaf = norm.includes("green leaf");
+    const isSteripax = norm.includes("steripax");
     const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
     const hours = isMoxi3CM ? 3 : numericHours(remote.hours || imported?.hours);
     const ratePerService = isMamas ? 200 : isGreenLeaf ? 119 : (imported?.rate_per_service ?? (hours > 0 ? hours * 18 : (remote.rate_per_service ?? null)));
+    const cost = isSteripax ? (remote.cost || imported?.cost || 3386.06) : (remote.cost ?? imported?.cost ?? null);
 
     rawMerged.push({
       ...imported,
       ...remote,
       hours,
+      cost,
       rate_per_service: ratePerService,
       cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
       cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
@@ -1983,7 +1992,7 @@ export default function CommercialPage() {
           onApplyFullCopilotResponse={async (fullResp) => {
             if (fullResp.bulkHourlyRateUpdate) {
               const { hourlyRate, excludedAccounts } = fullResp.bulkHourlyRateUpdate;
-              const excluded = (excludedAccounts || ["mama", "green leaf"]).map((e) => e.toLowerCase());
+              const excluded = (excludedAccounts || ["mama", "green leaf", "steripax"]).map((e) => e.toLowerCase());
               setAccounts((prev) =>
                 prev.map((acc) => {
                   const isExcluded = excluded.some((ex) => acc.name.toLowerCase().includes(ex));

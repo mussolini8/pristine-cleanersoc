@@ -168,7 +168,7 @@ const exceptions: PayrollExceptionCode[] = [];
   if (input.hours <= 0) exceptions.push("zero_hours");
   if (!input.hasSchedule) exceptions.push("missing_schedule");
   if (input.cleanerName && !isCommercialPayrollEligible(input.cleanerName)) exceptions.push("excluded_commercial_payroll");
-  if (input.setting?.requires_manual_review) exceptions.push("manual_review");
+  if (input.setting?.requires_manual_review || input.account.name?.toLowerCase().includes("steripax")) exceptions.push("manual_review");
   if (input.account.contract_start || input.account.contract_end) exceptions.push("contract_boundary");
   return exceptions;
 }
@@ -181,6 +181,7 @@ function entryStatus(exceptions: PayrollExceptionCode[]) {
 
 function reviewNoteFor(exceptions: PayrollExceptionCode[], setting: CleanerPaymentSetting | null) {
   if (setting?.manual_review_reason) return setting.manual_review_reason;
+  if (exceptions.includes("manual_review")) return "Steripax: Horas calculadas manualmente; confirmar horas trabajadas y costo antes de aprobar";
   if (exceptions.includes("missing_account_pay_settings")) return "Missing account pay settings";
   if (exceptions.includes("missing_pay_rate")) return "Missing rate";
   if (exceptions.includes("missing_cleaner")) return "Missing cleaner";

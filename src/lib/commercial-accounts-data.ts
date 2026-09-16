@@ -675,7 +675,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     hours: 8,
     frequency: "5x per week",
     revenue: 5152.7,
-    cost: 3120.48,
+    cost: 3386.06,
     rate_per_service: 144,
     payment_method: "ACH",
     contract_start: "2026-02-23",
@@ -686,7 +686,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     has_keys: true,
     supply_delivery_date: null,
     estimated_fill_date: null,
-    supplies_notes: "6h on Mon, Tue, Fri; 8h on Wed, Thu (Start: 6:00 AM).",
+    supplies_notes: "6h on Mon, Tue, Fri; 8h on Wed, Thu (Start: 6:00 AM). Regla: Horas trabajadas se calculan MANUALMENTE y en base a eso se calcula el costo total.",
     source_sheet: "Accounts",
     schedule_rules: [
       { day_of_week: 1, paid_hours: 6, assigned_cleaner_name: "Lucia Portillo", notes: "Monday 6:00 AM" },

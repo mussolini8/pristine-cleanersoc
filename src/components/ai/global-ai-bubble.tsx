@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronUp,
+  RotateCcw,
   Maximize2,
   Minimize2,
 } from "lucide-react";
@@ -50,8 +51,11 @@ import {
   applyTaskModificationsAction,
   applyUniversalMutationsAction,
   applyUniversalSupremeAction,
+  reverseLastCopilotAction,
   type SopActionResult,
 } from "@/lib/ai/sop-actions-handler";
+import { BulkReviewTable, type FinancialEntry } from "@/components/ai/bulk-review-table";
+import { CopilotAlertsBadge } from "@/components/ai/copilot-alerts-badge";
 
 const QUICK_PROMPTS_ES = [
   {
@@ -173,6 +177,19 @@ export function GlobalAiBubble() {
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [smsSentSuccess, setSmsSentSuccess] = useState<string | null>(null);
 
+  // Multi-turn conversation memory
+  const [conversation, setConversation] = useState<{ id: string; role: "user" | "model"; text: string; timestamp: string }[]>([]);
+  // Auto-apply mode state
+  const [autoApply, setAutoApply] = useState(false);
+  // Rollback / Undo state
+  const [canUndo, setCanUndo] = useState(false);
+  const [isUndoing, setIsUndoing] = useState(false);
+  const [undoSuccessMsg, setUndoSuccessMsg] = useState<string | null>(null);
+  // Delete confirmation modal state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Bulk financial review table toggle
+  const [showBulkReview, setShowBulkReview] = useState(false);
+
   // Speech & UI Language state
   const [isListening, setIsListening] = useState(false);
   const [speechLang, setSpeechLang] = useState<"es-US" | "en-US">("es-US");
@@ -184,6 +201,8 @@ export function GlobalAiBubble() {
     if (stored) setApiKey(stored);
     const storedLang = localStorage.getItem("pristine_copilot_lang") as "es-US" | "en-US" | null;
     if (storedLang) setSpeechLang(storedLang);
+    const storedAutoApply = localStorage.getItem("pristine_copilot_auto_apply");
+    if (storedAutoApply) setAutoApply(storedAutoApply === "true");
   }, []);
 
   const isEn = speechLang === "en-US";
@@ -314,13 +333,25 @@ export function GlobalAiBubble() {
         ? "\n\n[LANGUAGE INSTRUCTION: Please formulate your summary and human-readable responses in ENGLISH.]"
         : "\n\n[INSTRUCCIÓN DE IDIOMA: Por favor formula tu resumen y respuestas en ESPAÑOL.]";
 
+      const currentPromptText = prompt.trim();
+      if (currentPromptText) {
+        const userMsg = {
+          id: String(Date.now()),
+          role: "user" as const,
+          text: currentPromptText,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        setConversation((prev) => [...prev, userMsg]);
+      }
+
       const res = await fetch("/api/ai/sop-copilot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: prompt ? prompt + langInstruction : "",
+          prompt: currentPromptText ? currentPromptText + langInstruction : "",
           images,
           apiKey: effectiveKey,
+          messages: conversation.map((m) => ({ role: m.role, content: m.text })),
         }),
       });
 
@@ -358,7 +389,72 @@ export function GlobalAiBubble() {
         }
       }
 
+      if (parsedData?.summary) {
+        const modelMsg = {
+          id: String(Date.now() + 1),
+          role: "model" as const,
+          text: parsedData.summary,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        setConversation((prev) => [...prev, modelMsg]);
+      }
+
       setResponse(parsedData);
+
+      // Auto-Apply if enabled and actionable, unless a permanent delete is requested
+      const hasDestructiveDelete = parsedData?.sopModifications?.some((m: any) => m.action === "delete_permanently");
+      const isActionable = Boolean(
+        parsedData?.bulkHourlyRateUpdate ||
+        (parsedData?.updateAccountFinancials && parsedData.updateAccountFinancials.length > 0) ||
+        parsedData?.accessUpdate ||
+        (parsedData?.accessUpdates && parsedData.accessUpdates.length > 0) ||
+        (parsedData?.sopModifications && parsedData.sopModifications.length > 0) ||
+        parsedData?.ingestedSchedule ||
+        (parsedData?.qcScheduleBatch && parsedData.qcScheduleBatch.length > 0) ||
+        parsedData?.occurrenceOverride ||
+        (parsedData?.occurrenceOverrides && parsedData.occurrenceOverrides.length > 0) ||
+        (parsedData?.staffModifications && parsedData.staffModifications.length > 0) ||
+        parsedData?.addStaff ||
+        parsedData?.cleanupStaffDuplicates?.enabled ||
+        (parsedData?.eventBookings && parsedData.eventBookings.length > 0) ||
+        (parsedData?.taskModifications && parsedData.taskModifications.length > 0) ||
+        (parsedData?.residentialModifications && parsedData.residentialModifications.length > 0) ||
+        parsedData?.payrollAction ||
+        (parsedData?.paymentModifications && parsedData.paymentModifications.length > 0) ||
+        (parsedData?.universalMutations && parsedData.universalMutations.length > 0)
+      );
+
+      if (autoApply && isActionable && !hasDestructiveDelete) {
+        setTimeout(async () => {
+          try {
+            setExecutingAction("supreme_all");
+            const supremeRes = await applyUniversalSupremeAction(parsedData);
+            if (supremeRes.success) {
+              setActionSuccessMsg(supremeRes.message);
+              setCanUndo(true);
+              setSavedActions({
+                occurrence: true,
+                add_staff: true,
+                commercial_quote: true,
+                ingest_schedule: true,
+                sop_modifications: true,
+                staff_modifications: true,
+                event_bookings: true,
+                qc_schedule: true,
+                cleanup_staff: true,
+                update_financials: true,
+                access_update: true,
+                tasks: true,
+                universal: true,
+              });
+            }
+          } catch (autoErr: any) {
+            console.error("Auto-Apply error:", autoErr);
+          } finally {
+            setExecutingAction(null);
+          }
+        }, 300);
+      }
     } catch (err: any) {
       setError(err?.message || "Error al conectar con el Asistente IA.");
     } finally {
@@ -583,6 +679,7 @@ export function GlobalAiBubble() {
       const res = await applyUniversalSupremeAction(response);
       if (res.success) {
         setActionSuccessMsg(res.message);
+        setCanUndo(true);
         setSavedActions({
           occurrence: true,
           add_staff: true,
@@ -606,6 +703,36 @@ export function GlobalAiBubble() {
     } finally {
       setExecutingAction(null);
     }
+  };
+
+  const handleUndoLastAction = async () => {
+    setIsUndoing(true);
+    setUndoSuccessMsg(null);
+    setError(null);
+    try {
+      const res = await reverseLastCopilotAction();
+      if (res.success) {
+        setUndoSuccessMsg(res.message);
+        setCanUndo(false);
+        setActionSuccessMsg(null);
+      } else {
+        setError(res.message);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Error al revertir cambio.");
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+
+  const handleResetConversation = () => {
+    setConversation([]);
+    setResponse(null);
+    setActionSuccessMsg(null);
+    setSavedActions({});
+    setError(null);
+    setUndoSuccessMsg(null);
+    setCanUndo(false);
   };
 
   const handleCopySmsText = (text: string) => {
@@ -691,6 +818,34 @@ export function GlobalAiBubble() {
             </div>
 
             <div className="flex items-center gap-1">
+              <CopilotAlertsBadge />
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !autoApply;
+                  setAutoApply(next);
+                  localStorage.setItem("pristine_copilot_auto_apply", String(next));
+                }}
+                className={`h-6 rounded-md px-1.5 text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  autoApply
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "border border-border/80 bg-background text-muted-foreground hover:bg-muted"
+                }`}
+                title={isEn ? "Toggle Auto-Apply mode (execute automatically)" : "Activar/desactivar Auto-Aplicar automático"}
+              >
+                <span>⚡ Auto</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetConversation}
+                className="h-6 rounded-md border border-border/80 bg-background px-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                title={isEn ? "New conversation" : "Nueva conversación"}
+              >
+                <span>+ {isEn ? "New" : "Nueva"}</span>
+              </button>
+
               <button
                 onClick={() => {
                   const next = speechLang === "es-US" ? "en-US" : "es-US";
@@ -845,7 +1000,7 @@ export function GlobalAiBubble() {
                         type="file"
                         ref={fileInputRef}
                         onChange={handleFileChange}
-                        accept="image/*"
+                        accept="image/*,application/pdf"
                         multiple
                         className="hidden"
                       />
@@ -927,6 +1082,68 @@ export function GlobalAiBubble() {
                     <CheckCircle className="size-3.5 text-emerald-600" /> {isEn ? "Action Executed" : "Acción Ejecutada"}
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed font-medium">{actionSuccessMsg}</p>
+                </div>
+              )}
+
+              {/* Undo / Rollback Notification */}
+              {undoSuccessMsg && (
+                <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-primary">
+                  <div className="font-bold flex items-center gap-1.5 text-[11px]">
+                    <RotateCcw className="size-3.5 text-primary" /> Cambio Revertido con Éxito
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed font-medium">{undoSuccessMsg}</p>
+                </div>
+              )}
+
+              {/* Rollback Prompt Bar */}
+              {canUndo && (
+                <div className="flex items-center justify-between rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-xs">
+                  <span className="text-foreground font-medium text-[11px] flex items-center gap-1.5">
+                    <Sparkles className="size-3.5 text-primary" /> ¿Deseas revertir el último cambio aplicado?
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleUndoLastAction}
+                    disabled={isUndoing}
+                    className="h-7 text-xs font-bold gap-1 border-primary/40 text-primary hover:bg-primary/10 cursor-pointer"
+                  >
+                    {isUndoing ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
+                    {isUndoing ? "Revirtiendo..." : "↩ Deshacer"}
+                  </Button>
+                </div>
+              )}
+
+              {/* Prior Conversation Thread */}
+              {conversation.length > 2 && (
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <span>Historial de la Sesión ({conversation.length} mensajes)</span>
+                    <button
+                      type="button"
+                      onClick={handleResetConversation}
+                      className="text-primary hover:underline cursor-pointer lowercase font-medium"
+                    >
+                      reiniciar
+                    </button>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                    {conversation.slice(-4, -1).map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`text-[10px] p-1.5 rounded-lg ${
+                          msg.role === "user"
+                            ? "bg-primary/10 text-foreground ml-3 border border-primary/20"
+                            : "bg-card text-muted-foreground mr-3 border border-border"
+                        }`}
+                      >
+                        <span className="font-bold opacity-60 block text-[9px]">
+                          {msg.role === "user" ? "Tú" : "Copiloto"} · {msg.timestamp}
+                        </span>
+                        <p className="line-clamp-2">{msg.text}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1854,34 +2071,70 @@ export function GlobalAiBubble() {
                           )}
                         </div>
                       )}
-                      {response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
-                        <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                          {response.updateAccountFinancials.map((fin, idx) => (
-                            <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
-                              <div>
-                                <strong className="text-foreground">{fin.accountName}</strong>
-                                <p className="text-muted-foreground text-[10px]">
-                                  {fin.pricingModel || "per Service"}
-                                  {fin.hours !== undefined ? ` · ${fin.hours} hrs` : ""}
-                                  {fin.cleanerName ? ` · ${fin.cleanerName}` : ""}
-                                  {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                {fin.ratePerService !== undefined && fin.ratePerService !== null && (
-                                  <span className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold">
-                                    ${Number(fin.ratePerService).toFixed(2)} / serv
-                                  </span>
-                                )}
-                                {fin.revenue ? (
-                                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
-                                    ${fin.revenue}/mes
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-                          ))}
+                      {response.updateAccountFinancials && response.updateAccountFinancials.length > 5 && !showBulkReview && (
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setShowBulkReview(true)}
+                            className="text-[11px] text-primary font-bold hover:underline cursor-pointer"
+                          >
+                            ✏️ Editar masivamente en tabla ({response.updateAccountFinancials.length} cuentas) →
+                          </button>
                         </div>
+                      )}
+
+                      {showBulkReview && response.updateAccountFinancials ? (
+                        <BulkReviewTable
+                          entries={response.updateAccountFinancials}
+                          onApply={async (reviewedEntries) => {
+                            setExecutingAction("update_financials");
+                            try {
+                              const res = await applyUpdateAccountFinancialsAction(reviewedEntries as any);
+                              if (res.success) {
+                                setActionSuccessMsg(res.message);
+                                setSavedActions((prev) => ({ ...prev, update_financials: true }));
+                                setCanUndo(true);
+                                setShowBulkReview(false);
+                              } else {
+                                setError(res.message);
+                              }
+                            } finally {
+                              setExecutingAction(null);
+                            }
+                          }}
+                          onCancel={() => setShowBulkReview(false)}
+                          isApplying={executingAction === "update_financials"}
+                        />
+                      ) : (
+                        response.updateAccountFinancials && response.updateAccountFinancials.length > 0 && (
+                          <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                            {response.updateAccountFinancials.map((fin, idx) => (
+                              <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
+                                <div>
+                                  <strong className="text-foreground">{fin.accountName}</strong>
+                                  <p className="text-muted-foreground text-[10px]">
+                                    {fin.pricingModel || "per Service"}
+                                    {fin.hours !== undefined ? ` · ${fin.hours} hrs` : ""}
+                                    {fin.cleanerName ? ` · ${fin.cleanerName}` : ""}
+                                    {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  {fin.ratePerService !== undefined && fin.ratePerService !== null && (
+                                    <span className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2 py-0.5 text-[10px] font-bold">
+                                      ${Number(fin.ratePerService).toFixed(2)} / serv
+                                    </span>
+                                  )}
+                                  {fin.revenue ? (
+                                    <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                                      ${fin.revenue}/mes
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
                       )}
                       <Button
                         size="sm"

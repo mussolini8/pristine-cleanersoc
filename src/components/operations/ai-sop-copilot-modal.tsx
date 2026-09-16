@@ -1010,8 +1010,13 @@ export function AiSopCopilotModal({
                           {response.extractedSalesTrack.map((item, i) => {
                             const rev = Number(item.monthlyRevenue) || 0;
                             const cost = Number(item.cleanerCost) || 0;
-                            const profit = item.grossProfit !== undefined ? item.grossProfit : rev - cost;
-                            const margin = item.marginPct !== undefined ? item.marginPct : (rev > 0 ? Math.round((profit / rev) * 100) : 0);
+                            const merchantFee = Math.round(rev * 0.03 * 100) / 100;
+                            const profit = item.grossProfit !== undefined
+                              ? item.grossProfit
+                              : rev - cost - merchantFee;
+                            const margin = item.marginPct !== undefined
+                              ? item.marginPct
+                              : (rev > 0 ? Math.round((profit / rev) * 100) : 0);
                             const days = Array.isArray(item.serviceDays) ? item.serviceDays.join(", ") : item.serviceDays;
 
                             return (

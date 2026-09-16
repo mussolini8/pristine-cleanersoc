@@ -137,6 +137,8 @@ export function SalesTrackClient() {
       const teamEarnings = Number(item.cleanerCost) || 0;
       const hrs = Number(item.hoursPerVisit) || 3.0;
 
+      const merchantFee = Math.round(subTotal * 0.03 * 100) / 100; // ~3% CC processing fee
+
       return computeBookingFormulas({
         clientName: item.clientName,
         city: item.city || "Orange County",
@@ -148,6 +150,8 @@ export function SalesTrackClient() {
         salesTax: 0,
         tip: 0,
         teamEarningsWithoutTips: teamEarnings,
+        merchantFee,
+        stripeFee: 0,
         durationHours: hrs,
         actualHours: hrs,
         status: "completed",

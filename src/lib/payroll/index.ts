@@ -39,7 +39,7 @@ const LUCIA_REVIEW_SETTING: CleanerPaymentSetting = {
   default_pay_rate: null,
   payment_method: "ACH",
   requires_manual_review: true,
-  manual_review_reason: "Confirm final commercial hours before approval.",
+  manual_review_reason: "Steripax: Horas trabajadas se calculan manualmente. Confirmar horas y costo total antes de aprobar.",
   active: true,
 };
 

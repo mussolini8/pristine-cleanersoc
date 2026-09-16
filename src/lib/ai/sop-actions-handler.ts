@@ -1414,9 +1414,14 @@ export async function applyUpdateAccountFinancialsAction(
           payload.cleaner_pay_type = "flat";
         }
         if (payload.cost === undefined) {
-          // If cost was not explicitly specified, calculate monthly cost
-          const visits = getVisitsPerMonth(upd.frequency || "Weekly");
-          payload.cost = Number((upd.ratePerService * visits).toFixed(2));
+          if (normLower.includes("steripax")) {
+            // Regla Steripax: Horas trabajadas se calculan manualmente y en base a eso el costo total
+            payload.cost = 3386.06;
+          } else {
+            // If cost was not explicitly specified, calculate monthly cost
+            const visits = getVisitsPerMonth(upd.frequency || "Weekly");
+            payload.cost = Number((upd.ratePerService * visits).toFixed(2));
+          }
         }
         if (!payload.pricing_model) payload.pricing_model = "per Service";
         localRateMap[canonicalName.toLowerCase()] = upd.ratePerService;
@@ -1601,7 +1606,7 @@ export async function applyBulkHourlyRateUpdateAction(
   try {
     const supabase = createClient();
     const hourlyRate = bulk.hourlyRate || 18;
-    const exclusions = (bulk.excludedAccounts || ["mama", "green leaf"]).map((e) => e.toLowerCase());
+    const exclusions = (bulk.excludedAccounts || ["mama", "green leaf", "steripax"]).map((e) => e.toLowerCase());
 
     const updatedAccounts: string[] = [];
     const localRateMap: Record<string, number> = {};
@@ -1919,6 +1924,37 @@ export async function applyUniversalSupremeAction(
     if (res.message) executedActions.push(res.message);
   }
 
+  // 14. Residential Modifications
+  if (response.residentialModifications && response.residentialModifications.length > 0) {
+    const res = await applyResidentialModificationsAction(response.residentialModifications);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 15. Payroll Action
+  if (response.payrollAction) {
+    const res = await applyPayrollAction(response.payrollAction);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // 16. Payment Modifications
+  if (response.paymentModifications && response.paymentModifications.length > 0) {
+    const res = await applyPaymentModificationsAction(response.paymentModifications);
+    if (res.message) executedActions.push(res.message);
+  }
+
+  // Log Copilot Action to audit table
+  const finalMessage = executedActions.length > 0
+    ? `⚡ Poder Supremo Ejecutado con Éxito:\n${executedActions.join("\n")}`
+    : "Todos los cambios fueron aplicados al sistema con Poder Supremo.";
+
+  await logCopilotAction({
+    actionType: response.actionType || "universal_supreme",
+    intent: response.intent || "modify_sop",
+    payload: response,
+    result: finalMessage,
+    success: true,
+  });
+
   // Final event broadcast
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
@@ -1929,9 +1965,253 @@ export async function applyUniversalSupremeAction(
 
   return {
     success: true,
-    message: executedActions.length > 0
-      ? `⚡ Poder Supremo Ejecutado con Éxito:\n${executedActions.join("\n")}`
-      : "Todos los cambios fueron aplicados al sistema con Poder Supremo.",
+    message: finalMessage,
   };
+}
+
+export async function logCopilotAction({
+  conversationId,
+  prompt,
+  actionType,
+  intent,
+  payload,
+  snapshotBefore,
+  result,
+  success = true,
+  durationMs,
+}: {
+  conversationId?: string;
+  prompt?: string;
+  actionType?: string;
+  intent?: string;
+  payload?: any;
+  snapshotBefore?: any;
+  result?: string;
+  success?: boolean;
+  durationMs?: number;
+}): Promise<void> {
+  try {
+    const supabase = createClient();
+    await supabase.from("copilot_action_log").insert({
+      conversation_id: conversationId || null,
+      prompt: prompt || null,
+      action_type: actionType || null,
+      intent: intent || null,
+      payload: payload || null,
+      snapshot_before: snapshotBefore || null,
+      result: result || null,
+      success,
+      duration_ms: durationMs || null,
+    });
+  } catch (err) {
+    console.warn("[Copilot Action Log] Non-fatal log failure:", err);
+  }
+}
+
+export async function reverseLastCopilotAction(logId?: string): Promise<SopActionResult> {
+  const supabase = createClient();
+  try {
+    let query = supabase
+      .from("copilot_action_log")
+      .select("*")
+      .eq("success", true)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (logId) {
+      query = supabase.from("copilot_action_log").select("*").eq("id", logId).limit(1);
+    }
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) {
+      return { success: false, message: "No se encontró registro previo para revertir." };
+    }
+
+    const log = data[0];
+    const snapshot = log.snapshot_before;
+    if (!snapshot) {
+      return { success: false, message: "El registro no cuenta con snapshot previo para restaurar." };
+    }
+
+    const restored: string[] = [];
+
+    if (snapshot.commercial_accounts && Array.isArray(snapshot.commercial_accounts)) {
+      for (const acc of snapshot.commercial_accounts) {
+        if (!acc.id) continue;
+        await supabase.from("commercial_accounts").upsert(acc);
+        restored.push(`Cuenta: ${acc.name}`);
+      }
+    }
+
+    if (snapshot.schedule_rules && Array.isArray(snapshot.schedule_rules)) {
+      for (const rule of snapshot.schedule_rules) {
+        if (!rule.id) continue;
+        await supabase.from("commercial_account_schedule_rules").upsert(rule);
+        restored.push(`Regla horario: ${rule.assigned_cleaner_name || rule.day_of_week}`);
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+    }
+
+    return {
+      success: true,
+      message: `↩ Cambio revertido con éxito (${log.action_type || "acción"}). Restaurado:\n${restored.join(", ") || "estado previo"}`,
+    };
+  } catch (err: any) {
+    return { success: false, message: `Error al revertir: ${err?.message}` };
+  }
+}
+
+export async function applyResidentialModificationsAction(
+  mods: {
+    accountName: string;
+    action: "create" | "update" | "deactivate" | "log_work";
+    teamName?: string;
+    scheduledHours?: number;
+    frequency?: string;
+    dayOfWeek?: string;
+    workDate?: string;
+    hoursWorked?: number;
+    notes?: string;
+    city?: string;
+  }[]
+): Promise<SopActionResult> {
+  const supabase = createClient();
+  const results: string[] = [];
+
+  for (const m of mods) {
+    try {
+      if (m.action === "log_work") {
+        const { error } = await supabase.from("residential_work_logs").insert({
+          account_name: m.accountName,
+          team_name: m.teamName || "Equipo Residencial",
+          work_date: m.workDate || new Date().toISOString().split("T")[0],
+          hours_worked: m.hoursWorked || m.scheduledHours || 3.0,
+          notes: m.notes || "Registrado por Copiloto SOP",
+          status: "pending",
+        });
+        if (error) throw error;
+        results.push(`✓ Trabajo residencial registrado: ${m.accountName} (${m.hoursWorked || 3}h) por ${m.teamName || "Equipo"}`);
+      } else if (m.action === "create" || m.action === "update") {
+        const payload: Record<string, any> = {
+          account_name: m.accountName,
+          active: true,
+          scheduled_hours: m.scheduledHours || 3.0,
+          frequency: m.frequency || "weekly",
+          assigned_team_name: m.teamName || "Carlos Lopez",
+        };
+        if (m.dayOfWeek) payload.day_of_week = m.dayOfWeek;
+        if (m.city) payload.city = m.city;
+        if (m.notes) payload.notes = m.notes;
+
+        const { error } = await supabase.from("residential_recurring_cleaning_accounts").upsert(payload, { onConflict: "account_name" });
+        if (error) throw error;
+        results.push(`✓ Cuenta residencial ${m.action === "create" ? "creada" : "actualizada"}: ${m.accountName}`);
+      } else if (m.action === "deactivate") {
+        const { error } = await supabase
+          .from("residential_recurring_cleaning_accounts")
+          .update({ active: false, deleted_at: new Date().toISOString() })
+          .ilike("account_name", `%${m.accountName}%`);
+        if (error) throw error;
+        results.push(`✓ Cuenta residencial desactivada: ${m.accountName}`);
+      }
+    } catch (e: any) {
+      results.push(`✗ Error en ${m.accountName}: ${e?.message}`);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+  }
+
+  return { success: true, message: results.join("\n") };
+}
+
+export async function applyPayrollAction(action: {
+  action: "generate_period" | "approve_entry" | "add_adjustment" | "close_period";
+  startDate?: string;
+  endDate?: string;
+  periodLabel?: string;
+  cleanerName?: string;
+  accountName?: string;
+  adjustmentType?: string;
+  hoursDelta?: number;
+  amountDelta?: number;
+  reason?: string;
+  entryId?: string;
+}): Promise<SopActionResult> {
+  const supabase = createClient();
+  try {
+    if (action.action === "approve_entry" && action.entryId) {
+      const { error } = await supabase
+        .from("commercial_payroll_entries")
+        .update({ status: "approved", approved_at: new Date().toISOString() })
+        .eq("id", action.entryId);
+      if (error) throw error;
+      return { success: true, message: `✓ Entrada de nómina aprobada (${action.entryId}).` };
+    }
+
+    if (action.action === "generate_period" && action.startDate && action.endDate) {
+      const label = action.periodLabel || `${action.startDate} al ${action.endDate}`;
+      const { data: period, error } = await supabase
+        .from("commercial_pay_periods")
+        .insert({
+          start_date: action.startDate,
+          end_date: action.endDate,
+          label,
+          status: "draft",
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return { success: true, message: `✓ Período de nómina creado: ${label} (ID: ${period.id}).` };
+    }
+
+    return { success: true, message: `Acción de nómina procesada (${action.action}).` };
+  } catch (err: any) {
+    return { success: false, message: `Error en nómina: ${err?.message}` };
+  }
+}
+
+export async function applyPaymentModificationsAction(
+  mods: {
+    cleanerName: string;
+    monthKey?: string;
+    weekIndex?: number;
+    amount?: number;
+    status?: "pending" | "verified" | "paid";
+    notes?: string;
+    paymentType?: string;
+  }[]
+): Promise<SopActionResult> {
+  const supabase = createClient();
+  const results: string[] = [];
+
+  for (const m of mods) {
+    try {
+      const { error } = await supabase.from("payment_entries").insert({
+        cleaner_name: m.cleanerName,
+        month_key: m.monthKey || new Date().toISOString().slice(0, 7),
+        week_index: m.weekIndex ?? 1,
+        payment_amount: m.amount || 0,
+        status: m.status || "pending",
+        notes: m.notes || "Creado por Copiloto SOP",
+        payment_type: m.paymentType || "commercial",
+      });
+      if (error) throw error;
+      results.push(`✓ Pago registrado para ${m.cleanerName}: $${m.amount || 0} (${m.status || "pending"})`);
+    } catch (e: any) {
+      results.push(`✗ Error en pago para ${m.cleanerName}: ${e?.message}`);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+  }
+
+  return { success: true, message: results.join("\n") };
 }
 
