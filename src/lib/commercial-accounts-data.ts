@@ -407,8 +407,9 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     hours: 1.5,
     frequency: "4x per week",
     revenue: 1060,
-    cost: 467.91,
-    rate_per_service: 27,
+    // Cost derived from schedule_rules: (1.5h×3 days + 3h×1 day) × $18/h × 4.33 = $584.55
+    cost: 584.55,
+    rate_per_service: null, // Variable by day — driven by schedule_rules, not a single flat rate
     payment_method: "Credit card",
     contract_start: "2026-03-01",
     contract_end: null,
@@ -424,7 +425,7 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
       { day_of_week: 1, paid_hours: 1.5, assigned_cleaner_name: "Kassandra Valentin", notes: "Monday" },
       { day_of_week: 2, paid_hours: 1.5, assigned_cleaner_name: "Kassandra Valentin", notes: "Tuesday" },
       { day_of_week: 3, paid_hours: 1.5, assigned_cleaner_name: "Kassandra Valentin", notes: "Wednesday" },
-      { day_of_week: 4, paid_hours: 1.5, assigned_cleaner_name: "Kassandra Valentin", notes: "Thursday" },
+      { day_of_week: 4, paid_hours: 3,   assigned_cleaner_name: "Kassandra Valentin", notes: "Thursday — floor mopping (3h)" },
     ]
   },
   {
@@ -542,8 +543,10 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     hours: 3,
     frequency: "3x per week",
     revenue: 1100,
-    cost: 702,
-    rate_per_service: 54,
+    // Cost locked — Saturday varies by calendar week (not uniform weekly):
+    // Mon+Thu: 3h × 2 × 4.33 × $18 = $467.64 | Sat: (5+3+5+3)h × $18 = $288 → $755.64
+    cost: 755.64,
+    rate_per_service: null, // Variable by Saturday type — driven by named exception, not flat rate
     payment_method: "Credit card",
     contract_start: "2026-06-12",
     contract_end: null,
@@ -558,7 +561,8 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     schedule_rules: [
       { day_of_week: 1, paid_hours: 3, assigned_cleaner_name: "Luz Uribe", notes: "Monday 9:00 PM" },
       { day_of_week: 4, paid_hours: 3, assigned_cleaner_name: "Luz Uribe", notes: "Thursday 9:00 PM" },
-      { day_of_week: 6, paid_hours: 3, assigned_cleaner_name: "Luz Uribe", notes: "Saturday 9:00 PM (Training room, flooring & mirrors only. 1st & 3rd Sat: steam clean pilates mats +2h)" },
+      { day_of_week: 6, paid_hours: 3, assigned_cleaner_name: "Luz Uribe", notes: "Saturday 2nd & 4th — training room, flooring & mirrors (3h)" },
+      { day_of_week: 6, paid_hours: 5, frequency_type: "biweekly", assigned_cleaner_name: "Luz Uribe", notes: "Saturday 1st & 3rd — pilates mat steam clean, 5h total" },
     ]
   },
   {

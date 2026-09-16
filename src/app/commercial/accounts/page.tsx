@@ -32,6 +32,13 @@ import { displayDate } from "@/lib/dates/periods";
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 
 // ─────────────────────────────────────────────
+type AccountScheduleRule = {
+  day_of_week: number;
+  paid_hours: number;
+  assigned_cleaner_name?: string | null;
+  notes?: string | null;
+};
+
 type Account = {
   id: string;
   name: string;
@@ -60,6 +67,8 @@ type Account = {
   estimated_fill_date?: string | null;
   supplies_notes: string | null;
   source_sheet?: string | null;
+  /** Per-day schedule rules. When hours differ across days, cost is derived from these rules. */
+  schedule_rules?: AccountScheduleRule[] | null;
 };
 
 type CleanerChartDatum = {
@@ -228,7 +237,7 @@ function numericHours(value?: Account["hours"] | undefined) {
   return typeof value === "number" ? value : Number(value) || 0;
 }
 
-function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type" | "cleaner_hourly_rate" | "cleaner_flat_rate" | "rate_per_service" | "frequency">) {
+function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type" | "cleaner_hourly_rate" | "cleaner_flat_rate" | "rate_per_service" | "frequency" | "schedule_rules">) {
   const visits = getVisitsPerMonth(account.frequency);
   const norm = (account as any).name?.toLowerCase() || "";
   if (norm.includes("mama")) {
@@ -242,6 +251,26 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
   if (norm.includes("steripax")) {
     // Regla Steripax: Las horas trabajadas se calculan MANUALMENTE y en base a eso se calcula el costo total
     return account.cost ?? 3386.06;
+  }
+  if (norm.includes("moxi3") && norm.includes("costa mesa")) {
+    // Moxi3 Costa Mesa: Saturday varies by calendar week — 1st & 3rd Saturday = 5h (pilates mat steam clean),
+    // 2nd & 4th = 3h. Can't be expressed as a uniform weekly rate, so cost is fixed manually:
+    // Mon+Thu: 3h × 2 × 4.33 × $18 = $467.64 | Sat: (5+5+3+3)h × $18 = $288 → total $755.64
+    return account.cost ?? 755.64;
+  }
+  // General rule: accounts with schedule_rules that have non-uniform paid_hours per day
+  // (e.g. 1.5h Mon-Wed, 3h Thu). Weekly labor is summed from rules × 4.33 instead of
+  // rate_per_service × total-visits, which would ignore the day-level variation.
+  const scheduleRules = account.schedule_rules;
+  if (scheduleRules && scheduleRules.length > 0) {
+    const uniqueHours = new Set(scheduleRules.map(r => r.paid_hours));
+    if (uniqueHours.size > 1) {
+      const hourlyRate = (account.cleaner_hourly_rate != null && account.cleaner_hourly_rate > 0)
+        ? account.cleaner_hourly_rate
+        : 18;
+      const weeklyLaborCost = scheduleRules.reduce((sum, r) => sum + r.paid_hours * hourlyRate, 0);
+      return Number((weeklyLaborCost * 4.33).toFixed(2));
+    }
   }
   const perServiceRate = account.rate_per_service ?? account.cleaner_flat_rate;
   if (perServiceRate !== null && perServiceRate !== undefined && perServiceRate > 0) {
@@ -337,8 +366,8 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const isGreenLeaf = norm.includes("green leaf");
     const isSteripax = norm.includes("steripax");
     const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
-    const hours = isMoxi3CM ? 3 : numericHours(base.hours);
-    const isExcluded = isMamas || isGreenLeaf || isSteripax;
+    const hours = numericHours(base.hours);
+    const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM;
     const ratePerService = isMamas
       ? 200
       : isGreenLeaf
@@ -347,6 +376,10 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const visits = getVisitsPerMonth(base.frequency);
     const cost = isSteripax
       ? (base.cost || 3386.06)
+      : isMoxi3CM
+      // Moxi3 CM cost is locked: 1st & 3rd Sat = 5h mat clean, 2nd & 4th = 3h
+      // Mon+Thu: 3h × 2 × 4.33 × $18 = $467.64 | Sat: 16h × $18 = $288 → $755.64
+      ? 755.64
       : (base.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
     const revenue = base.revenue ?? null;
     const qcCost = base.qc_monthly_cost ?? 0;
