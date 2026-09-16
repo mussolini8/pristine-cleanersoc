@@ -1667,6 +1667,35 @@ export function QCInspectorClient() {
             check_out_longitude: checkOutLng,
           })
           .eq("id", activeInspection.inspection_id);
+
+        // ── Sync last_qcc_date on commercial_accounts ──────────────
+        const todayDate = new Date().toISOString().split("T")[0];
+        const normName = (activeInspection.account_name ?? "").toLowerCase().trim();
+        if (normName) {
+          const { data: matchedAccts } = await supabase
+            .from("commercial_accounts")
+            .select("id, name, last_qcc_date")
+            .ilike("name", `%${normName.split(" ").slice(0, 2).join("%")}%`)
+            .limit(5);
+
+          if (matchedAccts && matchedAccts.length > 0) {
+            const best = matchedAccts.find((a: any) =>
+              a.name.toLowerCase().includes(normName) ||
+              normName.includes(a.name.toLowerCase().substring(0, 6))
+            ) ?? matchedAccts[0];
+
+            await supabase
+              .from("commercial_accounts")
+              .update({ last_qcc_date: todayDate, updated_at: new Date().toISOString() })
+              .eq("id", best.id);
+          }
+        }
+
+        // Fire refresh events for accounts page
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+          window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+        }
       }
 
       setToast(`Inspection submitted! Score: ${score}% (${grade})`);

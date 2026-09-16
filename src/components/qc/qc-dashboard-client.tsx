@@ -1213,6 +1213,20 @@ function ScheduleInspectionModal({
 
       if (dbErr) throw dbErr;
 
+      // ── Sync last_qcc_date on commercial_accounts for one-off QC dates ──
+      if (frequency === "one_off" && date && acctId) {
+        await supabase
+          .from("commercial_accounts")
+          .update({ last_qcc_date: date, updated_at: new Date().toISOString() })
+          .eq("id", acctId);
+
+        // Fire refresh events so the accounts table updates live
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+          window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+        }
+      }
+
       onSaved(data as QCSchedule);
       onClose();
       // Reset form

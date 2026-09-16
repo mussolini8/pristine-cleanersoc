@@ -583,23 +583,11 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
           color: profit >= 0 ? "hsl(142 76% 30%)" : "hsl(0 84% 50%)" }}>
           ${profit.toFixed(2)}
         </td>
-
-        {/* Actions */}
-        <td className="acc-cell" style={{ width: 80 }}>
-          <div className="row-actions">
-            <button className="action-btn edit-btn" onClick={() => onEdit(acc)} aria-label="Edit account">
-              <Edit2 size={13} />
-            </button>
-            <button className="action-btn delete-btn" onClick={() => onDelete(acc)} aria-label="Delete account">
-              <Trash2 size={13} />
-            </button>
-          </div>
-        </td>
       </tr>
 
       {expanded && (
         <tr style={{ background: "hsl(var(--muted)/.3)", borderBottom: "2px solid hsl(var(--primary)/.3)" }}>
-          <td colSpan={12}>
+          <td colSpan={11}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14, padding: "14px 20px" }}>
               {[
                 ["Pricing Model", acc.pricing_model],
@@ -1941,19 +1929,18 @@ export default function CommercialPage() {
         .view-tab.active { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
         .table-wrap { overflow-x:auto; scrollbar-gutter:stable; }
 
-        table.main-table { width:100%; min-width:1280px; border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:0.78rem; }
-        table.main-table th:nth-child(1), table.main-table td:nth-child(1) { width:340px; }
-        table.main-table th:nth-child(2), table.main-table td:nth-child(2) { width:190px; }
-        table.main-table th:nth-child(3), table.main-table td:nth-child(3) { width:118px; }
+        table.main-table { width:100%; min-width:1080px; border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:0.78rem; }
+        table.main-table th:nth-child(1), table.main-table td:nth-child(1) { width:300px; }
+        table.main-table th:nth-child(2), table.main-table td:nth-child(2) { width:170px; }
+        table.main-table th:nth-child(3), table.main-table td:nth-child(3) { width:90px; }
         table.main-table th:nth-child(4), table.main-table td:nth-child(4),
         table.main-table th:nth-child(5), table.main-table td:nth-child(5),
-        table.main-table th:nth-child(7), table.main-table td:nth-child(7) { width:136px; }
-        table.main-table th:nth-child(6), table.main-table td:nth-child(6) { width:92px; }
-        table.main-table th:nth-child(8), table.main-table td:nth-child(8) { width:170px; }
+        table.main-table th:nth-child(7), table.main-table td:nth-child(7) { width:108px; }
+        table.main-table th:nth-child(6), table.main-table td:nth-child(6) { width:76px; }
+        table.main-table th:nth-child(8), table.main-table td:nth-child(8) { width:140px; }
         table.main-table th:nth-child(9), table.main-table td:nth-child(9),
         table.main-table th:nth-child(10), table.main-table td:nth-child(10),
-        table.main-table th:nth-child(11), table.main-table td:nth-child(11) { width:100px; }
-        table.main-table th:nth-child(12), table.main-table td:nth-child(12) { width:74px; }
+        table.main-table th:nth-child(11), table.main-table td:nth-child(11) { width:88px; }
         table.main-table thead th { padding:10px 12px; text-align:left; font-size:0.68rem;
           font-weight:700; text-transform:uppercase; letter-spacing:.05em;
           color:hsl(var(--muted-foreground)); background:hsl(var(--muted)/.48);
@@ -2201,7 +2188,6 @@ export default function CommercialPage() {
                     <th style={{ textAlign: "right" }}>Revenue</th>
                     <th style={{ textAlign: "right" }}>Cost</th>
                     <th style={{ textAlign: "right" }}>Profit</th>
-                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2294,6 +2280,25 @@ export default function CommercialPage() {
                     cost: match.newCleanerCost !== undefined ? match.newCleanerCost : (newRate !== undefined ? newRate : acc.cost),
                     supplies_notes: match.notes ? `${acc.supplies_notes ? `${acc.supplies_notes}; ` : ""}${match.notes}` : acc.supplies_notes,
                   };
+                });
+              });
+            }
+            // QC batch: optimistically update last_qcc_date in table
+            if (fullResp.qcScheduleBatch && fullResp.qcScheduleBatch.length > 0) {
+              setAccounts((prev) => {
+                return prev.map((acc) => {
+                  const match = fullResp.qcScheduleBatch?.find((q) =>
+                    acc.name.toLowerCase().includes(q.accountName.toLowerCase()) ||
+                    q.accountName.toLowerCase().includes(acc.name.toLowerCase().substring(0, 6))
+                  );
+                  if (!match) return acc;
+                  // Use the most recent date if multiple QC entries match
+                  const newDate = match.date;
+                  const existingDate = acc.last_qcc_date;
+                  if (!existingDate || newDate > existingDate) {
+                    return { ...acc, last_qcc_date: newDate };
+                  }
+                  return acc;
                 });
               });
             }

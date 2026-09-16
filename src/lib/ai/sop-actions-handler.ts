@@ -1284,16 +1284,59 @@ export async function applyQcScheduleBatchAction(
       if (!error) {
         count++;
         details.push(`${item.accountName} [${item.date} ${item.time || ""}] → ${inspector.name}`);
+
+        // ── Sync last_qcc_date on commercial_accounts ──────────────
+        // Find the account by name (fuzzy match) and update its last_qcc_date
+        const normAccName = item.accountName.toLowerCase().trim();
+        const { data: matchedAccounts } = await supabase
+          .from("commercial_accounts")
+          .select("id, name, last_qcc_date")
+          .ilike("name", `%${normAccName.split(" ").slice(0, 2).join("%")}%`)
+          .limit(5);
+
+        if (matchedAccounts && matchedAccounts.length > 0) {
+          // Pick the best match
+          const best = matchedAccounts.find((a: any) =>
+            a.name.toLowerCase().includes(normAccName) ||
+            normAccName.includes(a.name.toLowerCase().substring(0, 6))
+          ) ?? matchedAccounts[0];
+
+          // Only update if the new date is more recent or not yet set
+          const existingDate = best.last_qcc_date;
+          const shouldUpdate = !existingDate || item.date > existingDate;
+          if (shouldUpdate) {
+            await supabase
+              .from("commercial_accounts")
+              .update({ last_qcc_date: item.date, updated_at: new Date().toISOString() })
+              .eq("id", best.id);
+
+            // Also patch the localStorage cache if available
+            if (typeof window !== "undefined") {
+              try {
+                const key = "pristine_commercial_accounts";
+                const stored = localStorage.getItem(key);
+                if (stored) {
+                  const cached: any[] = JSON.parse(stored);
+                  const updated = cached.map((a: any) =>
+                    a.id === best.id ? { ...a, last_qcc_date: item.date } : a
+                  );
+                  localStorage.setItem(key, JSON.stringify(updated));
+                }
+              } catch {}
+            }
+          }
+        }
       }
     }
 
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+      window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
     }
 
     return {
       success: true,
-      message: `Se programaron ${count} inspecciones de Control de Calidad exitosamente:\n${details.join("\n")}`,
+      message: `Se registraron ${count} inspecciones de Control de Calidad y se actualizó la fecha de "Last QC Check" en las cuentas correspondientes:\n${details.join("\n")}`,
       data: { count },
     };
   } catch (err: any) {
