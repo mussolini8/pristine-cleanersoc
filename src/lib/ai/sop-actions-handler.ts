@@ -305,6 +305,10 @@ export async function applyAddStaffAction(
         .single();
 
       if (!error && data) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+          window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+        }
         return {
           success: true,
           message: `Personal añadido exitosamente: ${staff.name} ($${staff.hourlyRate || 20}/hr) como ${staff.role}.`,
@@ -319,6 +323,11 @@ export async function applyAddStaffAction(
     const newStaff = { id: `staff-${Date.now()}`, ...staffData };
     existing.unshift(newStaff);
     localStorage.setItem("pristine_staff_members", JSON.stringify(existing));
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+      window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+    }
 
     return {
       success: true,
@@ -717,14 +726,73 @@ export async function applySopModificationsAction(
           accountId = accounts[0].id;
           accountName = accounts[0].name;
 
-          if (mod.action === "delete_permanently") {
-            await supabase.from("commercial_account_schedule_rules").delete().eq("commercial_account_id", accountId);
-            await supabase.from("commercial_accounts").delete().eq("id", accountId);
+          if (mod.action === "delete_permanently" || mod.action === "delete_account") {
+            try {
+              await supabase.from("commercial_account_schedule_rules").delete().eq("commercial_account_id", accountId);
+              await supabase.from("commercial_accounts").delete().eq("id", accountId);
+              await supabase.from("commercial_accounts").delete().ilike("name", canonicalAccName);
+            } catch (e) {
+              console.warn("Supabase delete notice:", e);
+            }
+
+            if (typeof window !== "undefined") {
+              const delKey = "pristine_deleted_commercial_accounts";
+              const rawDel = localStorage.getItem(delKey) || "[]";
+              let delList: string[] = [];
+              try { delList = JSON.parse(rawDel); } catch {}
+              const modAccNorm = (mod.accountName || "").toLowerCase().trim();
+              delList.push(canonicalAccName.toLowerCase().trim());
+              if (modAccNorm) delList.push(modAccNorm);
+              if (accountId) delList.push(accountId);
+              localStorage.setItem(delKey, JSON.stringify(Array.from(new Set(delList))));
+
+              const commKey = "pristine_commercial_accounts";
+              const rawComm = localStorage.getItem(commKey);
+              if (rawComm) {
+                const commList = JSON.parse(rawComm);
+                const nextComm = commList.filter((a: any) =>
+                  a.id !== accountId &&
+                  (a.name || "").toLowerCase().trim() !== canonicalAccName.toLowerCase().trim() &&
+                  (!modAccNorm || (a.name || "").toLowerCase().trim() !== modAccNorm)
+                );
+                localStorage.setItem(commKey, JSON.stringify(nextComm));
+              }
+              window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+              window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+            }
+
             appliedSupabase = true;
-            results.push(`"${accountName}" fue eliminada permanentemente del sistema.`);
+            results.push(`"${accountName}" fue eliminada completamente del sistema.`);
             continue;
           }
         } else {
+          if (mod.action === "delete_permanently" || mod.action === "delete_account") {
+            if (typeof window !== "undefined") {
+              const delKey = "pristine_deleted_commercial_accounts";
+              const rawDel = localStorage.getItem(delKey) || "[]";
+              let delList: string[] = [];
+              try { delList = JSON.parse(rawDel); } catch {}
+              const modAccNorm = (mod.accountName || "").toLowerCase().trim();
+              delList.push(canonicalAccName.toLowerCase().trim());
+              if (modAccNorm) delList.push(modAccNorm);
+              localStorage.setItem(delKey, JSON.stringify(Array.from(new Set(delList))));
+
+              const commKey = "pristine_commercial_accounts";
+              const rawComm = localStorage.getItem(commKey);
+              if (rawComm) {
+                const commList = JSON.parse(rawComm);
+                const nextComm = commList.filter((a: any) =>
+                  (a.name || "").toLowerCase().trim() !== canonicalAccName.toLowerCase().trim() &&
+                  (!modAccNorm || (a.name || "").toLowerCase().trim() !== modAccNorm)
+                );
+                localStorage.setItem(commKey, JSON.stringify(nextComm));
+              }
+              window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+              window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+            }
+            results.push(`"${canonicalAccName}" fue eliminada del sistema.`);
+            continue;
+          }
           // If not in commercial_accounts yet, check importedCommercialAccounts or create brand new
           const imp = importedCommercialAccounts.find(
             (a) =>

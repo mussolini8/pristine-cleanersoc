@@ -256,7 +256,12 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
     // Moxi3 Costa Mesa: Saturday varies by calendar week — 1st & 3rd Saturday = 5h (pilates mat steam clean),
     // 2nd & 4th = 3h. Can't be expressed as a uniform weekly rate, so cost is fixed manually:
     // Mon+Thu: 3h × 2 × 4.33 × $18 = $467.64 | Sat: (5+5+3+3)h × $18 = $288 → total $755.64
-    return account.cost ?? 755.64;
+    return 755.64;
+  }
+  if (norm.includes("macarthur") || norm.includes("mac arthur")) {
+    // MacArthur Dental Arts: Mon-Wed: 1.5h, Thu: 3h (floor mopping)
+    // Weekly labor: (1.5*3 + 3*1) = 7.5h * $18 = $135/wk * 4.33 = $584.55
+    return 584.55;
   }
   // General rule: accounts with schedule_rules that have non-uniform paid_hours per day
   // (e.g. 1.5h Mon-Wed, 3h Thu). Weekly labor is summed from rules × 4.33 instead of
@@ -298,16 +303,24 @@ function toAccount(account: ImportedCommercialAccount): Account {
   const isMamas = norm.includes("mama");
   const isGreenLeaf = norm.includes("green leaf");
   const isSteripax = norm.includes("steripax");
+  const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
+  const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
   const hours = numericHours(account.hours);
   const visits = getVisitsPerMonth(account.frequency);
-  const isExcluded = isMamas || isGreenLeaf || isSteripax;
+  const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
   const ratePerService = isMamas
     ? 200
     : isGreenLeaf
     ? 119
+    : isMoxi3CM || isMacArthur
+    ? null
     : (account.rate_per_service ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
   const cost = isSteripax
     ? (account.cost ?? 3386.06)
+    : isMoxi3CM
+    ? 755.64
+    : isMacArthur
+    ? 584.55
     : (account.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
   const revenue = account.revenue ?? null;
   const qcCost = (account as any).qc_monthly_cost ?? 0;
@@ -333,9 +346,35 @@ function isAssignedAccount(account: Pick<Account, "cleaner_name">) {
 }
 
 function mergeImportedAccounts(remoteAccounts: Account[]) {
+  // Read deleted keys/ids from localStorage
+  const deletedKeys = new Set<string>();
+  try {
+    if (typeof window !== "undefined") {
+      const storedDeleted = localStorage.getItem("pristine_deleted_commercial_accounts");
+      if (storedDeleted) {
+        const parsed = JSON.parse(storedDeleted);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((k: string) => {
+            if (k) deletedKeys.add(String(k).toLowerCase().trim());
+          });
+        }
+      }
+    }
+  } catch {}
+
+  const isDeleted = (acc: { id?: string | null; name?: string | null }) => {
+    if (deletedKeys.size === 0) return false;
+    if (acc.id && deletedKeys.has(acc.id.toLowerCase().trim())) return true;
+    if (acc.name && deletedKeys.has(acc.name.toLowerCase().trim())) return true;
+    if (deletedKeys.has(normalizeAccountKey(acc as Account).toLowerCase().trim())) return true;
+    return false;
+  };
+
   const importedMap = new Map<string, Account>();
   for (const imported of importedCommercialAccounts.map(toAccount)) {
-    importedMap.set(normalizeAccountKey(imported), imported);
+    if (!isDeleted(imported)) {
+      importedMap.set(normalizeAccountKey(imported), imported);
+    }
   }
 
   let localCustomAccounts: Account[] = [];
@@ -352,26 +391,33 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
   const seenKeys = new Set<string>();
   const localMap = new Map<string, Account>();
   for (const localAcc of localCustomAccounts) {
-    localMap.set(normalizeAccountKey(localAcc), localAcc);
+    if (!isDeleted(localAcc)) {
+      localMap.set(normalizeAccountKey(localAcc), localAcc);
+    }
   }
 
   for (const remote of remoteAccounts) {
+    if (isDeleted(remote)) continue;
     const key = normalizeAccountKey(remote);
     seenKeys.add(key);
     const imported = importedMap.get(key);
     const local = localMap.get(key);
-    const base = { ...imported, ...remote, ...local };
+    // Remote DB and imported updates take precedence over stale local cache!
+    const base = { ...local, ...imported, ...remote };
     const norm = (base.name || "").toLowerCase();
     const isMamas = norm.includes("mama");
     const isGreenLeaf = norm.includes("green leaf");
     const isSteripax = norm.includes("steripax");
     const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
+    const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
     const hours = numericHours(base.hours);
-    const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM;
+    const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
     const ratePerService = isMamas
       ? 200
       : isGreenLeaf
       ? 119
+      : (isMoxi3CM || isMacArthur)
+      ? null
       : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
     const visits = getVisitsPerMonth(base.frequency);
     const cost = isSteripax
@@ -380,6 +426,9 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       // Moxi3 CM cost is locked: 1st & 3rd Sat = 5h mat clean, 2nd & 4th = 3h
       // Mon+Thu: 3h × 2 × 4.33 × $18 = $467.64 | Sat: 16h × $18 = $288 → $755.64
       ? 755.64
+      : isMacArthur
+      // MacArthur Dental: Mon-Wed 1.5h, Thu 3h (floor mopping) -> (1.5*3 + 3) = 7.5h/wk * $18 * 4.33 = $584.55
+      ? 584.55
       : (base.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
     const revenue = base.revenue ?? null;
     const qcCost = base.qc_monthly_cost ?? 0;
@@ -406,6 +455,7 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
 
   // Include local custom accounts ONLY if not already present in remote and not an unassigned duplicate
   for (const localAcc of localCustomAccounts) {
+    if (isDeleted(localAcc)) continue;
     const key = normalizeAccountKey(localAcc);
     if (!seenKeys.has(key)) {
       if (isAssignedAccount(localAcc)) {
@@ -417,24 +467,33 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
 
   // Include imported accounts not yet present in remote
   for (const [key, imported] of importedMap) {
+    if (isDeleted(imported)) continue;
     if (!seenKeys.has(key)) {
       seenKeys.add(key);
       const local = localMap.get(key);
-      const base = { ...imported, ...local };
+      const base = { ...local, ...imported };
       const norm = (base.name || "").toLowerCase();
       const isMamas = norm.includes("mama");
       const isGreenLeaf = norm.includes("green leaf");
       const isSteripax = norm.includes("steripax");
+      const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
+      const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
       const hours = numericHours(base.hours);
-      const isExcluded = isMamas || isGreenLeaf || isSteripax;
+      const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
       const ratePerService = isMamas
         ? 200
         : isGreenLeaf
         ? 119
+        : (isMoxi3CM || isMacArthur)
+        ? null
         : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
       const visits = getVisitsPerMonth(base.frequency);
       const cost = isSteripax
         ? (base.cost || 3386.06)
+        : isMoxi3CM
+        ? 755.64
+        : isMacArthur
+        ? 584.55
         : (base.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
       const revenue = base.revenue ?? null;
       const qcCost = base.qc_monthly_cost ?? 0;
@@ -512,6 +571,8 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
   const insuranceCost = Number((realCost * 0.2266).toFixed(2));
   const calculatedProfit = Number(((acc.revenue ?? 0) - realCost - insuranceCost - (acc.qc_monthly_cost ?? 0)).toFixed(2));
   const profit = acc.monthly_gross_profit !== null && acc.monthly_gross_profit !== undefined ? acc.monthly_gross_profit : calculatedProfit;
+  const normName = (acc.name || "").toLowerCase();
+  const isVariableRate = normName.includes("macarthur") || normName.includes("mac arthur") || (normName.includes("moxi3") && normName.includes("costa mesa")) || normName.includes("steripax");
 
   return (
     <>
@@ -567,6 +628,10 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
             ) : acc.cleaner_flat_rate ? (
               <span style={{ fontSize: "0.74rem", color: "hsl(142 76% 36%)", fontWeight: 700, marginTop: 2, display: "inline-block" }}>
                 ${Number(acc.cleaner_flat_rate).toFixed(2)} / serv
+              </span>
+            ) : isVariableRate ? (
+              <span style={{ fontSize: "0.74rem", color: "hsl(var(--muted-foreground))", fontWeight: 600, marginTop: 2, display: "inline-block" }} title="Hours and cost vary by schedule rules">
+                Variable / sched
               </span>
             ) : null}
           </span>
@@ -679,7 +744,7 @@ function emptyScheduleRule(accountId: string): ScheduleRule {
   };
 }
 
-function ScheduleRulesEditor({ account }: { account: Account }) {
+function ScheduleRulesEditor({ account, cleanerOptions = CLEANERS }: { account: Account; cleanerOptions?: string[] }) {
   const supabase = useMemo(() => createClient(), []);
   const [rules, setRules] = useState<ScheduleRule[]>([]);
   const [loadingRules, setLoadingRules] = useState(true);
@@ -877,7 +942,7 @@ function ScheduleRulesEditor({ account }: { account: Account }) {
                 <label className="studio-field"><span>Start time</span><input type="time" value={rule.start_time ?? ""} onChange={(event) => updateRule(index, { start_time: event.target.value || null })} /></label>
                 <label className="studio-field"><span>End time</span><input type="time" value={rule.end_time ?? ""} onChange={(event) => updateRule(index, { end_time: event.target.value || null })} /></label>
                 <label className="studio-field"><span>Anchor date</span><input type="date" lang="en-US" value={rule.anchor_date ?? ""} onChange={(event) => updateRule(index, { anchor_date: event.target.value || null })} /></label>
-                <label className="studio-field"><span>Cleaner override</span><select value={rule.assigned_cleaner_name ?? ""} onChange={(event) => updateRule(index, { assigned_cleaner_name: event.target.value || null })}>{CLEANERS.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner || "Use account cleaner"}</option>)}</select></label>
+                <label className="studio-field"><span>Cleaner override</span><select value={rule.assigned_cleaner_name ?? ""} onChange={(event) => updateRule(index, { assigned_cleaner_name: event.target.value || null })}>{cleanerOptions.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner || "Use account cleaner"}</option>)}</select></label>
               </div>
               <div className="form-grid three">
                 <label className="studio-field"><span>Effective start</span><input type="date" lang="en-US" value={rule.effective_start_date ?? ""} onChange={(event) => updateRule(index, { effective_start_date: event.target.value || null })} /></label>
@@ -903,6 +968,7 @@ function AccountStudio({
   mode,
   editingAccount,
   draft,
+  cleanerOptions = CLEANERS,
   error,
   notice,
   saving,
@@ -913,6 +979,7 @@ function AccountStudio({
   mode: AccountFormMode;
   editingAccount?: Account | null;
   draft: AccountDraft;
+  cleanerOptions?: string[];
   error: string | null;
   notice: string | null;
   saving: boolean;
@@ -1031,7 +1098,7 @@ function AccountStudio({
             <label className="studio-field">
               <span>Team Assigned</span>
               <select value={draft.cleaner_name ?? ""} onChange={(e) => onChange({ ...draft, cleaner_name: e.target.value || null })}>
-                {CLEANERS.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner || "Unassigned"}</option>)}
+                {cleanerOptions.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner || "Unassigned"}</option>)}
               </select>
             </label>
           </div>
@@ -1306,7 +1373,7 @@ function AccountStudio({
 
           {isEdit && editingAccount ? (
             isPersistedAccount(editingAccount)
-              ? <ScheduleRulesEditor account={editingAccount} />
+              ? <ScheduleRulesEditor account={editingAccount} cleanerOptions={cleanerOptions} />
               : <p className="schedule-note">Save this imported account into the database before adding schedule rules.</p>
           ) : null}
         </div>
@@ -1360,7 +1427,44 @@ export default function CommercialPage() {
   const [accountSearch, setAccountSearch] = useState("");
   const [accountView, setAccountView] = useState<"all" | "needs-qc" | "supplies" | "keys">("all");
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [cleanerOptions, setCleanerOptions] = useState<string[]>(CLEANERS);
   const supabase = useMemo(() => createClient(), []);
+
+  async function loadCleanerNames(currentAccounts: Account[]) {
+    const names = new Set<string>();
+    CLEANERS.forEach((c) => { if (c) names.add(c.trim()); });
+
+    try {
+      const { data: staffData } = await supabase
+        .from("staff_members")
+        .select("name")
+        .order("name");
+      if (staffData) {
+        staffData.forEach((s: any) => {
+          if (s.name && s.name.trim()) names.add(s.name.trim());
+        });
+      }
+    } catch {}
+
+    try {
+      if (typeof window !== "undefined") {
+        const localStaff = JSON.parse(localStorage.getItem("pristine_staff_members") || "[]");
+        if (Array.isArray(localStaff)) {
+          localStaff.forEach((s: any) => {
+            if (s.name && s.name.trim()) names.add(s.name.trim());
+          });
+        }
+      }
+    } catch {}
+
+    currentAccounts.forEach((a) => {
+      if (a.cleaner_name && a.cleaner_name !== "Unassigned" && a.cleaner_name !== "Sin asignar") {
+        names.add(a.cleaner_name.trim());
+      }
+    });
+
+    return ["", ...Array.from(names).sort((a, b) => a.localeCompare(b))];
+  }
 
   useEffect(() => {
     async function loadAccounts() {
@@ -1469,18 +1573,24 @@ export default function CommercialPage() {
               .select("*")
               .order("name");
             if (!refreshError && refreshedData) {
-              setAccounts(mergeImportedAccounts((refreshedData ?? []) as Account[]));
+              const finalAccounts = mergeImportedAccounts((refreshedData ?? []) as Account[]);
+              setAccounts(finalAccounts);
+              loadCleanerNames(finalAccounts).then(setCleanerOptions);
               setLoading(false);
               return;
             }
           }
         }
 
-        setAccounts(mergeImportedAccounts(remoteAccounts));
+        const finalAccounts = mergeImportedAccounts(remoteAccounts);
+        setAccounts(finalAccounts);
+        loadCleanerNames(finalAccounts).then(setCleanerOptions);
         setLoading(false);
       } catch (err) {
         console.error("Error loading accounts:", err);
-        setAccounts(mergeImportedAccounts([]));
+        const fallback = mergeImportedAccounts([]);
+        setAccounts(fallback);
+        loadCleanerNames(fallback).then(setCleanerOptions);
         setLoading(false);
       }
     }
@@ -1490,32 +1600,90 @@ export default function CommercialPage() {
     const handleUpdated = () => {
       refreshAccounts();
     };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "pristine_staff_members" || e.key === "pristine_commercial_accounts" || e.key === "pristine_deleted_commercial_accounts") {
+        refreshAccounts();
+      }
+    };
     window.addEventListener("commercial-accounts-updated", handleUpdated);
     window.addEventListener("pristine:data-updated", handleUpdated);
+    window.addEventListener("storage", handleStorage);
     return () => {
       window.removeEventListener("commercial-accounts-updated", handleUpdated);
       window.removeEventListener("pristine:data-updated", handleUpdated);
+      window.removeEventListener("storage", handleStorage);
     };
   }, [supabase]);
 
   async function refreshAccounts() {
     const { data, error } = await supabase.from("commercial_accounts").select("*").order("name");
-    if (!error) setAccounts(mergeImportedAccounts((data ?? []) as Account[]));
+    const merged = mergeImportedAccounts((data ?? []) as Account[]);
+    setAccounts(merged);
+    loadCleanerNames(merged).then(setCleanerOptions);
   }
 
   async function handleDeleteAccount(account: Account) {
-    if (!isPersistedAccount(account)) {
-      alert("This account is imported from spreadsheet data and cannot be deleted from the database.");
-      return;
-    }
     if (!window.confirm(`Are you sure you want to delete the account "${account.name}"? This action cannot be undone.`)) {
       return;
     }
     try {
-      const { error } = await supabase.from("commercial_accounts").delete().eq("id", account.id);
-      if (error) throw error;
-      setAccounts((current) => current.filter((item) => item.id !== account.id));
-      alert("Account deleted successfully.");
+      // 1. Delete associated schedule rules in Supabase
+      try {
+        await supabase.from("commercial_account_schedule_rules").delete().eq("commercial_account_id", account.id);
+      } catch (e) {
+        console.warn("Schedule rules deletion notice:", e);
+      }
+
+      // 2. Delete commercial account in Supabase (by ID and by name)
+      try {
+        await supabase.from("commercial_accounts").delete().eq("id", account.id);
+        await supabase.from("commercial_accounts").delete().ilike("name", account.name.trim());
+      } catch (e) {
+        console.warn("Supabase account deletion notice:", e);
+      }
+
+      // 3. Persist to deleted accounts list in localStorage
+      try {
+        const delKey = "pristine_deleted_commercial_accounts";
+        const raw = localStorage.getItem(delKey) || "[]";
+        let list: string[] = [];
+        try { list = JSON.parse(raw); } catch {}
+        list.push(
+          normalizeAccountKey(account).toLowerCase().trim(),
+          account.id.toLowerCase().trim(),
+          account.name.toLowerCase().trim()
+        );
+        localStorage.setItem(delKey, JSON.stringify(Array.from(new Set(list))));
+
+        // Purge from pristine_commercial_accounts cache
+        const commKey = "pristine_commercial_accounts";
+        const rawComm = localStorage.getItem(commKey);
+        if (rawComm) {
+          const commList = JSON.parse(rawComm);
+          const nextComm = commList.filter((a: any) =>
+            a.id !== account.id &&
+            normalizeAccountKey(a) !== normalizeAccountKey(account) &&
+            (a.name || "").toLowerCase().trim() !== account.name.toLowerCase().trim()
+          );
+          localStorage.setItem(commKey, JSON.stringify(nextComm));
+        }
+      } catch (storageErr) {
+        console.warn("Local storage update notice:", storageErr);
+      }
+
+      // 4. Update state immediately
+      setAccounts((current) => current.filter((item) =>
+        item.id !== account.id &&
+        normalizeAccountKey(item) !== normalizeAccountKey(account) &&
+        item.name.toLowerCase().trim() !== account.name.toLowerCase().trim()
+      ));
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
+        window.dispatchEvent(new CustomEvent("pristine:data-updated"));
+      }
+
+      alert(`Account "${account.name}" deleted successfully.`);
     } catch (err) {
       alert(`Could not delete account: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -2108,6 +2276,7 @@ export default function CommercialPage() {
               mode={accountFormMode}
               editingAccount={editingAccount}
               draft={newAccount}
+              cleanerOptions={cleanerOptions}
               error={formError}
               notice={formNotice}
               saving={savingNew}
