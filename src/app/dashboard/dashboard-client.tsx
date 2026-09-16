@@ -924,6 +924,7 @@ function ScheduleFilterPopover({
                   <span>Start</span>
                   <input
                     type="date"
+                    lang="en-US"
                     value={draft.rangeStart}
                     aria-label="Schedule range start"
                     onChange={(event) => selectRange("rangeStart", event.target.value)}
@@ -933,6 +934,7 @@ function ScheduleFilterPopover({
                   <span>End</span>
                   <input
                     type="date"
+                    lang="en-US"
                     value={draft.rangeEnd}
                     min={draft.rangeStart || undefined}
                     aria-label="Schedule range end"
@@ -1186,7 +1188,7 @@ function TaskModal({
               </div>
               <div style={{ flex: 1 }}>
                 <label className="field-label">Due Date</label>
-                <input className="field-input" type="date" value={t.due_date}
+                <input className="field-input" type="date" lang="en-US" value={t.due_date}
                   onChange={(e) => setT({ ...t, due_date: e.target.value })} />
               </div>
             </div>

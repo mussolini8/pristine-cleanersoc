@@ -1328,6 +1328,7 @@ function ScheduleInspectionModal({
                 <label className="text-xs font-bold text-muted-foreground uppercase">Specific Date *</label>
                 <input
                   type="date"
+                  lang="en-US"
                   required
                   className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   value={date}

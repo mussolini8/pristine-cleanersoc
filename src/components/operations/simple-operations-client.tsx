@@ -474,9 +474,8 @@ function displayPaymentCity(row: Pick<ResidentialWeeklyPaymentLineRow, "city" | 
 }
 
 function displayShortDate(value: string | null | undefined) {
-  const date = parseDateKey(value);
-  if (!date) return "No date";
-  return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
+  if (!value) return "No date";
+  return displayDate(value);
 }
 
 function monthWindow(value: string) {
@@ -7600,6 +7599,7 @@ function renderHeader() {
                         </label>
                         <input
                           type="date"
+                          lang="en-US"
                           value={scheduleActionDate}
                           onChange={(e) => setScheduleActionDate(e.target.value)}
                           className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"

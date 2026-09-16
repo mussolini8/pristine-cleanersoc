@@ -197,8 +197,8 @@ function toDateInputValue(value: string) {
 function formatDateForExport(value: string) {
   if (!value) return "-";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const [, month, day] = value.split("-");
-  return `${month}/${day}`;
+  const [year, month, day] = value.split("-");
+  return `${month}/${day}/${year}`;
 }
 
 function getMonthDate(offset: number) {
@@ -331,6 +331,7 @@ function DateInput({
     <input
       aria-label={label}
       type="date"
+      lang="en-US"
       value={toDateInputValue(value)}
       onChange={(event) => onChange(event.target.value)}
     />

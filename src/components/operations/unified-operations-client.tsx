@@ -637,8 +637,8 @@ function DateRangeControl({
       </div>
       {preset === "custom" ? (
         <div className="flex flex-wrap items-center gap-2">
-          <input className="h-9 rounded-md border bg-background px-2 text-sm font-bold" type="date" value={customStart} onChange={(event) => onCustomStartChange(event.target.value)} aria-label="Custom start date" />
-          <input className="h-9 rounded-md border bg-background px-2 text-sm font-bold" type="date" value={customEnd} min={customStart || undefined} onChange={(event) => onCustomEndChange(event.target.value)} aria-label="Custom end date" />
+          <input className="h-9 rounded-md border bg-background px-2 text-sm font-bold" type="date" lang="en-US" value={customStart} onChange={(event) => onCustomStartChange(event.target.value)} aria-label="Custom start date" />
+          <input className="h-9 rounded-md border bg-background px-2 text-sm font-bold" type="date" lang="en-US" value={customEnd} min={customStart || undefined} onChange={(event) => onCustomEndChange(event.target.value)} aria-label="Custom end date" />
         </div>
       ) : null}
     </div>
@@ -2503,7 +2503,7 @@ export function UnifiedOperationsClient({ view, envStatus }: { view: UnifiedView
             <label className="grid gap-1 text-sm font-bold">Priority<select className="h-10 rounded-md border bg-background px-3" value={taskDraft.priority} onChange={(event) => setTaskDraft({ ...taskDraft, priority: event.target.value as Priority })}>{Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label className="grid gap-1 text-sm font-bold">Category<input className="h-10 rounded-md border bg-background px-3" value={taskDraft.category} onChange={(event) => setTaskDraft({ ...taskDraft, category: event.target.value })} /></label>
             <label className="grid gap-1 text-sm font-bold">Assigned to<input className="h-10 rounded-md border bg-background px-3" value={taskDraft.assignee} onChange={(event) => setTaskDraft({ ...taskDraft, assignee: event.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">Due date<input className="h-10 rounded-md border bg-background px-3" type="date" value={taskDraft.dueDate} onChange={(event) => setTaskDraft({ ...taskDraft, dueDate: event.target.value })} /></label>
+            <label className="grid gap-1 text-sm font-bold">Due date<input className="h-10 rounded-md border bg-background px-3" type="date" lang="en-US" value={taskDraft.dueDate} onChange={(event) => setTaskDraft({ ...taskDraft, dueDate: event.target.value })} /></label>
           </div>
           <div className="flex flex-wrap gap-3 text-sm font-bold">
             <label className="flex items-center gap-2"><input type="checkbox" checked={taskDraft.notifyOwnerOnCompleted} onChange={(event) => setTaskDraft({ ...taskDraft, notifyOwnerOnCompleted: event.target.checked })} /> Notify owner when completed</label>

@@ -665,7 +665,7 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
 
         {/* Estimated fill */}
         <td className="acc-cell">
-          <span className="date-text">{acc.estimated_fill_date ?? "—"}</span>
+          <span className="date-text">{displayDate(acc.estimated_fill_date)}</span>
         </td>
 
         {/* Keys */}

@@ -318,7 +318,7 @@ function TaskForm({ onCreate, saving }: { onCreate: (draft: DraftTask) => Promis
           <select className="h-10 rounded-md border border-input bg-background px-3 text-sm font-semibold shadow-sm" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as SeoStatus })}>
             {STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
           </select>
-          <Input type="date" value={draft.due_date} onChange={(event) => setDraft({ ...draft, due_date: event.target.value })} />
+          <Input type="date" lang="en-US" value={draft.due_date} onChange={(event) => setDraft({ ...draft, due_date: event.target.value })} />
         </div>
         <select className="h-10 rounded-md border border-input bg-background px-3 text-sm font-semibold shadow-sm" value={draft.assignee} onChange={(event) => setDraft({ ...draft, assignee: event.target.value })}>
           <option>{SEO_ASSIGNEE}</option>

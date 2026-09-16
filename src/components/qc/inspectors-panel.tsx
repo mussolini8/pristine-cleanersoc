@@ -728,6 +728,7 @@ function ScheduleAssignForm({
           </label>
           <Input
             type="date"
+            lang="en-US"
             value={form.effective_start_date}
             onChange={(e) =>
               setForm((f) => ({ ...f, effective_start_date: e.target.value }))
@@ -775,6 +776,7 @@ function ScheduleAssignForm({
             </label>
             <Input
               type="date"
+              lang="en-US"
               value={form.effective_start_date}
               onChange={(e) =>
                 setForm((f) => ({ ...f, effective_start_date: e.target.value }))
@@ -787,6 +789,7 @@ function ScheduleAssignForm({
             </label>
             <Input
               type="date"
+              lang="en-US"
               value={form.effective_end_date}
               onChange={(e) =>
                 setForm((f) => ({ ...f, effective_end_date: e.target.value }))
