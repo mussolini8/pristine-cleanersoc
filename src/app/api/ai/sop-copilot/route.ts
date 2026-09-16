@@ -27,7 +27,7 @@ async function getLiveOperationalDirectory(): Promise<string> {
       supabase
         .from("commercial_accounts")
         .select("id, name, city, cleaner_name, hours, frequency, pricing_model")
-        .is("contract_end", null)
+        .or(`contract_end.is.null,contract_end.gte.${new Date().toISOString().split("T")[0]}`)
         .order("name")
         .limit(150),
       supabase
@@ -184,8 +184,16 @@ export async function POST(req: Request) {
       lowerPrompt.includes("horas trabajo") ||
       lowerPrompt.includes("horas de")
     ) {
-      const knownCleaners = ["Luz Uribe", "Susana", "Lucia Portillo", "Maria", "Ana", "Carlos Lopez", "Juan Romero"];
-      const matchedCleaner = knownCleaners.find((c) => lowerPrompt.includes(c.toLowerCase()));
+      const allKnown = [
+        "Luz Uribe", "Susana Bautista", "Lucia Portillo", "Maria Lopez",
+        "Ana Morales", "Carlos Lopez", "Juan Romero", "Sandra Hernandez",
+        "Lorena Benitez", "Kassandra Valentin", "Vanessa Ortega", "Mirna Contreras",
+        "Esperanza Youseff", "Emmi Guerra"
+      ];
+      const matchedCleaner = allKnown.find((c) =>
+        lowerPrompt.includes(c.toLowerCase()) ||
+        lowerPrompt.includes(c.split(" ")[0].toLowerCase())
+      );
       const today = new Date();
       const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0];
       const todayStr = today.toISOString().split("T")[0];
