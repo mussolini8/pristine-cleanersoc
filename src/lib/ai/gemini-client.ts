@@ -202,6 +202,13 @@ export type SopCopilotResponse = {
     newDays?: string[];
     daysOfWeek?: number[];
     daysToDelete?: number[];
+    /** Per-day schedule rules when hours differ across days (e.g. Mon-Wed 1.5h, Thu 3h) */
+    scheduleRules?: {
+      dayOfWeek: number; // 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday
+      hours: number;
+      cleanerName?: string;
+      notes?: string;
+    }[];
     action?:
       | "update"
       | "update_schedule"
@@ -681,15 +688,28 @@ Core Superpowers and Capabilities:
      ]
    - MANDATORY RULES FOR SCHEDULE MODIFICATIONS & ACTIVATIONS:
      1. ALWAYS specify "daysOfWeek" as an array of weekday integers [0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday].
-     2. When an anchor or start date is given (e.g. '14 de septiembre' -> 2026-09-14), compute its day of the week (2026-09-14 is Monday -> [1]), and ALWAYS set:
+     2. VARIABLE HOURS PER DAY (HORAS VARIABLES POR DÍA):
+        When an account has different hours on different days (e.g. "MacArthur Dental Arts: 1.5 horas lun, mar y mié, y 3 horas los jueves", "lunes y miércoles 2h, viernes 4h"):
+        - ALWAYS populate "scheduleRules" array inside the sopModifications item:
+          "scheduleRules": [
+            { "dayOfWeek": 1, "hours": 1.5, "notes": "Monday 1.5h" },
+            { "dayOfWeek": 2, "hours": 1.5, "notes": "Tuesday 1.5h" },
+            { "dayOfWeek": 3, "hours": 1.5, "notes": "Wednesday 1.5h" },
+            { "dayOfWeek": 4, "hours": 3,   "notes": "Thursday 3h (floor mopping)" }
+          ]
+        - Set "daysOfWeek": [1, 2, 3, 4]
+        - Calculate monthly cost: sum of (hours × $18) per week × 4.33 weeks/month. For MacArthur: (1.5×3 + 3×1) = 7.5h/sem × $18 × 4.33 = $584.55.
+        - Set "newCleanerCost": 584.55
+        - Set "ratePerService": null (do NOT set a single flat rate when hours vary by day)
+     3. When an anchor or start date is given (e.g. '14 de septiembre' -> 2026-09-14), compute its day of the week (2026-09-14 is Monday -> [1]), and ALWAYS set:
         - "daysOfWeek": [1]
         - "newDays": ["lunes"]
         - "anchorDate": "2026-09-14"
         - "effectiveDate": "2026-09-14"
         - "contractStart": "2026-09-14"
         - "contractEnd": "2027-12-31"
-     3. For biweekly cadences ('cada dos semanas', 'every 2 weeks', 'cada 14 días'), ALWAYS set "frequency": "Every 2 weeks".
-     4. NEVER omit "daysOfWeek" when setting a schedule rule.
+     4. For biweekly cadences ('cada dos semanas', 'every 2 weeks', 'cada 14 días'), ALWAYS set "frequency": "Every 2 weeks".
+     5. NEVER omit "daysOfWeek" when setting a schedule rule.
      5. CURRENT CALENDAR CONTEXT:
         - Today is Friday, September 4, 2026 (2026-09-04).
         - Tomorrow ("mañana") is Saturday, September 5, 2026 (2026-09-05). Day of week: 6 (sábado).
@@ -852,6 +872,9 @@ Return ONLY a valid JSON object matching this schema:
       "newHours": number,
       "newDays": ["string"],
       "daysOfWeek": [2, 4, 5],
+      "scheduleRules": [
+        { "dayOfWeek": 1, "hours": 1.5, "notes": "string" }
+      ],
       "newPricing": number,
       "newCleanerCost": number,
       "ratePerService": number,

@@ -834,11 +834,16 @@ export async function applySopModificationsAction(
               sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
               lun: 1, mar: 2, mie: 3, mié: 3, jue: 4, vie: 5, sab: 6, sáb: 6, dom: 0,
             };
-            let targetDays: number[] = mod.daysOfWeek && mod.daysOfWeek.length > 0
-              ? mod.daysOfWeek
-              : (mod.newDays || [])
-                  .map((d) => DAY_MAP[d.toLowerCase().trim()])
-                  .filter((n) => typeof n === "number");
+            let targetDays: number[] = [];
+            if (mod.scheduleRules && mod.scheduleRules.length > 0) {
+              targetDays = mod.scheduleRules.map((r) => r.dayOfWeek);
+            } else if (mod.daysOfWeek && mod.daysOfWeek.length > 0) {
+              targetDays = mod.daysOfWeek;
+            } else {
+              targetDays = (mod.newDays || [])
+                .map((d) => DAY_MAP[d.toLowerCase().trim()])
+                .filter((n) => typeof n === "number");
+            }
 
             // Fallback 1: Derive day of week from anchorDate or effectiveDate
             if (targetDays.length === 0 && anchor) {
@@ -886,8 +891,20 @@ export async function applySopModificationsAction(
             const freqType = isBiweekly ? "biweekly" : (mod.frequency?.toLowerCase().includes("monthly") ? "monthly" : "weekly");
             const freqInterval = isBiweekly ? 2 : 1;
 
-            const hours = typeof mod.newHours === "number" ? mod.newHours : (updateData.hours || 2.5);
-            const cleaner = mod.cleanerName || updateData.cleaner_name || "Sin asignar";
+            const defaultHours = typeof mod.newHours === "number" ? mod.newHours : (updateData.hours || 2.5);
+            const defaultCleaner = mod.cleanerName || updateData.cleaner_name || "Sin asignar";
+
+            // Map day_of_week -> custom scheduleRule if provided
+            const ruleMap = new Map<number, { hours: number; cleanerName?: string; notes?: string }>();
+            if (mod.scheduleRules && mod.scheduleRules.length > 0) {
+              for (const r of mod.scheduleRules) {
+                ruleMap.set(r.dayOfWeek, {
+                  hours: r.hours,
+                  cleanerName: r.cleanerName,
+                  notes: r.notes,
+                });
+              }
+            }
 
             // When specific targetDays are provided, purge obsolete rules for non-selected days!
             if (targetDays.length > 0) {
@@ -942,6 +959,10 @@ export async function applySopModificationsAction(
             }
 
             for (const day of targetDays) {
+              const ruleConfig = ruleMap.get(day);
+              const ruleHours = ruleConfig?.hours ?? defaultHours;
+              const ruleCleaner = ruleConfig?.cleanerName ?? defaultCleaner;
+
               const { data: existingRule } = await supabase
                 .from("commercial_account_schedule_rules")
                 .select("id")
@@ -955,9 +976,9 @@ export async function applySopModificationsAction(
                   .from("commercial_account_schedule_rules")
                   .update({
                     active: true,
-                    paid_hours: hours,
-                    scheduled_hours: hours,
-                    assigned_cleaner_name: cleaner,
+                    paid_hours: ruleHours,
+                    scheduled_hours: ruleHours,
+                    assigned_cleaner_name: ruleCleaner,
                     anchor_date: anchor,
                     effective_start_date: anchor,
                     effective_from: anchor,
@@ -965,6 +986,7 @@ export async function applySopModificationsAction(
                     effective_end_date: null,
                     frequency_type: freqType,
                     frequency_interval: freqInterval,
+                    notes: ruleConfig?.notes || null,
                     updated_at: new Date().toISOString(),
                   })
                   .eq("id", existingRule.id);
@@ -974,17 +996,43 @@ export async function applySopModificationsAction(
                   .insert({
                     commercial_account_id: accountId,
                     day_of_week: day,
-                    paid_hours: hours,
-                    scheduled_hours: hours,
-                    assigned_cleaner_name: cleaner,
+                    paid_hours: ruleHours,
+                    scheduled_hours: ruleHours,
+                    assigned_cleaner_name: ruleCleaner,
                     active: true,
                     frequency_type: freqType,
                     frequency_interval: freqInterval,
                     anchor_date: anchor,
                     effective_start_date: anchor,
                     effective_from: anchor,
+                    notes: ruleConfig?.notes || null,
                     created_at: new Date().toISOString(),
                   });
+              }
+            }
+
+            // If variable hours per day were provided (e.g. scheduleRules), update account cost & hours in commercial_accounts!
+            if (ruleMap.size > 0) {
+              const uniqueRuleHours = new Set(Array.from(ruleMap.values()).map((r) => r.hours));
+              if (uniqueRuleHours.size > 1) {
+                const weeklyHours = Array.from(ruleMap.values()).reduce((sum, r) => sum + r.hours, 0);
+                const hourlyRate = mod.cleanerHourlyRate || updateData.cleaner_hourly_rate || 18;
+                const calculatedMonthlyCost = Number((weeklyHours * hourlyRate * 4.33).toFixed(2));
+                await supabase
+                  .from("commercial_accounts")
+                  .update({
+                    cost: mod.newCleanerCost ?? calculatedMonthlyCost,
+                    rate_per_service: null,
+                    cleaner_flat_rate: null,
+                    cleaner_hourly_rate: hourlyRate,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq("id", accountId);
+
+                // Update updateData for local storage fallback consistency
+                updateData.cost = mod.newCleanerCost ?? calculatedMonthlyCost;
+                updateData.rate_per_service = null;
+                updateData.cleaner_flat_rate = null;
               }
             }
 
