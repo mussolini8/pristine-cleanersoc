@@ -10,6 +10,8 @@ export type ImportedCommercialAccount = {
   cost: number | null;
   rate_per_service?: number | null;
   cleaner_flat_rate?: number | null;
+  cleaner_pay_type?: "flat" | "hourly" | null;
+  cleaner_hourly_rate?: number | null;
   payment_method: string | null;
   contract_start: string | null;
   contract_end: string | null;
@@ -236,11 +238,13 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     city: "Irvine",
     pricing_model: "Flat rate",
     cleaner_name: "Maria Lopez",
+    cleaner_pay_type: "hourly",
+    cleaner_hourly_rate: 22,
     hours: 2.5,
     frequency: "3x per week",
     revenue: 1800,
-    cost: 585,
-    rate_per_service: 45,
+    cost: 715,
+    rate_per_service: 55,
     payment_method: "Check",
     contract_start: "2025-11-19",
     contract_end: null,
@@ -264,11 +268,13 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     city: "Valencia",
     pricing_model: "Flat rate",
     cleaner_name: "Emmi Guerra",
+    cleaner_pay_type: "hourly",
+    cleaner_hourly_rate: 18.15,
     hours: 5.5,
     frequency: "3x per week",
     revenue: 1890,
-    cost: 1287,
-    rate_per_service: 99,
+    cost: 1297.73,
+    rate_per_service: 99.83,
     payment_method: "Check",
     contract_start: "2026-01-27",
     contract_end: null,
@@ -292,11 +298,13 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     city: "Westlake Village",
     pricing_model: "Flat rate",
     cleaner_name: "Emmi Guerra",
+    cleaner_pay_type: "hourly",
+    cleaner_hourly_rate: 18.15,
     hours: 2.5,
     frequency: "3x per week",
     revenue: 1130,
-    cost: 585,
-    rate_per_service: 45,
+    cost: 589.88,
+    rate_per_service: 45.38,
     payment_method: "Check",
     contract_start: "2025-11-20",
     contract_end: null,

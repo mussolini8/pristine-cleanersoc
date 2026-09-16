@@ -10,7 +10,7 @@ import {
   summarizeEntries,
 } from "./calculator";
 import { syncCommercialPayrollEntryToPayment, syncCommercialPayrollPeriodToPayments } from "@/lib/payments/unified";
-import { isCommercialPayrollEligible } from "@/lib/staff-rules";
+import { isCommercialPayrollEligible, getCleanerDefaultHourlyRate } from "@/lib/staff-rules";
 import type {
   CleanerPaymentSetting,
   CommercialAccount,
@@ -56,11 +56,12 @@ function toCommercialAccount(account: ImportedCommercialAccount): CommercialAcco
   const isGreenLeaf = norm.includes("green leaf");
   const isHarper = norm.includes("the harper");
   const isFlat = isMamas || isGreenLeaf || isHarper;
+  const cleanerRate = account.cleaner_hourly_rate ?? (isFlat ? null : getCleanerDefaultHourlyRate(account.cleaner_name));
 
   return {
     ...account,
     cleaner_pay_type: isFlat ? "flat" : "hourly",
-    cleaner_hourly_rate: isFlat ? null : 18,
+    cleaner_hourly_rate: isFlat ? null : cleanerRate,
     cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : isHarper ? 90 : null,
   };
 }
@@ -149,10 +150,11 @@ async function ensureDefaultSettings(accounts: CommercialAccount[]) {
   for (const name of names) {
     if (byName.has(name.toLowerCase())) continue;
     try {
+      const defaultRate = getCleanerDefaultHourlyRate(name);
       await upsertCleanerPaymentSetting({
         cleaner_name: name,
         default_pay_type: "hourly",
-        default_pay_rate: null,
+        default_pay_rate: defaultRate,
         payment_method: null,
         requires_manual_review: name.toLowerCase() === "lucia portillo",
         manual_review_reason: name.toLowerCase() === "lucia portillo" ? LUCIA_REVIEW_SETTING.manual_review_reason : null,

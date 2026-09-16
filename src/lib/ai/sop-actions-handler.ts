@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 import type { SopCopilotResponse, UniversalMutation } from "@/lib/ai/gemini-client";
 import { importedCommercialAccounts } from "@/lib/commercial-accounts-data";
+import { getCleanerDefaultHourlyRate } from "@/lib/staff-rules";
 
 export type SopActionResult = {
   success: boolean;
@@ -1784,13 +1785,16 @@ export async function applyBulkHourlyRateUpdateAction(
           const isExcluded = exclusions.some((exc) => norm.includes(exc));
           if (isExcluded) continue;
 
+          const cleanerSpecialRate = getCleanerDefaultHourlyRate(acc.cleaner_name);
+          const effectiveRate = (cleanerSpecialRate !== 18 && hourlyRate === 18) ? cleanerSpecialRate : hourlyRate;
+
           const hours = Number(acc.hours) || 2.5;
-          const newRatePerService = Number((hours * hourlyRate).toFixed(2));
+          const newRatePerService = Number((hours * effectiveRate).toFixed(2));
           const visits = getVisitsPerMonth(acc.frequency);
           const newCost = Number((newRatePerService * visits).toFixed(2));
 
           const patch: any = {
-            cleaner_hourly_rate: hourlyRate,
+            cleaner_hourly_rate: effectiveRate,
             cost: newCost,
             updated_at: new Date().toISOString(),
           };
@@ -1809,10 +1813,14 @@ export async function applyBulkHourlyRateUpdateAction(
     for (const imp of importedCommercialAccounts) {
       const norm = imp.name.toLowerCase();
       if (!exclusions.some((exc) => norm.includes(exc))) {
+        const cleanerSpecialRate = getCleanerDefaultHourlyRate(imp.cleaner_name);
+        const effectiveRate = (cleanerSpecialRate !== 18 && hourlyRate === 18) ? cleanerSpecialRate : hourlyRate;
+
         const h = Number(imp.hours) || 2.5;
-        const rps = Number((h * hourlyRate).toFixed(2));
+        const rps = Number((h * effectiveRate).toFixed(2));
         imp.rate_per_service = rps;
         imp.cleaner_flat_rate = rps;
+        imp.cleaner_hourly_rate = effectiveRate;
         imp.cost = Number((rps * getVisitsPerMonth(imp.frequency)).toFixed(2));
       }
     }

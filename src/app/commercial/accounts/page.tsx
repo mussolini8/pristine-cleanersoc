@@ -30,6 +30,7 @@ import {
 import { applyCommercialAccountChangesGoingForward } from "@/lib/payroll";
 import { displayDate } from "@/lib/dates/periods";
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
+import { getCleanerDefaultHourlyRate } from "@/lib/staff-rules";
 
 // ─────────────────────────────────────────────
 type AccountScheduleRule = {
@@ -237,7 +238,7 @@ function numericHours(value?: Account["hours"] | undefined) {
   return typeof value === "number" ? value : Number(value) || 0;
 }
 
-function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type" | "cleaner_hourly_rate" | "cleaner_flat_rate" | "rate_per_service" | "frequency" | "schedule_rules">) {
+function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type" | "cleaner_hourly_rate" | "cleaner_flat_rate" | "rate_per_service" | "frequency" | "schedule_rules" | "cleaner_name">) {
   const visits = getVisitsPerMonth(account.frequency);
   const norm = (account as any).name?.toLowerCase() || "";
   if (norm.includes("mama")) {
@@ -272,7 +273,7 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
     if (uniqueHours.size > 1) {
       const hourlyRate = (account.cleaner_hourly_rate != null && account.cleaner_hourly_rate > 0)
         ? account.cleaner_hourly_rate
-        : 18;
+        : getCleanerDefaultHourlyRate(account.cleaner_name);
       const weeklyLaborCost = scheduleRules.reduce((sum, r) => sum + r.paid_hours * hourlyRate, 0);
       return Number((weeklyLaborCost * 4.33).toFixed(2));
     }
@@ -284,7 +285,7 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
   const hours = numericHours(account.hours);
   const hourlyRate = (account.cleaner_hourly_rate !== null && account.cleaner_hourly_rate !== undefined && account.cleaner_hourly_rate > 0)
     ? account.cleaner_hourly_rate
-    : 18;
+    : getCleanerDefaultHourlyRate(account.cleaner_name);
   if (hours > 0) {
     return Number((hours * hourlyRate * visits).toFixed(2));
   }
@@ -308,13 +309,18 @@ function toAccount(account: ImportedCommercialAccount): Account {
   const hours = numericHours(account.hours);
   const visits = getVisitsPerMonth(account.frequency);
   const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
+  const defaultCleanerRate = getCleanerDefaultHourlyRate(account.cleaner_name);
+  const cleanerRate = isMamas || isGreenLeaf
+    ? null
+    : (account.cleaner_hourly_rate ?? defaultCleanerRate);
+
   const ratePerService = isMamas
     ? 200
     : isGreenLeaf
     ? 119
     : isMoxi3CM || isMacArthur
     ? null
-    : (account.rate_per_service ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
+    : (account.rate_per_service ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
   const cost = isSteripax
     ? (account.cost ?? 3386.06)
     : isMoxi3CM
@@ -333,7 +339,7 @@ function toAccount(account: ImportedCommercialAccount): Account {
     cost,
     rate_per_service: ratePerService,
     cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
-    cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
+    cleaner_hourly_rate: cleanerRate,
     cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
     monthly_gross_profit: autoGrossProfit,
     net_price_per_booking: autoNetPrice,
@@ -412,13 +418,18 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
     const hours = numericHours(base.hours);
     const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
+    const defaultCleanerRate = getCleanerDefaultHourlyRate(base.cleaner_name);
+    const cleanerRate = isMamas || isGreenLeaf
+      ? null
+      : (base.cleaner_hourly_rate ?? defaultCleanerRate);
+
     const ratePerService = isMamas
       ? 200
       : isGreenLeaf
       ? 119
       : (isMoxi3CM || isMacArthur)
       ? null
-      : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
+      : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
     const visits = getVisitsPerMonth(base.frequency);
     const cost = isSteripax
       ? (base.cost || 3386.06)
@@ -442,7 +453,7 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       rate_per_service: ratePerService,
       cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
       cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
-      cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
+      cleaner_hourly_rate: cleanerRate,
       supply_delivery_date: base.supply_delivery_date ?? null,
       estimated_fill_date: base.estimated_fill_date ?? null,
       source_sheet: base.source_sheet ?? "Manual entry",
@@ -480,13 +491,18 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
       const hours = numericHours(base.hours);
       const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
+      const defaultCleanerRate = getCleanerDefaultHourlyRate(base.cleaner_name);
+      const cleanerRate = isMamas || isGreenLeaf
+        ? null
+        : (base.cleaner_hourly_rate ?? defaultCleanerRate);
+
       const ratePerService = isMamas
         ? 200
         : isGreenLeaf
         ? 119
         : (isMoxi3CM || isMacArthur)
         ? null
-        : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * 18).toFixed(2)) : null));
+        : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
       const visits = getVisitsPerMonth(base.frequency);
       const cost = isSteripax
         ? (base.cost || 3386.06)
@@ -507,7 +523,7 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
         rate_per_service: ratePerService,
         cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
         cleaner_pay_type: isMamas || isGreenLeaf ? "flat" : "hourly",
-        cleaner_hourly_rate: isMamas || isGreenLeaf ? null : 18,
+        cleaner_hourly_rate: cleanerRate,
         revenue,
         monthly_gross_profit: autoGrossProfit ?? base.monthly_gross_profit ?? null,
       });
@@ -1720,8 +1736,9 @@ export default function CommercialPage() {
     const visits = getVisitsPerMonth(draft.frequency);
     const norm = (draft.name || "").toLowerCase();
     const isExcluded = norm.includes("mama") || norm.includes("green leaf") || norm.includes("steripax");
+    const cleanerRate = numberOrNull(draft.cleaner_hourly_rate) ?? getCleanerDefaultHourlyRate(draft.cleaner_name);
     const perServiceRate = numberOrNull(
-      draft.rate_per_service ?? draft.cleaner_flat_rate ?? (!isExcluded && draft.hours ? Number(draft.hours) * 18 : null)
+      draft.rate_per_service ?? draft.cleaner_flat_rate ?? (!isExcluded && draft.hours ? Number(draft.hours) * cleanerRate : null)
     );
     const cost = getRealCost(draft);
     const revenue = numberOrNull(draft.revenue);
@@ -1741,7 +1758,7 @@ export default function CommercialPage() {
       revenue,
       cost,
       cleaner_pay_type: draft.cleaner_pay_type ?? "flat",
-      cleaner_hourly_rate: numberOrNull(draft.cleaner_hourly_rate),
+      cleaner_hourly_rate: cleanerRate,
       cleaner_flat_rate: perServiceRate,
       rate_per_service: perServiceRate,
       net_price_per_booking: numberOrNull(draft.net_price_per_booking) ?? autoNetPrice,
@@ -2434,14 +2451,17 @@ export default function CommercialPage() {
                 prev.map((acc) => {
                   const isExcluded = excluded.some((ex) => acc.name.toLowerCase().includes(ex));
                   if (isExcluded) return acc;
-                  const newRate = Number((numericHours(acc.hours) * hourlyRate).toFixed(2));
+                  const cleanerSpecialRate = getCleanerDefaultHourlyRate(acc.cleaner_name);
+                  // If cleaner has special rate (e.g. Emmi $18.15 or Maria Lopez $22), preserve that rate unless user explicitly set a non-standard rate
+                  const effectiveRate = (cleanerSpecialRate !== 18 && hourlyRate === 18) ? cleanerSpecialRate : hourlyRate;
+                  const newRate = Number((numericHours(acc.hours) * effectiveRate).toFixed(2));
                   const visits = getVisitsPerMonth(acc.frequency);
                   const newCost = Number((newRate * visits).toFixed(2));
                   return {
                     ...acc,
                     rate_per_service: newRate,
                     cleaner_flat_rate: newRate,
-                    cleaner_hourly_rate: hourlyRate,
+                    cleaner_hourly_rate: effectiveRate,
                     cost: newCost,
                   };
                 })

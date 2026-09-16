@@ -7,7 +7,7 @@ import type {
   PayrollPeriod,
 } from "./types";
 import { eachDateInRange, formatDateOnly, parseDateOnly } from "@/lib/dates/periods";
-import { isCommercialPayrollEligible } from "@/lib/staff-rules";
+import { isCommercialPayrollEligible, getCleanerDefaultHourlyRate } from "@/lib/staff-rules";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -134,7 +134,7 @@ function cleanMoney(value: number) {
   return Number(value.toFixed(2));
 }
 
-function resolvePayRate(account: CommercialAccount, setting: CleanerPaymentSetting | null, hours: number) {
+function resolvePayRate(account: CommercialAccount, setting: CleanerPaymentSetting | null, hours: number, cleanerName?: string | null) {
   const hourlyRate = Number(account.cleaner_hourly_rate ?? 0);
   if (hourlyRate > 0) return hourlyRate;
 
@@ -145,6 +145,11 @@ function resolvePayRate(account: CommercialAccount, setting: CleanerPaymentSetti
 
   const settingRate = Number(setting?.default_pay_rate ?? 0);
   if (settingRate > 0) return settingRate;
+
+  const targetCleaner = cleanerName || account.cleaner_name;
+  if (targetCleaner) {
+    return getCleanerDefaultHourlyRate(targetCleaner);
+  }
 
   return 0;
 }
@@ -274,7 +279,7 @@ export function generateEntriesForAccount(
       for (const serviceDate of dates) {
         const cleanerName = rule.assigned_cleaner_name || account.cleaner_name || null;
         const setting = getSetting(settings, cleanerName);
-        const payRate = resolvePayRate(account, setting, Number(rule.paid_hours));
+        const payRate = resolvePayRate(account, setting, Number(rule.paid_hours), cleanerName);
         entries.push(entryFor({
           account,
           cleanerName,
@@ -292,7 +297,7 @@ export function generateEntriesForAccount(
       if (extraExceptions.includes("missing_anchor_date")) {
         const cleanerName = rule.assigned_cleaner_name || account.cleaner_name || null;
         const setting = getSetting(settings, cleanerName);
-        const payRate = resolvePayRate(account, setting, Number(rule.paid_hours));
+        const payRate = resolvePayRate(account, setting, Number(rule.paid_hours), cleanerName);
         entries.push(entryFor({
           account,
           cleanerName,
@@ -316,7 +321,7 @@ export function generateEntriesForAccount(
   for (const serviceDate of dates) {
     const cleanerName = account.cleaner_name ?? null;
     const setting = getSetting(settings, cleanerName);
-    const payRate = resolvePayRate(account, setting, hours);
+    const payRate = resolvePayRate(account, setting, hours, cleanerName);
     entries.push(entryFor({
       account,
       cleanerName,
@@ -334,7 +339,7 @@ export function generateEntriesForAccount(
   if (entries.length === 0) {
     const cleanerName = account.cleaner_name ?? null;
     const setting = getSetting(settings, cleanerName);
-    const payRate = resolvePayRate(account, setting, hours);
+    const payRate = resolvePayRate(account, setting, hours, cleanerName);
     entries.push(entryFor({
       account,
       cleanerName,

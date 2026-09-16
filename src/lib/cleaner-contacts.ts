@@ -26,6 +26,7 @@ export const CLEANER_CONTACTS: CleanerContact[] = [
 
 export const CLEANER_PHONE_DIRECTORY: Record<string, string> = {
   "emmi guerra": "747-218-8351",
+  "emmi garcia": "747-218-8351",
   "kassandra valentin": "714-715-9147",
   "lesbia vasquez": "714-312-9183",
   "lucia portillo": "714-660-8440",

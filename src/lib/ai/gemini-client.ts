@@ -1,6 +1,7 @@
 import type { SalesTrackItem } from "@/lib/export/sales-track-export";
 import type { ServiceBookingRow } from "@/lib/sales-tracker/types";
 import { importedCommercialAccounts } from "@/lib/commercial-accounts-data";
+import { getCleanerDefaultHourlyRate } from "@/lib/staff-rules";
 
 export type GeminiImageData = {
   inlineData: {
@@ -735,6 +736,8 @@ Core Superpowers and Capabilities:
    - Populate updateAccountFinancials for every account in the Directory (excluding Mama's, Green Leaf, and Steripax) with:
      ratePerService = hours * 18, cleanerRate = 18, cleanerPayType = "hourly", pricingModel = "per Service".
    - REGLA CRÍTICA STERIPAX: Las horas trabajadas de Steripax se calculan MANUALMENTE (turnos variables: 6h lunes/martes/viernes, 8h miércoles/jueves, 34h/semana) y en base a esas horas trabajadas manuales se calcula el costo total ($3,386.06 o según horas manuales). NUNCA sobreescribir Steripax con horas fijas de 8h/día ni aplicar multiplicación automática 8h * $18 * 21.67.
+   - REGLA SALARIAL EMMI GARCIA / EMMI GUERRA: Gana $18.15 / hora (NO $18). Cuentas asignadas a ella (ej. ILG Westlake, ILG Valencia Office) calculan su costo con $18.15/hr.
+   - REGLA SALARIAL MARIA LOPEZ: Gana $22.00 / hora (NO $18). Cuentas asignadas a ella (ej. ILG Irvine Office) calculan su costo con $22.00/hr.
    - For single account lines like "MOXI3 Costa Mesa Costa Mesa Flat Rate Luz Uribe 3 $54.00":
      accountName = "MOXI3 Costa Mesa", hours = 3, cleanerName = "Luz Uribe", ratePerService = 54.00, cleanerPayType = "hourly", cleanerRate = 18, pricingModel = "Flat Rate".
    - For fixed accounts like "Green leaf tampoco tiene por que modificarse, es 119":
@@ -1053,13 +1056,15 @@ function sanitizeFinancialActions(res: SopCopilotResponse, userText?: string): S
           return !res.bulkHourlyRateUpdate!.excludedAccounts!.some((exc) => norm.includes(exc.toLowerCase()));
         })
         .map((acc) => {
+          const cleanerSpecialRate = getCleanerDefaultHourlyRate(acc.cleaner_name);
+          const effectiveRate = (cleanerSpecialRate !== 18 && targetRate === 18) ? cleanerSpecialRate : targetRate;
           const h = typeof acc.hours === "number" ? acc.hours : parseFloat(String(acc.hours)) || 2.5;
-          const rps = Number((h * targetRate).toFixed(2));
+          const rps = Number((h * effectiveRate).toFixed(2));
           return {
             accountName: acc.name,
             hours: h,
             cleanerName: acc.cleaner_name || undefined,
-            cleanerRate: targetRate,
+            cleanerRate: effectiveRate,
             ratePerService: rps,
             cleanerPayType: "hourly" as const,
             pricingModel: acc.pricing_model || "per Service",

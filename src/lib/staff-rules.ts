@@ -59,3 +59,21 @@ export function commercialContextRole(name: string | null | undefined, role?: st
   if (definition.teamScope === "residential" && isCommercialPayrollEligible(name)) return "Commercial Cleaner";
   return definition.displayRole;
 }
+
+/**
+ * Business rule for commercial cleaner hourly rates:
+ * - Emmi Garcia / Emmi Guerra: $18.15 / hr
+ * - Maria Lopez: $22.00 / hr
+ * - All other hourly commercial cleaners: $18.00 / hr default
+ */
+export function getCleanerDefaultHourlyRate(cleanerName?: string | null | undefined): number {
+  if (!cleanerName) return 18;
+  const norm = normalizePersonName(cleanerName);
+  if (norm.includes("emmi") && (norm.includes("guerra") || norm.includes("garcia"))) {
+    return 18.15;
+  }
+  if (norm.includes("maria") && norm.includes("lopez")) {
+    return 22;
+  }
+  return 18;
+}
