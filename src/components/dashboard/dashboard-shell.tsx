@@ -15,16 +15,16 @@ import { GlobalAiBubble } from "@/components/ai/global-ai-bubble";
 import { BookingKoalaImporterModal } from "@/components/operations/bookingkoala-importer-modal";
 
 const navItems = [
-  { key: "nav.dashboard", label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
-  { key: "nav.sales_track", label: "Sales Track & AI Copilot", href: "/commercial/sales-track", icon: TrendingUp, area: "workspace" as AccessArea },
-  { key: "nav.task_reminders", label: "Task Reminders", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
-  { key: "nav.residential", label: "Residential payments / commercial hours", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
-  { key: "nav.schedules", label: "Schedules (Comm & QC)", href: "/schedules", icon: CalendarDays, area: "workspace" as AccessArea },
-  { key: "nav.commercial_accounts", label: "Commercial Accounts", href: "/commercial/accounts", icon: Building2, area: "workspace" as AccessArea },
-  { key: "nav.qc_inspections", label: "QC Inspections", href: "/qc/dashboard", icon: ClipboardCheck, area: "workspace" as AccessArea },
-  { key: "nav.staff", label: "Staff / Teams", href: "/staff", icon: Users, area: "operations" as AccessArea },
-  { key: "nav.reports", label: "Reports", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
-  { key: "nav.settings", label: "Settings", href: "/settings", icon: Settings, area: "operations" as AccessArea },
+  { key: "nav.dashboard", label: "Dashboard", shortLabel: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
+  { key: "nav.sales_track", label: "Sales Track & AI Copilot", shortLabel: "Sales Track", href: "/commercial/sales-track", icon: TrendingUp, area: "workspace" as AccessArea },
+  { key: "nav.task_reminders", label: "Task Reminders", shortLabel: "Tareas", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
+  { key: "nav.residential", label: "Residential payments / commercial hours", shortLabel: "Nómina & Horas", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
+  { key: "nav.schedules", label: "Schedules (Comm & QC)", shortLabel: "Schedules", href: "/schedules", icon: CalendarDays, area: "workspace" as AccessArea },
+  { key: "nav.commercial_accounts", label: "Commercial Accounts", shortLabel: "Cuentas", href: "/commercial/accounts", icon: Building2, area: "workspace" as AccessArea },
+  { key: "nav.qc_inspections", label: "QC Inspections", shortLabel: "QC", href: "/qc/dashboard", icon: ClipboardCheck, area: "workspace" as AccessArea },
+  { key: "nav.staff", label: "Staff / Teams", shortLabel: "Staff", href: "/staff", icon: Users, area: "operations" as AccessArea },
+  { key: "nav.reports", label: "Reports", shortLabel: "Reportes", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
+  { key: "nav.settings", label: "Settings", shortLabel: "Ajustes", href: "/settings", icon: Settings, area: "operations" as AccessArea },
 ];
 
 export function DashboardShell({
@@ -204,7 +204,7 @@ export function DashboardShell({
             {visibleNavItems.map((item) => (
               <Link
                 className={cn(
-                  "inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all duration-150 active:scale-95",
+                  "inline-flex h-8.5 sm:h-9 shrink-0 items-center gap-1.5 sm:gap-2 rounded-xl border px-2.5 sm:px-3 text-xs font-semibold transition-all duration-150 active:scale-95",
                   (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`)))
                     ? "border-primary/40 bg-primary/[0.08] text-primary shadow-xs font-bold"
                     : "border-border/60 bg-card/85 text-muted-foreground hover:bg-accent/40 hover:text-foreground",
@@ -212,8 +212,9 @@ export function DashboardShell({
                 href={item.href}
                 key={item.href}
               >
-                <item.icon className="size-4 shrink-0" />
-                <span className="whitespace-nowrap">{t(item.key, item.label)}</span>
+                <item.icon className="size-3.5 sm:size-4 shrink-0" />
+                <span className="whitespace-nowrap sm:hidden">{item.shortLabel || t(item.key, item.label)}</span>
+                <span className="whitespace-nowrap hidden sm:inline">{t(item.key, item.label)}</span>
               </Link>
             ))}
           </nav>

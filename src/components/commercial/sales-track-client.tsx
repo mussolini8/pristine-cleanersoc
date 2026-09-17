@@ -65,6 +65,8 @@ export function SalesTrackClient() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const LEDGER_PAGE_SIZE = 50;
 
   // New Booking Draft State
   const [newBookingDraft, setNewBookingDraft] = useState<Partial<ServiceBookingRow>>({
@@ -223,6 +225,15 @@ export function SalesTrackClient() {
     });
   }, [scopedBookings, search, categoryFilter]);
 
+  useEffect(() => {
+    setLedgerPage(1);
+  }, [search, categoryFilter, scopeFilter, selectedPeriod]);
+
+  const totalLedgerPages = Math.ceil(filteredBookings.length / LEDGER_PAGE_SIZE) || 1;
+  const paginatedBookings = useMemo(() => {
+    return filteredBookings.slice((ledgerPage - 1) * LEDGER_PAGE_SIZE, ledgerPage * LEDGER_PAGE_SIZE);
+  }, [filteredBookings, ledgerPage]);
+
   const periodLabel =
     selectedPeriod === "september_2026"
       ? "Septiembre-2026-Activo"
@@ -329,7 +340,95 @@ export function SalesTrackClient() {
         </div>
 
         {/* SUMMARY COMPARISON MINI-PANEL */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Mobile View: Compact 3-selector grid + active scope card (< sm) */}
+        <div className="sm:hidden space-y-2">
+          <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-border/70 bg-card p-1.5 shadow-xs">
+            {/* 1. Residencial */}
+            <button
+              type="button"
+              onClick={() => setScopeFilter("residential")}
+              className={`flex flex-col items-center justify-center p-2 rounded-xl text-center transition-all tap-active ${
+                scopeFilter === "residential"
+                  ? "bg-blue-500/15 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/40 font-bold shadow-xs"
+                  : "text-muted-foreground hover:bg-muted/60"
+              }`}
+            >
+              <div className="flex items-center gap-1 text-[11px]">
+                <Home className="size-3 text-blue-500 shrink-0" />
+                <span className="font-semibold">Residencial</span>
+              </div>
+              <span className="text-sm font-black mt-0.5 text-foreground">
+                ${(resKpis.totalRevenue / 1000).toFixed(1)}k
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {residentialBookings.length} serv.
+              </span>
+            </button>
+
+            {/* 2. Comercial */}
+            <button
+              type="button"
+              onClick={() => setScopeFilter("commercial")}
+              className={`flex flex-col items-center justify-center p-2 rounded-xl text-center transition-all tap-active ${
+                scopeFilter === "commercial"
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/40 font-bold shadow-xs"
+                  : "text-muted-foreground hover:bg-muted/60"
+              }`}
+            >
+              <div className="flex items-center gap-1 text-[11px]">
+                <Building2 className="size-3 text-emerald-500 shrink-0" />
+                <span className="font-semibold">Comercial</span>
+              </div>
+              <span className="text-sm font-black mt-0.5 text-foreground">
+                ${(commKpis.totalRevenue / 1000).toFixed(1)}k
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {commercialBookings.length} ctas.
+              </span>
+            </button>
+
+            {/* 3. Unificado */}
+            <button
+              type="button"
+              onClick={() => setScopeFilter("all")}
+              className={`flex flex-col items-center justify-center p-2 rounded-xl text-center transition-all tap-active ${
+                scopeFilter === "all"
+                  ? "bg-primary/15 text-primary ring-1 ring-primary/40 font-bold shadow-xs"
+                  : "text-muted-foreground hover:bg-muted/60"
+              }`}
+            >
+              <div className="flex items-center gap-1 text-[11px]">
+                <Layers className="size-3 text-primary shrink-0" />
+                <span className="font-semibold">Unificado</span>
+              </div>
+              <span className="text-sm font-black mt-0.5 text-primary">
+                ${(totalKpis.totalRevenue / 1000).toFixed(1)}k
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {rawPeriodBookings.length} total
+              </span>
+            </button>
+          </div>
+
+          {/* Active scope details pill in mobile */}
+          <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/90 px-3 py-2 text-xs shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-foreground capitalize">
+                {scopeFilter === "all" ? "Total Unificado" : scopeFilter === "residential" ? "Residencial BK" : "Comercial Contratos"}
+              </span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                {kpis.totalGrossProfitPct.toFixed(1)}% margen
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span>Labor: ${kpis.totalGrossCost.toLocaleString()}</span>
+              <span>Profit: ${kpis.totalGrossProfit.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Tablet & Desktop View: 3 Side-by-Side Cards (>= sm) */}
+        <div className="hidden sm:grid sm:grid-cols-3 gap-4">
           <div
             onClick={() => setScopeFilter("residential")}
             className={`cursor-pointer rounded-2xl border p-4.5 transition-all shadow-sm ${
@@ -431,116 +530,132 @@ export function SalesTrackClient() {
         </div>
 
         {/* SCOPE FILTER PILLS */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-card p-3 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-              <Filter className="size-3.5" /> Ámbito Activo:
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-border/70 bg-card p-2.5 sm:p-3 shadow-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-bold text-muted-foreground flex items-center gap-1 shrink-0">
+              <Filter className="size-3.5" /> Ámbito:
             </span>
-            <div className="flex items-center gap-1.5 bg-muted/50 p-1 rounded-lg">
+            <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg overflow-x-auto no-scrollbar touch-scroll max-w-full">
               <button
+                type="button"
                 onClick={() => setScopeFilter("all")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`flex items-center gap-1.5 rounded-md px-2.5 sm:px-3 py-1 text-xs font-bold whitespace-nowrap shrink-0 transition-all tap-active ${
                   scopeFilter === "all"
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-background text-foreground shadow-xs ring-1 ring-border"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Layers className="size-3.5 text-primary" />
-                Todas / Unificado ({rawPeriodBookings.length})
+                <Layers className="size-3.5 text-primary shrink-0" />
+                <span>Todas ({rawPeriodBookings.length})</span>
               </button>
               <button
+                type="button"
                 onClick={() => setScopeFilter("residential")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`flex items-center gap-1.5 rounded-md px-2.5 sm:px-3 py-1 text-xs font-bold whitespace-nowrap shrink-0 transition-all tap-active ${
                   scopeFilter === "residential"
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-background text-foreground shadow-xs ring-1 ring-border"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Home className="size-3.5 text-blue-500" />
-                Residencial Booking Koala ({residentialBookings.length})
+                <Home className="size-3.5 text-blue-500 shrink-0" />
+                <span>Residencial ({residentialBookings.length})</span>
               </button>
               <button
+                type="button"
                 onClick={() => setScopeFilter("commercial")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`flex items-center gap-1.5 rounded-md px-2.5 sm:px-3 py-1 text-xs font-bold whitespace-nowrap shrink-0 transition-all tap-active ${
                   scopeFilter === "commercial"
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-background text-foreground shadow-xs ring-1 ring-border"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Building2 className="size-3.5 text-emerald-500" />
-                Comercial Contratos ({commercialBookings.length})
+                <Building2 className="size-3.5 text-emerald-500 shrink-0" />
+                <span>Comercial ({commercialBookings.length})</span>
               </button>
             </div>
           </div>
 
-          <div className="text-xs font-medium text-muted-foreground">
-            Visualizando <span className="font-bold text-foreground">{scopedBookings.length}</span> registros en{" "}
+          <div className="text-[11px] sm:text-xs font-medium text-muted-foreground shrink-0 self-end sm:self-auto">
+            Visualizando <span className="font-bold text-foreground">{scopedBookings.length}</span> en{" "}
             <span className="font-bold text-foreground capitalize">{scopeFilter}</span>
           </div>
         </div>
 
         {/* View Tabs */}
-        <div className="flex items-center gap-2 border-b border-border/80 pb-3 overflow-x-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 border-b border-border/80 pb-2.5 overflow-x-auto no-scrollbar touch-scroll">
           <button
+            type="button"
             onClick={() => setActiveTab("dash")}
-            className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 rounded-xl px-3 sm:px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 transition-all duration-150 tap-active ${
               activeTab === "dash"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground bg-card/60 border border-border/50"
             }`}
           >
-            <LayoutDashboard className="size-3.5" />
-            Dash (Executive KPIs)
+            <LayoutDashboard className="size-3.5 shrink-0" />
+            <span className="sm:hidden">KPIs</span>
+            <span className="hidden sm:inline">Dash (Executive KPIs)</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("table")}
-            className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 rounded-xl px-3 sm:px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 transition-all duration-150 tap-active ${
               activeTab === "table"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground bg-card/60 border border-border/50"
             }`}
           >
-            <TableIcon className="size-3.5" />
-            Table (Category Breakdown)
+            <TableIcon className="size-3.5 shrink-0" />
+            <span className="sm:hidden">Categorías</span>
+            <span className="hidden sm:inline">Table (Category Breakdown)</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("target")}
-            className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 rounded-xl px-3 sm:px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 transition-all duration-150 tap-active ${
               activeTab === "target"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground bg-card/60 border border-border/50"
             }`}
           >
-            <Target className="size-3.5" />
-            Target (Rate Modeling)
+            <Target className="size-3.5 shrink-0" />
+            <span className="sm:hidden">Objetivos</span>
+            <span className="hidden sm:inline">Target (Rate Modeling)</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("comparison")}
-            className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 rounded-xl px-3 sm:px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 transition-all duration-150 tap-active ${
               activeTab === "comparison"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground bg-card/60 border border-border/50"
             }`}
           >
-            <Scale className="size-3.5" />
-            ⚖️ Residencial vs Comercial
+            <Scale className="size-3.5 shrink-0" />
+            <span className="sm:hidden">Res vs Com</span>
+            <span className="hidden sm:inline">⚖️ Residencial vs Comercial</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("ledger")}
-            className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 rounded-xl px-3 sm:px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 transition-all duration-150 tap-active ${
               activeTab === "ledger"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground bg-card/60 border border-border/50"
             }`}
           >
-            <ListOrdered className="size-3.5" />
-            Master Ledger (Detalle de Citas & Contratos)
+            <ListOrdered className="size-3.5 shrink-0" />
+            <span className="sm:hidden">Ledger</span>
+            <span className="hidden sm:inline">Master Ledger (Detalle)</span>
+            <span className="ml-1 rounded-md bg-muted px-1.5 py-0.2 text-[10px] font-semibold text-muted-foreground">
+              {filteredBookings.length}
+            </span>
           </button>
         </div>
 
         {/* TAB 1: DASH (EXECUTIVE KPIS) */}
         {activeTab === "dash" && (
-          <div className="space-y-6 animate-in fade-in-50 duration-200">
+          <div className="space-y-6 view-transition">
             {/* Top 4 Primary KPI Cards */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Card className="border-border/70 bg-card shadow-sm">
@@ -915,9 +1030,138 @@ export function SalesTrackClient() {
           </div>
         )}
 
+        {/* TAB 3: TARGET (RATE MODELING & BENCHMARKS) */}
+        {activeTab === "target" && (
+          <div className="space-y-4 view-transition">
+            <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-border/80 bg-muted/40 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-sm text-foreground">Modelado de Tarifas, Descuentos y Metas (Target Sheet)</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Tarifa base ($60/hr o $50/hr), descuentos por suscripción, pago a cleaner y margen objetivo vs real.
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-border/80 bg-muted/70 text-muted-foreground font-semibold">
+                    <tr>
+                      <th className="px-4 py-3">Servicio / Frecuencia</th>
+                      <th className="px-3 py-3 text-right">Tarifa Base</th>
+                      <th className="px-3 py-3 text-right">Descuento</th>
+                      <th className="px-3 py-3 text-right">Tarifa Efectiva</th>
+                      <th className="px-3 py-3 text-right">Pago Cleaner</th>
+                      <th className="px-3 py-3 text-right">Cleaner Efectivo</th>
+                      <th className="px-3 py-3 text-right">Ganancia / Hr</th>
+                      <th className="px-3 py-3 text-right font-bold">Meta Margen %</th>
+                      <th className="px-3 py-3 text-right font-bold">Margen Real %</th>
+                      <th className="px-3 py-3 text-right">Ingreso Real</th>
+                      <th className="px-3 py-3 text-right">% de Ventas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {targets.map((t, idx) => (
+                      <tr key={idx} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 font-bold text-foreground">{t.service}</td>
+                        <td className="px-3 py-3 text-right text-muted-foreground">${t.baseHourlyRate}/hr</td>
+                        <td className="px-3 py-3 text-right text-muted-foreground">{t.discountPct}%</td>
+                        <td className="px-3 py-3 text-right font-semibold text-foreground">${t.effectiveHourlyRate.toFixed(2)}/hr</td>
+                        <td className="px-3 py-3 text-right text-muted-foreground">${t.cleanerBaseRate}/hr</td>
+                        <td className="px-3 py-3 text-right text-muted-foreground">${t.cleanerEffectiveRate.toFixed(2)}/hr</td>
+                        <td className="px-3 py-3 text-right font-bold text-foreground">${t.grossProfitPerHour.toFixed(2)}/hr</td>
+                        <td className="px-3 py-3 text-right font-bold text-blue-600 dark:text-blue-400">{t.grossProfitTargetPct.toFixed(1)}%</td>
+                        <td className="px-3 py-3 text-right font-black text-emerald-600 dark:text-emerald-400">{t.actualGrossProfitPct.toFixed(1)}%</td>
+                        <td className="px-3 py-3 text-right font-bold text-foreground">${t.actualGrossRevenue.toFixed(2)}</td>
+                        <td className="px-3 py-3 text-right text-muted-foreground">{t.revenuePctOfTotal.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Dynamic Revenue Share Breakdown Cards */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden flex flex-col">
+                <div className="p-3.5 border-b border-border/80 bg-muted/40">
+                  <h4 className="font-bold text-xs text-foreground uppercase tracking-wider">
+                    Revenue & Earnings por Grupos ({periodTitle})
+                  </h4>
+                </div>
+                <div className="p-4 space-y-4 text-xs">
+                  {/* Commercial Share */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground flex items-center gap-1.5">
+                        <Building2 className="size-3.5 text-emerald-600" />
+                        Comercial (Contratos)
+                      </span>
+                      <span className="font-black text-emerald-600">
+                        ${commKpis.totalRevenue.toLocaleString()} ({totalKpis.totalRevenue > 0 ? ((commKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
+                      </span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-600 rounded-full"
+                        style={{ width: `${totalKpis.totalRevenue > 0 ? (commKpis.totalRevenue / totalKpis.totalRevenue) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground">
+                      <span>Margen: {commKpis.totalGrossProfitPct.toFixed(1)}%</span>
+                      <span>Beneficio: ${commKpis.totalGrossProfit.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {/* Residential Share */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground flex items-center gap-1.5">
+                        <Home className="size-3.5 text-blue-600" />
+                        Residencial (Booking Koala)
+                      </span>
+                      <span className="font-black text-blue-600">
+                        ${resKpis.totalRevenue.toLocaleString()} ({totalKpis.totalRevenue > 0 ? ((resKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
+                      </span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-blue-600 rounded-full"
+                        style={{ width: `${totalKpis.totalRevenue > 0 ? (resKpis.totalRevenue / totalKpis.totalRevenue) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground">
+                      <span>Margen: {resKpis.totalGrossProfitPct.toFixed(1)}%</span>
+                      <span>Beneficio: ${resKpis.totalGrossProfit.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm flex flex-col justify-between text-xs">
+                <h4 className="font-bold text-xs text-foreground uppercase tracking-wider mb-2">
+                  Diagnóstico Financiero y Metas
+                </h4>
+                <div className="space-y-3">
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300">
+                    <strong>🏢 Comercial:</strong> Genera la mayor base recurrente mensual ($60.5k / mes) con ingresos constantes garantizados por contratos a largo plazo.
+                  </div>
+                  <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-800 dark:text-blue-300">
+                    <strong>🏠 Residencial:</strong> Ofrece el mayor margen bruto unitario (~53.2%), destacándose servicios como Move In/Out Clean y Deep Clean.
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-border flex justify-between items-center text-[11px] text-muted-foreground">
+                  <span>Margen Global Empresa:</span>
+                  <span className="font-black text-foreground text-sm">{totalKpis.totalGrossProfitPct.toFixed(1)}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* TAB 4: COMPARISON (RESIDENTIAL VS COMMERCIAL SPLIT PANEL) */}
         {activeTab === "comparison" && (
-          <div className="space-y-6 animate-in fade-in-50 duration-200">
+          <div className="space-y-6 view-transition">
             <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-sm">
               <div className="flex items-center gap-2 text-base font-bold text-foreground mb-4">
                 <Scale className="size-5 text-primary" />
@@ -930,47 +1174,29 @@ export function SalesTrackClient() {
                 <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-5 space-y-4">
                   <div className="flex items-center justify-between border-b border-blue-500/20 pb-3">
                     <div className="flex items-center gap-2">
-                      <Home className="size-5 text-blue-600" />
-                      <h3 className="font-bold text-base text-foreground">Limpiezas Residenciales</h3>
+                      <Home className="size-5 text-blue-500" />
+                      <h4 className="font-black text-foreground">Residencial (Booking Koala)</h4>
                     </div>
-                    <Badge className="bg-blue-600 text-white font-bold">Booking Koala</Badge>
+                    <Badge variant="outline" className="border-blue-500/40 text-blue-600 font-bold">
+                      {residentialBookings.length} Citas
+                    </Badge>
                   </div>
-
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Total Ingresos:</span>
-                      <p className="text-lg font-black text-foreground mt-1">${resKpis.totalRevenue.toLocaleString()}</p>
+                    <div className="p-3 bg-card rounded-xl border border-border">
+                      <div className="text-muted-foreground">Ingresos Totales</div>
+                      <div className="text-lg font-black text-foreground mt-1">${resKpis.totalRevenue.toLocaleString()}</div>
                     </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Margen Bruto:</span>
-                      <p className="text-lg font-black text-emerald-600 mt-1">{resKpis.totalGrossProfitPct.toFixed(1)}%</p>
+                    <div className="p-3 bg-card rounded-xl border border-border">
+                      <div className="text-muted-foreground">Margen Bruto %</div>
+                      <div className="text-lg font-black text-emerald-600 mt-1">{resKpis.totalGrossProfitPct.toFixed(1)}%</div>
                     </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Ganancia Bruta:</span>
-                      <p className="text-lg font-black text-emerald-600 mt-1">${resKpis.totalGrossProfit.toLocaleString()}</p>
+                    <div className="p-3 bg-card rounded-xl border border-border">
+                      <div className="text-muted-foreground">Costo Laboral</div>
+                      <div className="text-lg font-black text-amber-600 mt-1">${resKpis.totalGrossCost.toLocaleString()}</div>
                     </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Costo Mano de Obra:</span>
-                      <p className="text-lg font-black text-amber-600 mt-1">${resKpis.totalGrossCost.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Servicios Realizados:</span>
-                      <p className="text-lg font-black text-foreground mt-1">{residentialBookings.length} jobs</p>
-                    </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Horas Limpieza:</span>
-                      <p className="text-lg font-black text-foreground mt-1">{resKpis.totalCleanHours.toFixed(1)} hrs</p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-card rounded-xl border border-border/60 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Promedio por Servicio:</span>
-                      <span className="font-bold text-foreground">${resKpis.avgRevenuePerClean.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Ingreso por Hora:</span>
-                      <span className="font-bold text-foreground">${resKpis.avgRevenuePerCleanHour.toFixed(2)}/hr</span>
+                    <div className="p-3 bg-card rounded-xl border border-border">
+                      <div className="text-muted-foreground">Tarifa Promedio / Hr</div>
+                      <div className="text-lg font-black text-foreground mt-1">${resKpis.avgRevenuePerCleanHour.toFixed(2)}/h</div>
                     </div>
                   </div>
                 </div>
@@ -979,47 +1205,29 @@ export function SalesTrackClient() {
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 space-y-4">
                   <div className="flex items-center justify-between border-b border-emerald-500/20 pb-3">
                     <div className="flex items-center gap-2">
-                      <Building2 className="size-5 text-emerald-600" />
-                      <h3 className="font-bold text-base text-foreground">Limpiezas Comerciales</h3>
+                      <Building2 className="size-5 text-emerald-500" />
+                      <h4 className="font-black text-foreground">Comercial (Contratos)</h4>
                     </div>
-                    <Badge className="bg-emerald-600 text-white font-bold">Cuentas & Contratos</Badge>
+                    <Badge variant="outline" className="border-emerald-500/40 text-emerald-600 font-bold">
+                      {commercialBookings.length} Cuentas
+                    </Badge>
                   </div>
-
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Total Ingresos:</span>
-                      <p className="text-lg font-black text-foreground mt-1">${commKpis.totalRevenue.toLocaleString()}</p>
+                    <div className="p-3 bg-card rounded-xl border border-border">
+                      <div className="text-muted-foreground">Ingresos Totales</div>
+                      <div className="text-lg font-black text-foreground mt-1">${commKpis.totalRevenue.toLocaleString()}</div>
                     </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Margen Bruto:</span>
-                      <p className="text-lg font-black text-emerald-600 mt-1">{commKpis.totalGrossProfitPct.toFixed(1)}%</p>
+                    <div className="p-3 bg-card rounded-xl border border-border">
+                      <div className="text-muted-foreground">Margen Bruto %</div>
+                      <div className="text-lg font-black text-emerald-600 mt-1">{commKpis.totalGrossProfitPct.toFixed(1)}%</div>
                     </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Ganancia Bruta:</span>
-                      <p className="text-lg font-black text-emerald-600 mt-1">${commKpis.totalGrossProfit.toLocaleString()}</p>
+                    <div className="p-3 bg-card rounded-xl border border-border">
+                      <div className="text-muted-foreground">Costo Laboral</div>
+                      <div className="text-lg font-black text-amber-600 mt-1">${commKpis.totalGrossCost.toLocaleString()}</div>
                     </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Costo Mano de Obra:</span>
-                      <p className="text-lg font-black text-amber-600 mt-1">${commKpis.totalGrossCost.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Cuentas Activas:</span>
-                      <p className="text-lg font-black text-foreground mt-1">{commercialBookings.length} cuentas</p>
-                    </div>
-                    <div className="bg-card p-3 rounded-xl border border-border/60">
-                      <span className="text-muted-foreground">Horas Limpieza:</span>
-                      <p className="text-lg font-black text-foreground mt-1">{commKpis.totalCleanHours.toFixed(1)} hrs</p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-card rounded-xl border border-border/60 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Promedio por Cuenta:</span>
-                      <span className="font-bold text-foreground">${commKpis.avgRevenuePerClean.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Ingreso por Hora:</span>
-                      <span className="font-bold text-foreground">${commKpis.avgRevenuePerCleanHour.toFixed(2)}/hr</span>
+                    <div className="p-3 bg-card rounded-xl border border-border">
+                      <div className="text-muted-foreground">Tarifa Promedio / Hr</div>
+                      <div className="text-lg font-black text-foreground mt-1">${commKpis.avgRevenuePerCleanHour.toFixed(2)}/h</div>
                     </div>
                   </div>
                 </div>
@@ -1030,7 +1238,7 @@ export function SalesTrackClient() {
 
         {/* TAB 5: MASTER LEDGER (MON / INDIVIDUAL BOOKINGS) */}
         {activeTab === "ledger" && (
-          <div className="space-y-4 animate-in fade-in-50 duration-200">
+          <div className="space-y-4 view-transition">
             {/* Filter and Actions Bar */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-border/70 bg-card p-3 shadow-sm">
               <div className="relative flex-1">
@@ -1098,7 +1306,7 @@ export function SalesTrackClient() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
-                    {filteredBookings.map((b) => {
+                    {paginatedBookings.map((b) => {
                       const isComm = isCommercialBooking(b);
                       return (
                         <tr key={b.id} className="hover:bg-muted/30 transition-colors">
@@ -1142,6 +1350,38 @@ export function SalesTrackClient() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Ledger Pagination Bar */}
+              {totalLedgerPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-border/80 bg-muted/20">
+                  <span className="text-xs text-muted-foreground">
+                    Mostrando {((ledgerPage - 1) * LEDGER_PAGE_SIZE) + 1} - {Math.min(ledgerPage * LEDGER_PAGE_SIZE, filteredBookings.length)} de {filteredBookings.length} registros
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={ledgerPage === 1}
+                      onClick={() => setLedgerPage((p) => Math.max(p - 1, 1))}
+                      className="h-7 text-xs px-2.5 cursor-pointer tap-active"
+                    >
+                      Anterior
+                    </Button>
+                    <span className="text-xs font-bold text-foreground px-2">
+                      {ledgerPage} / {totalLedgerPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={ledgerPage === totalLedgerPages}
+                      onClick={() => setLedgerPage((p) => Math.min(p + 1, totalLedgerPages))}
+                      className="h-7 text-xs px-2.5 cursor-pointer tap-active"
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
