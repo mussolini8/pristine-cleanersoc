@@ -18,6 +18,15 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: { default: "Pristine Cleaners", template: "%s | Pristine" },
   description: "Pristine Cleaners operations & QC inspection platform.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.png", type: "image/png", sizes: "32x32" },
+    ],
+    apple: [
+      { url: "/apple-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
