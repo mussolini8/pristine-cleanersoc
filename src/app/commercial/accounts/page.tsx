@@ -31,6 +31,7 @@ import { applyCommercialAccountChangesGoingForward } from "@/lib/payroll";
 import { displayDate } from "@/lib/dates/periods";
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import { getCleanerDefaultHourlyRate, canonicalizeStaffName } from "@/lib/staff-rules";
+import { useLanguage } from "@/components/providers/language-provider";
 
 // ─────────────────────────────────────────────
 type AccountScheduleRule = {
@@ -1431,6 +1432,7 @@ function AccountStudio({
 
 // ─────────────────────────────────────────────
 export default function CommercialPage() {
+  const { isEn } = useLanguage();
   const [accounts, setAccounts] = useState<Account[]>(() => mergeImportedAccounts([]));
   const [loading, setLoading] = useState(false);
   const [showAccountStudio, setShowAccountStudio] = useState(false);
@@ -2271,7 +2273,7 @@ export default function CommercialPage() {
               type="button"
             >
               <Sparkles size={15} />
-              Copiloto IA (Gemini)
+              {isEn ? "AI Copilot (Gemini)" : "Copiloto IA (Gemini)"}
             </button>
             <button className="add-account-btn" onClick={() => showAccountStudio ? closeAccountStudio() : openCreateStudio()} type="button">
               {showAccountStudio ? <X size={15} /> : <Plus size={15} />}

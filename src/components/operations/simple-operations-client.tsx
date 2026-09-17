@@ -40,6 +40,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { OperationsCalendar, type CalendarView, type NormalizedCalendarEvent } from "./shared-calendar";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { useLanguage } from "@/components/providers/language-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -502,7 +503,27 @@ function statusBadgeClass(status: string | null | undefined) {
   return "border-border/75 bg-card/70 text-muted-foreground";
 }
 
-function statusLabel(status: string | null | undefined) {
+function statusLabel(status: string | null | undefined, isEs?: boolean) {
+  if (isEs) {
+    if (status === "pending") return "Pendiente";
+    if (status === "paid") return "Pagado";
+    if (status === "verified") return "Verificado";
+    if (status === "completed") return "Completada";
+    if (status === "active") return "Activo";
+    if (status === "potential") return "Potencial";
+    if (status === "inactive") return "Inactivo";
+    if (status === "approved") return "Aprobado";
+    if (status === "scheduled") return "Programado";
+    if (status === "pending_payment") return "Pago pendiente";
+    if (status === "needs_review") return "Revisión necesaria";
+    if (status === "no_jobs") return "Sin servicios";
+    if (status === "overdue") return "Vencida";
+    if (status === "skipped") return "Omitido";
+    if (status === "high") return "Alta";
+    if (status === "urgent") return "Urgente";
+    if (status === "normal") return "Normal";
+    if (!status) return "Pendiente";
+  }
   if (status === "pending") return "Pending";
   if (status === "paid") return "Paid";
   if (status === "verified") return "Verified";
@@ -833,6 +854,7 @@ export function SimpleOperationsClient({
   envStatus?: EnvStatus;
 }) {
   const supabase = useMemo(() => createClient(), []);
+  const { t, isEn, isEs, translateTaskTitle, translateCategory } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [copilotUndoSnapshot, setCopilotUndoSnapshot] = useState<any | null>(null);
@@ -4730,10 +4752,10 @@ function renderHeader() {
       return "border-amber-200/70 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100 hover:bg-amber-100/50 hover:shadow-sm";
     };
     const compactMetrics = [
-      { label: "Pending", value: taskStats.pending.length, Icon: Clock, note: "Open reminders", tone: "neutral" },
-      { label: "Overdue", value: taskStats.overdue.length, Icon: AlertTriangle, note: "Past due", tone: taskStats.overdue.length ? "warn" : "good" },
-      { label: "Completed", value: taskStats.completed.length, Icon: CheckCircle2, note: "Closed tasks", tone: "good" },
-      { label: "Monthly SOP", value: monthlySopTaskCount >= 56 ? 56 : monthlySopTaskCount, Icon: FileText, note: monthlySopNote, tone: monthlySopTaskCount === 56 ? "good" : "warn" },
+      { label: t("sop.pending", "Pending"), value: taskStats.pending.length, Icon: Clock, note: t("sop.open_reminders", "Open reminders"), tone: "neutral" },
+      { label: t("sop.overdue", "Overdue"), value: taskStats.overdue.length, Icon: AlertTriangle, note: t("sop.past_due", "Past due"), tone: taskStats.overdue.length ? "warn" : "good" },
+      { label: t("sop.completed", "Completed"), value: taskStats.completed.length, Icon: CheckCircle2, note: t("sop.closed_tasks", "Closed tasks"), tone: "good" },
+      { label: t("sop.monthly_sop", "Monthly SOP"), value: monthlySopTaskCount >= 56 ? 56 : monthlySopTaskCount, Icon: FileText, note: monthlySopNote, tone: monthlySopTaskCount === 56 ? "good" : "warn" },
     ];
 
     function renderTaskList(rows: OperationTaskRow[], emptyText: string) {
@@ -4764,9 +4786,9 @@ function renderHeader() {
                 key={task.id}
               >
                 <button type="button" className="min-w-0 flex-1 text-left pl-1" onClick={() => setSelectedTask(task)}>
-                  <p className="truncate font-semibold text-foreground hover:text-primary transition-colors">{task.title}</p>
+                  <p className="truncate font-semibold text-foreground hover:text-primary transition-colors">{translateTaskTitle(task.title)}</p>
                   <p className="mt-1 text-xs font-medium text-muted-foreground flex items-center gap-1.5 flex-wrap">
-                    <span className="font-semibold text-primary">{task.assignee ?? "Unassigned"}</span>
+                    <span className="font-semibold text-primary">{task.assignee ?? (isEn ? "Unassigned" : "Sin asignar")}</span>
                     <span>·</span>
                     <span>{displayDate(task.due_date)}</span>
                     <span>·</span>
@@ -4775,11 +4797,11 @@ function renderHeader() {
                 </button>
                 <div className="flex items-center gap-2 flex-wrap">
                   {sourceDocument ? <Badge variant="outline" className="bg-background/40">{sourceDocument}</Badge> : null}
-                  <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status)}</Badge>
+                  <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status, isEs)}</Badge>
                   <div className="flex gap-1">
-                    <Button className="h-10 rounded-xl px-2.5 text-xs font-semibold transition-transform hover:scale-[1.02]" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-[18px]" /> Mark completed</Button>
-                    <Button className="size-10 transition-transform hover:scale-[1.02]" size="icon" variant="outline" aria-label="Edit task" title="Edit task" onClick={() => openTaskDraft(task)}><Edit3 className="size-[18px]" /></Button>
-                    <Button className="size-10 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 transition-transform hover:scale-[1.02]" size="icon" variant="outline" aria-label="Delete task" title="Delete task" disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-[18px]" /></Button>
+                    <Button className="h-10 rounded-xl px-2.5 text-xs font-semibold transition-transform hover:scale-[1.02]" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-[18px]" /> {t("sop.mark_completed", "Mark completed")}</Button>
+                    <Button className="size-10 transition-transform hover:scale-[1.02]" size="icon" variant="outline" aria-label={t("sop.edit_task", "Edit task")} title={t("sop.edit_task", "Edit task")} onClick={() => openTaskDraft(task)}><Edit3 className="size-[18px]" /></Button>
+                    <Button className="size-10 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 transition-transform hover:scale-[1.02]" size="icon" variant="outline" aria-label={t("sop.delete_task", "Delete task")} title={t("sop.delete_task", "Delete task")} disabled={deletingTaskId === task.id} onClick={() => deleteTask(task)}><Trash2 className="size-[18px]" /></Button>
                   </div>
                 </div>
               </div>
@@ -4801,12 +4823,12 @@ function renderHeader() {
           <Card className="rounded-xl border-amber-200 bg-amber-50/55 shadow-none dark:border-amber-900 dark:bg-amber-950/15">
             <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div>
-                <p className="font-semibold">Monthly SOP not generated for {visibleTaskMonth.label}</p>
-                <p className="mt-1 text-sm font-medium text-muted-foreground">Generate the 56 recurring SOP task instances from active Monthly SOP templates.</p>
+                <p className="font-semibold">{t("sop.not_generated", "Monthly SOP not generated for")} {visibleTaskMonth.label}</p>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">{t("sop.not_generated_sub", "Generate the 56 recurring SOP task instances from active Monthly SOP templates.")}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button className={SOP_ACTION_BUTTON_CLASS} disabled={importingMonthlySop || deduplicating} onClick={() => importMonthlySop(visibleTaskMonth)}><CalendarDays className="size-[18px]" /> {importingMonthlySop ? "Generating..." : `Generate ${visibleTaskMonth.label}`}</Button>
-                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" disabled={deduplicating || importingMonthlySop} onClick={deduplicateTasks}><RotateCcw className="size-[18px]" /> {deduplicating ? "Removing duplicates..." : "Remove duplicates"}</Button>
+                <Button className={SOP_ACTION_BUTTON_CLASS} disabled={importingMonthlySop || deduplicating} onClick={() => importMonthlySop(visibleTaskMonth)}><CalendarDays className="size-[18px]" /> {importingMonthlySop ? t("sop.generating", "Generating...") : `${isEn ? "Generate" : "Generar"} ${visibleTaskMonth.label}`}</Button>
+                <Button className={SOP_ACTION_BUTTON_CLASS} variant="outline" disabled={deduplicating || importingMonthlySop} onClick={deduplicateTasks}><RotateCcw className="size-[18px]" /> {deduplicating ? t("sop.removing_duplicates", "Removing duplicates...") : t("sop.remove_duplicates", "Remove duplicates")}</Button>
               </div>
             </CardContent>
           </Card>
@@ -4839,53 +4861,53 @@ function renderHeader() {
         <div className="grid gap-3 rounded-2xl border border-border/65 bg-card p-4 shadow-[0_14px_42px_-40px_hsl(215_40%_20%)] xl:grid-cols-[auto_1fr] xl:items-center">
           <div className="flex min-w-0 flex-wrap gap-2">
             <AppSegmentedControl ariaLabel="Task calendar view" value={taskViewMode} onChange={setTaskViewMode} options={[
-              { value: "month", label: "Month" },
-              { value: "day", label: "Day" },
-              { value: "list", label: "List" },
+              { value: "month", label: t("sop.month", "Month") },
+              { value: "day", label: t("sop.day", "Day") },
+              { value: "list", label: t("sop.list", "List") },
             ]} />
-            <AppSegmentedControl ariaLabel="Task status filter" value={taskTab} onChange={setTaskTab} options={(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => ({ value: tab, label: `${statusLabel(tab)} (${tabCounts[tab]})` }))} />
+            <AppSegmentedControl ariaLabel="Task status filter" value={taskTab} onChange={setTaskTab} options={(["pending", "overdue", "completed", "all"] as TaskTab[]).map((tab) => ({ value: tab, label: `${statusLabel(tab, isEs)} (${tabCounts[tab]})` }))} />
           </div>
           <div className="grid min-w-0 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(170px,1fr))]">
-            <input className={cn(PAYMENT_FIELD_CLASS, "bg-background")} placeholder="Search reminders" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
+            <input className={cn(PAYMENT_FIELD_CLASS, "bg-background")} placeholder={t("sop.search_reminders", "Search reminders")} value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
             {taskViewMode === "day" ? <input className={PAYMENT_FIELD_CLASS} type="date" lang="en-US" value={taskSelectedDay} onChange={(event) => setTaskSelectedDay(event.target.value)} /> : null}
             <select className={cn(PAYMENT_FIELD_CLASS, "bg-background")} value={taskSourceFilter} onChange={(event) => setTaskSourceFilter(event.target.value as "all" | "monthly_sop")} aria-label="Task source filter">
-              <option value="all">All sources</option>
-              <option value="monthly_sop">Monthly SOP</option>
+              <option value="all">{t("sop.all_sources", "All sources")}</option>
+              <option value="monthly_sop">{t("sop.monthly_sop", "Monthly SOP")}</option>
             </select>
-            <Button className="w-full sm:w-auto" variant="outline" onClick={() => { setTaskSearch(""); setTaskSourceFilter("all"); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw /> Clear</Button>
+            <Button className="w-full sm:w-auto" variant="outline" onClick={() => { setTaskSearch(""); setTaskSourceFilter("all"); setTaskTab("pending"); setTaskViewMode("month"); setTaskSelectedDay(todayKey()); }}><RotateCcw /> {t("sop.clear", "Clear")}</Button>
           </div>
         </div>
 
         <Card className="overflow-hidden rounded-2xl border border-border/65 bg-card shadow-[0_18px_58px_-50px_hsl(215_40%_20%)]">
           <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border/60 bg-card px-5 py-4">
             <div>
-              <CardTitle className="text-xl font-semibold tracking-normal">{taskViewMode === "list" ? "Task list" : taskViewMode === "day" ? "Tasks by day" : "Task calendar"}</CardTitle>
+              <CardTitle className="text-xl font-semibold tracking-normal">{taskViewMode === "list" ? t("sop.task_list", "Task list") : taskViewMode === "day" ? t("sop.tasks_by_day", "Tasks by day") : t("sop.task_calendar", "Task calendar")}</CardTitle>
               <p className="mt-1 text-sm font-medium text-muted-foreground">{taskViewMode === "day" ? displayDate(taskSelectedDay) : taskViewMode === "list" ? `${listTasks.length} reminders in ${visibleTaskMonth.label}` : visibleTaskMonth.label}</p>
             </div>
             <div className="flex items-center gap-1.5">
               {taskViewMode === "month" ? (
                 <>
                   <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Previous month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1)))}><ChevronLeft className="size-[18px]" /></button>
-                  <button className={calendarButtonClass} type="button" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>Today</button>
+                  <button className={calendarButtonClass} type="button" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))}>{t("sop.today", "Today")}</button>
                   <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Next month" onClick={() => setTaskCalendarAnchor(formatDateKey(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1)))}><ChevronRight className="size-[18px]" /></button>
                 </>
               ) : null}
               {taskViewMode === "day" ? (
                 <>
                   <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Previous day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), -1)))}><ChevronLeft className="size-[18px]" /></button>
-                  <button className={calendarButtonClass} type="button" onClick={() => setTaskSelectedDay(todayKey())}>Today</button>
+                  <button className={calendarButtonClass} type="button" onClick={() => setTaskSelectedDay(todayKey())}>{t("sop.today", "Today")}</button>
                   <button className={cn(calendarButtonClass, "px-0")} type="button" aria-label="Next day" onClick={() => setTaskSelectedDay(formatDateKey(addDays(parseDateKey(taskSelectedDay) ?? new Date(), 1)))}><ChevronRight className="size-[18px]" /></button>
                 </>
               ) : null}
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {taskViewMode === "list" ? <div className="p-3">{renderTaskList(listTasks, "No reminders match this list.")}</div> : null}
-            {taskViewMode === "day" ? <div className="p-3">{renderTaskList(selectedDayTasks, "No reminders for this day.")}</div> : null}
+            {taskViewMode === "list" ? <div className="p-3">{renderTaskList(listTasks, isEn ? "No reminders match this list." : "Ningún recordatorio coincide con esta lista.")}</div> : null}
+            {taskViewMode === "day" ? <div className="p-3">{renderTaskList(selectedDayTasks, isEn ? "No reminders for this day." : "No hay recordatorios para este día.")}</div> : null}
             {taskViewMode === "month" ? (
               <>
             <div className="grid grid-cols-7 border-b border-border/45 bg-muted/25 text-center text-xs font-semibold text-muted-foreground">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div className="border-r border-border/35 py-3 last:border-r-0" key={day}>{day}</div>)}
+              {(isEn ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] : ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]).map((day) => <div className="border-r border-border/35 py-3 last:border-r-0" key={day}>{day}</div>)}
             </div>
             <div className="grid grid-cols-7">
               {calendarDays.map(({ key, date, inMonth }) => {
@@ -4906,8 +4928,8 @@ function renderHeader() {
                             key={task.id}
                             onClick={() => setSelectedTask(task)}
                           >
-                            <span className="line-clamp-2">{task.title}</span>
-                            <span className="mt-1 block truncate text-[10px] font-medium opacity-70">{taskSourceDocument(task) ?? task.assignee ?? "Unassigned"}</span>
+                            <p className="truncate font-semibold">{translateTaskTitle(task.title)}</p>
+                            <span className="mt-0.5 block truncate text-[10px] font-medium opacity-75">{taskSourceDocument(task) ?? task.assignee ?? (isEn ? "Unassigned" : "Sin asignar")}</span>
                           </button>
                         );
                       })}
@@ -4919,18 +4941,17 @@ function renderHeader() {
             </div>
             {unscheduledTasks.length ? (
               <div className="border-t border-border p-3">
-                <p className="text-sm font-semibold">No due date</p>
+                <p className="text-sm font-semibold">{isEn ? "No due date" : "Sin fecha límite"}</p>
                 <div className="mt-2 grid gap-2 md:grid-cols-3">
                   {unscheduledTasks.slice(0, 6).map((task) => renderCompactTaskRow(task))}
                 </div>
               </div>
             ) : null}
-              </>
+            </>
             ) : null}
           </CardContent>
         </Card>
         <ResidentialImportsPanel />
-
       </div>
 
     );
@@ -7149,12 +7170,14 @@ function renderHeader() {
 
           setScheduleActionFeedback({
             tone: "success",
-            text: `¡Schedule movido con éxito! "${canonicalName}" ahora iniciará el ${newDate} (${freqLabel}) y las horas comerciales fueron recalculadas.`,
+            text: isEn
+              ? `Schedule moved successfully! "${canonicalName}" will now start on ${newDate} (${freqLabel}) and commercial hours were recalculated.`
+              : `¡Schedule movido con éxito! "${canonicalName}" ahora iniciará el ${newDate} (${freqLabel}) y las horas comerciales fueron recalculadas.`,
           });
         } else {
           // Single visit rescheduled
           const hours = Number(targetDbAcc?.hours) || 2.5;
-          const cleanerName = targetDbAcc?.cleaner_name || "Sin asignar";
+          const cleanerName = targetDbAcc?.cleaner_name || (isEn ? "Unassigned" : "Sin asignar");
 
           await supabase.from("commercial_hours_entries").upsert(
             {
@@ -7164,7 +7187,7 @@ function renderHeader() {
               status: "skipped",
               scheduled_hours: 0,
               completed_hours: 0,
-              notes: `Reagendada para el ${newDate}`,
+              notes: isEn ? `Rescheduled to ${newDate}` : `Reagendada para el ${newDate}`,
               manual_entry: true,
             },
             { onConflict: "account_name,work_date" }
@@ -7178,7 +7201,7 @@ function renderHeader() {
               status: "needs_review",
               scheduled_hours: hours,
               completed_hours: 0,
-              notes: `Reagendada desde el ${ev.start}`,
+              notes: isEn ? `Rescheduled from ${ev.start}` : `Reagendada desde el ${ev.start}`,
               manual_entry: true,
             },
             { onConflict: "account_name,work_date" }
@@ -7186,7 +7209,9 @@ function renderHeader() {
 
           setScheduleActionFeedback({
             tone: "success",
-            text: `Visita movida al ${newDate}. Las horas comerciales fueron recalculadas.`,
+            text: isEn
+              ? `Visit moved to ${newDate}. Commercial hours were recalculated.`
+              : `Visita movida al ${newDate}. Las horas comerciales fueron recalculadas.`,
           });
         }
       } else if (scheduleActionType === "reassign") {
@@ -7226,7 +7251,9 @@ function renderHeader() {
           }
           setScheduleActionFeedback({
             tone: "success",
-            text: `Asignación permanente actualizada: ${cleanerName} es la cleaner asignada a ${canonicalName}.`,
+            text: isEn
+              ? `Permanent assignment updated: ${cleanerName} is now assigned to ${canonicalName}.`
+              : `Asignación permanente actualizada: ${cleanerName} es la cleaner asignada a ${canonicalName}.`,
           });
         } else {
           await supabase.from("commercial_hours_entries").upsert(
@@ -7236,7 +7263,7 @@ function renderHeader() {
               team_name: cleanerName,
               status: "needs_review",
               scheduled_hours: Number(targetDbAcc?.hours) || 2.5,
-              notes: `Reasignada puntualmente a ${cleanerName}`,
+              notes: isEn ? `Temporary reassignment to ${cleanerName}` : `Reasignada puntualmente a ${cleanerName}`,
               manual_entry: true,
             },
             { onConflict: "account_name,work_date" }
@@ -7244,7 +7271,9 @@ function renderHeader() {
 
           setScheduleActionFeedback({
             tone: "success",
-            text: `Visita del ${ev.start} reasignada a ${cleanerName}.`,
+            text: isEn
+              ? `Visit on ${ev.start} reassigned to ${cleanerName}.`
+              : `Visita del ${ev.start} reasignada a ${cleanerName}.`,
           });
         }
       } else if (scheduleActionType === "cancel") {
@@ -7276,18 +7305,20 @@ function renderHeader() {
 
           setScheduleActionFeedback({
             tone: "success",
-            text: `Cuenta "${canonicalName}" desprogramada a partir del ${ev.start}. Visitas previas preservadas.`,
+            text: isEn
+              ? `Account "${canonicalName}" deactivated starting from ${ev.start}. Prior visits preserved.`
+              : `Cuenta "${canonicalName}" desprogramada a partir del ${ev.start}. Visitas previas preservadas.`,
           });
         } else {
           await supabase.from("commercial_hours_entries").upsert(
             {
               account_name: canonicalName,
               work_date: ev.start,
-              team_name: ev.raw?.cleaner || targetDbAcc?.cleaner_name || "Sin asignar",
+              team_name: ev.raw?.cleaner || targetDbAcc?.cleaner_name || (isEn ? "Unassigned" : "Sin asignar"),
               status: "skipped",
               scheduled_hours: 0,
               completed_hours: 0,
-              notes: scheduleActionReason || "Visita cancelada",
+              notes: scheduleActionReason || (isEn ? "Visit cancelled" : "Visita cancelada"),
               manual_entry: true,
             },
             { onConflict: "account_name,work_date" }
@@ -7295,7 +7326,9 @@ function renderHeader() {
 
           setScheduleActionFeedback({
             tone: "success",
-            text: `Visita del ${ev.start} cancelada (0 horas registradas).`,
+            text: isEn
+              ? `Visit on ${ev.start} cancelled (0 hours recorded).`
+              : `Visita del ${ev.start} cancelada (0 horas registradas).`,
           });
         }
       }
@@ -7497,12 +7530,12 @@ function renderHeader() {
               </div>
             ) : null}
 
-            {/* OPERATIONAL SCHEDULE ACTIONS: Cancelar, Reagendar / Mover Schedule, Cambiar Cleaner */}
+            {/* OPERATIONAL SCHEDULE ACTIONS: Cancel, Reschedule / Move Schedule, Change Cleaner */}
             <div className="rounded-xl border border-border/80 bg-muted/20 p-4 space-y-3.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                   <Settings2 className="size-3.5 text-primary" />
-                  Acciones Operativas del Schedule
+                  {t("schedule.actions", "Schedule Actions")}
                 </span>
                 {scheduleActionType ? (
                   <button
@@ -7513,7 +7546,7 @@ function renderHeader() {
                     }}
                     className="text-[11px] font-semibold text-muted-foreground hover:text-foreground underline cursor-pointer"
                   >
-                    Cerrar panel de acción
+                    {t("schedule.close_action_panel", "Close action panel")}
                   </button>
                 ) : null}
               </div>
@@ -7535,7 +7568,7 @@ function renderHeader() {
                   )}
                 >
                   <RotateCcw className="size-3.5" />
-                  Reagendar / Mover
+                  {t("schedule.reschedule", "Reschedule")}
                 </button>
 
                 <button
@@ -7553,7 +7586,7 @@ function renderHeader() {
                   )}
                 >
                   <Users className="size-3.5" />
-                  Cambiar Cleaner
+                  {t("schedule.reassign", "Reassign Cleaner")}
                 </button>
 
                 <button
@@ -7571,7 +7604,7 @@ function renderHeader() {
                   )}
                 >
                   <Trash2 className="size-3.5" />
-                  Cancelar
+                  {t("schedule.cancel_visit", "Cancel Visit")}
                 </button>
               </div>
 
@@ -7595,7 +7628,7 @@ function renderHeader() {
                     <div className="space-y-3">
                       <div className="space-y-1">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
-                          Nueva Fecha
+                          {t("schedule.new_date", "New Date")}
                         </label>
                         <input
                           type="date"
@@ -7608,7 +7641,7 @@ function renderHeader() {
 
                       <div className="space-y-1.5">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
-                          Alcance del Reagendamiento
+                          {t("schedule.reschedule_scope", "Reschedule Scope")}
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <label className={cn(
@@ -7623,8 +7656,8 @@ function renderHeader() {
                               className="mt-0.5"
                             />
                             <div>
-                              <span className="block font-bold">Mover todo el schedule</span>
-                              <span className="text-[10px] text-muted-foreground font-normal">Reancla la recurrencia desde esta nueva fecha.</span>
+                              <span className="block font-bold">{t("schedule.move_entire_schedule", "Move entire schedule")}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">{t("schedule.move_entire_sub", "Re-anchors recurrence starting from this new date forward.")}</span>
                             </div>
                           </label>
 
@@ -7640,8 +7673,8 @@ function renderHeader() {
                               className="mt-0.5"
                             />
                             <div>
-                              <span className="block font-bold">Solo esta visita</span>
-                              <span className="text-[10px] text-muted-foreground font-normal">Mueve únicamente la fecha del {ev.start}.</span>
+                              <span className="block font-bold">{t("schedule.only_this_visit", "Only this visit")}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">{t("schedule.only_this_visit_sub", "Moves only this specific visit date.")}</span>
                             </div>
                           </label>
                         </div>
@@ -7650,17 +7683,17 @@ function renderHeader() {
                       {scheduleActionScope === "recurring" && (
                         <div className="space-y-1">
                           <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
-                            Frecuencia Recurrente
+                            {t("schedule.recurring_frequency", "Recurring Frequency")}
                           </label>
                           <select
                             value={scheduleActionFrequency}
                             onChange={(e) => setScheduleActionFrequency(e.target.value)}
                             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                           >
-                            <option value="Every 2 weeks">Every 2 weeks (Cada 2 semanas / Biweekly)</option>
-                            <option value="Weekly">Weekly (Semanal)</option>
-                            <option value="Monthly">Monthly (Mensual)</option>
-                            <option value="Every 15 days">Every 15 days (Cada 15 días)</option>
+                            <option value="Every 2 weeks">{isEn ? "Every 2 weeks (Biweekly)" : "Cada 2 semanas (Biweekly)"}</option>
+                            <option value="Weekly">{isEn ? "Weekly" : "Semanal"}</option>
+                            <option value="Monthly">{isEn ? "Monthly" : "Mensual"}</option>
+                            <option value="Every 15 days">{isEn ? "Every 15 days" : "Cada 15 días"}</option>
                           </select>
                         </div>
                       )}
@@ -7672,7 +7705,7 @@ function renderHeader() {
                         disabled={!scheduleActionDate}
                         className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer"
                       >
-                        Revisar y Confirmar Cambio
+                        {t("schedule.review_confirm_change", "Review and Confirm Change")}
                       </Button>
                     </div>
                   )}
@@ -7682,14 +7715,14 @@ function renderHeader() {
                     <div className="space-y-3">
                       <div className="space-y-1">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
-                          Nueva Cleaner / Equipo Asignado
+                          {t("schedule.new_cleaner", "New Cleaner / Assigned Team")}
                         </label>
                         <select
                           value={scheduleActionCleaner}
                           onChange={(e) => setScheduleActionCleaner(e.target.value)}
                           className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                         >
-                          <option value="">-- Seleccionar cleaner --</option>
+                          <option value="">{t("schedule.select_cleaner", "-- Select cleaner --")}</option>
                           {availableCleaners.map((c) => (
                             <option key={c} value={c}>{c}</option>
                           ))}
@@ -7698,7 +7731,7 @@ function renderHeader() {
 
                       <div className="space-y-1.5">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
-                          Alcance del Cambio
+                          {t("schedule.assignment_scope", "Assignment Scope")}
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <label className={cn(
@@ -7713,8 +7746,8 @@ function renderHeader() {
                               className="mt-0.5"
                             />
                             <div>
-                              <span className="block font-bold">Permanente</span>
-                              <span className="text-[10px] text-muted-foreground font-normal">Todas las visitas futuras del schedule.</span>
+                              <span className="block font-bold">{t("schedule.permanent", "Permanent")}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">{t("schedule.permanent_sub", "Applies to all future visits in the schedule.")}</span>
                             </div>
                           </label>
 
@@ -7730,8 +7763,8 @@ function renderHeader() {
                               className="mt-0.5"
                             />
                             <div>
-                              <span className="block font-bold">Solo esta visita</span>
-                              <span className="text-[10px] text-muted-foreground font-normal">Reemplazo puntual para el {ev.start}.</span>
+                              <span className="block font-bold">{t("schedule.only_this_visit", "Only this visit")}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">{isEn ? `Temporary replacement for ${ev.start}.` : `Reemplazo puntual para el ${ev.start}.`}</span>
                             </div>
                           </label>
                         </div>
@@ -7744,7 +7777,7 @@ function renderHeader() {
                         disabled={!scheduleActionCleaner}
                         className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer"
                       >
-                        Revisar y Confirmar Asignación
+                        {t("schedule.review_confirm_assignment", "Review and Confirm Assignment")}
                       </Button>
                     </div>
                   )}
@@ -7754,7 +7787,7 @@ function renderHeader() {
                     <div className="space-y-3">
                       <div className="space-y-1.5">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
-                          Tipo de Cancelación
+                          {t("schedule.cancellation_type", "Cancellation Type")}
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <label className={cn(
@@ -7769,8 +7802,8 @@ function renderHeader() {
                               className="mt-0.5"
                             />
                             <div>
-                              <span className="block font-bold">Solo esta visita</span>
-                              <span className="text-[10px] text-muted-foreground font-normal">Cancela la visita del {ev.start}.</span>
+                              <span className="block font-bold">{t("schedule.only_this_visit", "Only this visit")}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">{isEn ? `Cancels visit for ${ev.start}.` : `Cancela la visita del ${ev.start}.`}</span>
                             </div>
                           </label>
 
@@ -7786,8 +7819,8 @@ function renderHeader() {
                               className="mt-0.5"
                             />
                             <div>
-                              <span className="block font-bold">Desprogramar cuenta</span>
-                              <span className="text-[10px] text-muted-foreground font-normal">Finaliza el contrato a partir del {ev.start}.</span>
+                              <span className="block font-bold">{t("schedule.deactivate_account", "Deactivate account")}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">{isEn ? `Ends contract starting from ${ev.start}.` : `Finaliza el contrato a partir del ${ev.start}.`}</span>
                             </div>
                           </label>
                         </div>
@@ -7795,11 +7828,11 @@ function renderHeader() {
 
                       <div className="space-y-1">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
-                          Motivo / Nota (opcional)
+                          {t("schedule.reason_optional", "Reason / Note (optional)")}
                         </label>
                         <input
                           type="text"
-                          placeholder="Ej. Solicitud del cliente, feriado, etc."
+                          placeholder={t("schedule.reason_placeholder", "e.g. Client request, holiday, etc.")}
                           value={scheduleActionReason}
                           onChange={(e) => setScheduleActionReason(e.target.value)}
                           className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -7812,63 +7845,63 @@ function renderHeader() {
                         onClick={() => setScheduleConfirmPending(true)}
                         className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
                       >
-                        Revisar y Confirmar Cancelación
+                        {t("schedule.review_confirm_cancellation", "Review and Confirm Cancellation")}
                       </Button>
                     </div>
                   )}
                 </div>
               ) : null}
 
-              {/* CONFIRMATION STEP (SIEMPRE CON CONFIRMACIÓN ANTES DE EJECUTAR) */}
+              {/* CONFIRMATION STEP */}
               {scheduleConfirmPending && (
                 <div className="rounded-xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-950/40 p-4 space-y-3 animate-in zoom-in-95">
                   <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 font-black text-xs uppercase tracking-wider">
                     <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                    Confirmación de Operación en Schedule
+                    {t("schedule.confirmation_title", "Schedule Operation Confirmation")}
                   </div>
 
                   <div className="space-y-1 text-xs text-amber-950 dark:text-amber-200">
                     <p>
-                      <strong>Cuenta:</strong> {accountName}
+                      <strong>{t("schedule.account_label", "Account:")}</strong> {accountName}
                     </p>
                     {scheduleActionType === "reschedule" && (
                       <>
                         <p>
-                          <strong>Acción:</strong> {scheduleActionScope === "recurring" ? "Mover todo el schedule" : "Reagendar solo esta visita"}
+                          <strong>{t("schedule.action_label", "Action:")}</strong> {scheduleActionScope === "recurring" ? (isEn ? "Move entire schedule" : "Mover todo el schedule") : (isEn ? "Reschedule single visit" : "Reagendar solo esta visita")}
                         </p>
                         <p>
-                          <strong>Nueva Fecha:</strong> {scheduleActionDate}
+                          <strong>{isEn ? "New Date:" : "Nueva Fecha:"}</strong> {scheduleActionDate}
                         </p>
                         {scheduleActionScope === "recurring" && (
                           <p>
-                            <strong>Frecuencia:</strong> {scheduleActionFrequency}
+                            <strong>{isEn ? "Frequency:" : "Frecuencia:"}</strong> {scheduleActionFrequency}
                           </p>
                         )}
                         <p className="text-[11px] text-muted-foreground mt-1">
-                          ⚡ Las horas comerciales del calculador y el payroll se actualizarán de acuerdo a esta nueva programación.
+                          ⚡ {isEn ? "Commercial hours in calculator and payroll will update according to this schedule." : "Las horas comerciales del calculador y el payroll se actualizarán de acuerdo a esta nueva programación."}
                         </p>
                       </>
                     )}
                     {scheduleActionType === "reassign" && (
                       <>
                         <p>
-                          <strong>Acción:</strong> {scheduleActionScope === "recurring" ? "Reasignación permanente de cleaner" : `Reemplazo puntual para el ${ev.start}`}
+                          <strong>{t("schedule.action_label", "Action:")}</strong> {scheduleActionScope === "recurring" ? (isEn ? "Permanent cleaner reassignment" : "Reasignación permanente de cleaner") : (isEn ? `Temporary replacement for ${ev.start}` : `Reemplazo puntual para el ${ev.start}`)}
                         </p>
                         <p>
-                          <strong>Nueva Cleaner:</strong> <span className="font-bold text-indigo-700 dark:text-indigo-300">{scheduleActionCleaner}</span>
+                          <strong>{isEn ? "New Cleaner:" : "Nueva Cleaner:"}</strong> <span className="font-bold text-indigo-700 dark:text-indigo-300">{scheduleActionCleaner}</span>
                         </p>
                         <p className="text-[11px] text-muted-foreground mt-1">
-                          ⚡ El pago y horas trabajadas se vincularán al perfil de {scheduleActionCleaner}.
+                          ⚡ {isEn ? `Pay and hours worked will link to ${scheduleActionCleaner}'s profile.` : `El pago y horas trabajadas se vincularán al perfil de ${scheduleActionCleaner}.`}
                         </p>
                       </>
                     )}
                     {scheduleActionType === "cancel" && (
                       <>
                         <p>
-                          <strong>Acción:</strong> {scheduleActionScope === "recurring" ? `Desprogramar a partir del ${ev.start}` : `Cancelar visita del ${ev.start}`}
+                          <strong>{t("schedule.action_label", "Action:")}</strong> {scheduleActionScope === "recurring" ? (isEn ? `Deactivate starting from ${ev.start}` : `Desprogramar a partir del ${ev.start}`) : (isEn ? `Cancel visit on ${ev.start}` : `Cancelar visita del ${ev.start}`)}
                         </p>
                         <p className="text-[11px] text-muted-foreground mt-1">
-                          ⚡ Esta visita registrará 0 horas pagaderas en el calculador comercial.
+                          ⚡ {isEn ? "This visit will record 0 payable hours in the commercial calculator." : "Esta visita registrará 0 horas pagaderas en el calculador comercial."}
                         </p>
                       </>
                     )}
@@ -7888,11 +7921,11 @@ function renderHeader() {
                       )}
                     >
                       {scheduleActionSubmitting ? (
-                        <span>Guardando cambios...</span>
+                        <span>{t("schedule.saving_changes", "Saving changes...")}</span>
                       ) : (
                         <>
                           <CheckCircle2 className="size-3.5" />
-                          Confirmar y Ejecutar Ahora
+                          {t("schedule.confirm_execute", "Confirm and Execute Now")}
                         </>
                       )}
                     </Button>
@@ -7904,7 +7937,7 @@ function renderHeader() {
                       onClick={() => setScheduleConfirmPending(false)}
                       className="text-xs cursor-pointer"
                     >
-                      Volver
+                      {t("schedule.back", "Back")}
                     </Button>
                   </div>
                 </div>
@@ -7933,7 +7966,7 @@ function renderHeader() {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
                 >
                   <ExternalLink className="size-3.5" />
-                  Ver en Cuentas Comerciales
+                  {t("schedule.view_in_accounts", "View in Commercial Accounts")}
                 </a>
               ) : null}
               {cleaner && cleaner !== "Unassigned" ? (
@@ -7942,7 +7975,7 @@ function renderHeader() {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-border bg-background hover:bg-muted text-foreground transition-colors"
                 >
                   <WalletCards className="size-3.5 text-muted-foreground" />
-                  Ver Horas / Pagos
+                  {t("schedule.view_hours_payments", "View Hours / Payments")}
                 </Link>
               ) : null}
             </div>
@@ -7953,7 +7986,7 @@ function renderHeader() {
               size="sm"
               onClick={() => handleOpenScheduleEvent(null)}
             >
-              Cerrar
+              {t("schedule.close", "Close")}
             </Button>
           </div>
         </div>

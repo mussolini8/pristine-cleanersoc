@@ -40,6 +40,7 @@ import {
   applyAccessUpdateAction,
   applySopModificationsAction,
 } from "@/lib/ai/sop-actions-handler";
+import { useLanguage } from "@/components/providers/language-provider";
 
 interface AiSopCopilotModalProps {
   isOpen: boolean;
@@ -104,6 +105,7 @@ export function AiSopCopilotModal({
   onUndoLastAction,
   canUndo,
 }: AiSopCopilotModalProps) {
+  const { isEn, t, setLanguage } = useLanguage();
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -113,7 +115,7 @@ export function AiSopCopilotModal({
   const [response, setResponse] = useState<SopCopilotResponse | null>(null);
   const [appliedSuccess, setAppliedSuccess] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [speechLang, setSpeechLang] = useState<"es-US" | "en-US">("es-US");
+  const [speechLang, setSpeechLang] = useState<"es-US" | "en-US">(isEn ? "en-US" : "es-US");
   const [speechSupported, setSpeechSupported] = useState(true);
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [smsSentSuccess, setSmsSentSuccess] = useState<string | null>(null);
@@ -122,10 +124,12 @@ export function AiSopCopilotModal({
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
+    setSpeechLang(isEn ? "en-US" : "es-US");
+  }, [isEn]);
+
+  useEffect(() => {
     const stored = localStorage.getItem("pristine_gemini_api_key");
     if (stored) setApiKey(stored);
-    const storedLang = localStorage.getItem("pristine_copilot_lang") as "es-US" | "en-US" | null;
-    if (storedLang) setSpeechLang(storedLang);
 
     // Check Speech Recognition support
     if (typeof window !== "undefined") {
@@ -390,13 +394,13 @@ export function AiSopCopilotModal({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-foreground">Pristiner (Copiloto IA)</h3>
+                <h3 className="text-base font-bold text-foreground">{isEn ? "Pristiner (AI Copilot)" : "Pristiner (Copiloto IA)"}</h3>
                 <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[10px] font-black uppercase tracking-wider">
-                  ⚡ Poder Supremo Operacional
+                  {isEn ? "⚡ Supreme Operational Engine" : "⚡ Poder Supremo Operacional"}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                Control total sin restricciones: modifica cuentas, turnos, cleaners, tarifas, tareas y accesos.
+                {isEn ? "Full operational control: modify accounts, schedules, cleaners, rates, tasks, and credentials." : "Control total sin restricciones: modifica cuentas, turnos, cleaners, tarifas, tareas y accesos."}
               </p>
             </div>
           </div>
@@ -404,16 +408,16 @@ export function AiSopCopilotModal({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              className="h-8 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
               onClick={() => setShowApiKeyInput(!showApiKeyInput)}
             >
               <Key className="mr-1.5 size-3.5" />
-              {apiKey ? "API Key Configurada" : "Configurar API Key"}
+              {apiKey ? (isEn ? "API Key Configured" : "API Key Configurada") : (isEn ? "Configure API Key" : "Configurar API Key")}
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              className="size-8 rounded-full text-muted-foreground hover:text-foreground"
+              className="size-8 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
               onClick={onClose}
             >
               <X className="size-4" />
@@ -427,10 +431,10 @@ export function AiSopCopilotModal({
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-amber-900 dark:text-amber-200">
-                  Clave de Google Gemini (GEMINI_API_KEY)
+                  {isEn ? "Google Gemini API Key (GEMINI_API_KEY)" : "Clave de Google Gemini (GEMINI_API_KEY)"}
                 </span>
                 <span className="text-[11px] text-muted-foreground">
-                  Se guarda de forma segura en tu navegador local.
+                  {isEn ? "Saved securely in your local browser." : "Se guarda de forma segura en tu navegador local."}
                 </span>
               </div>
               <div className="flex gap-2">
@@ -441,8 +445,8 @@ export function AiSopCopilotModal({
                   placeholder="AIzaSy..."
                   className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                 />
-                <Button size="sm" onClick={() => handleSaveApiKey(apiKey)} className="h-8 text-xs">
-                  Guardar
+                <Button size="sm" onClick={() => handleSaveApiKey(apiKey)} className="h-8 text-xs cursor-pointer">
+                  {isEn ? "Save" : "Guardar"}
                 </Button>
               </div>
             </div>
@@ -457,7 +461,7 @@ export function AiSopCopilotModal({
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Ejemplo: 'Ajusta el schedule de Field AI a 3 horas los lunes y asigna a Ana Morales' o 'Extrae el schedule de esta captura y calcula margen de ganancia'..."
+                placeholder={isEn ? "Example: 'Adjust Field AI schedule to 3 hours on Mondays and assign to Ana Morales' or 'Extract the schedule from this screenshot and compute profit margin'..." : "Ejemplo: 'Ajusta el schedule de Field AI a 3 horas los lunes y asigna a Ana Morales' o 'Extrae el schedule de esta captura y calcula margen de ganancia'..."}
                 className="w-full min-h-[90px] resize-none bg-transparent text-sm placeholder:text-muted-foreground/60 focus:outline-none"
               />
 
@@ -470,7 +474,7 @@ export function AiSopCopilotModal({
                       <button
                         type="button"
                         onClick={() => removeImage(idx)}
-                        className="absolute right-1 top-1 rounded-full bg-black/70 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        className="absolute right-1 top-1 rounded-full bg-black/70 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100 cursor-pointer"
                       >
                         <X className="size-3" />
                       </button>
@@ -494,11 +498,11 @@ export function AiSopCopilotModal({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs gap-1.5"
+                    className="h-8 text-xs gap-1.5 cursor-pointer"
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Upload className="size-3.5" />
-                    Subir Captura / Imagen
+                    {t("copilot.upload_image", "Upload Screenshot / Image")}
                   </Button>
 
                   <div className="flex items-center gap-1">
@@ -506,7 +510,7 @@ export function AiSopCopilotModal({
                       type="button"
                       variant={isListening ? "default" : "outline"}
                       size="sm"
-                      className={`h-8 text-xs gap-1.5 transition-all ${
+                      className={`h-8 text-xs gap-1.5 transition-all cursor-pointer ${
                         isListening
                           ? "animate-pulse border-rose-500 bg-rose-600 text-white hover:bg-rose-700 shadow-md shadow-rose-500/20"
                           : "border-primary/30 text-primary hover:bg-primary/5"
@@ -516,12 +520,12 @@ export function AiSopCopilotModal({
                       {isListening ? (
                         <>
                           <MicOff className="size-3.5" />
-                          Detener Micrófono
+                          {t("copilot.stop_mic", "Stop Microphone")}
                         </>
                       ) : (
                         <>
                           <Mic className="size-3.5 text-primary" />
-                          Dictar por Voz
+                          {t("copilot.voice_dictate", "Voice Dictate")}
                         </>
                       )}
                     </Button>
@@ -531,7 +535,7 @@ export function AiSopCopilotModal({
                       onClick={() => {
                         const next = speechLang === "es-US" ? "en-US" : "es-US";
                         setSpeechLang(next);
-                        localStorage.setItem("pristine_copilot_lang", next);
+                        setLanguage(next === "en-US" ? "en" : "es");
                         if (isListening && recognitionRef.current) {
                           recognitionRef.current.lang = next;
                         }
@@ -550,7 +554,7 @@ export function AiSopCopilotModal({
                     </span>
                   ) : (
                     <span className="text-[11px] text-muted-foreground hidden sm:inline">
-                      (o pega con <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Ctrl+V</kbd>)
+                      ({isEn ? "or paste with " : "o pega con "}<kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Ctrl+V</kbd>)
                     </span>
                   )}
                 </div>
@@ -559,17 +563,17 @@ export function AiSopCopilotModal({
                   type="submit"
                   disabled={loading || (!prompt.trim() && images.length === 0)}
                   size="sm"
-                  className="h-8 gap-1.5"
+                  className="h-8 gap-1.5 cursor-pointer"
                 >
                   {loading ? (
                     <>
                       <Loader2 className="size-3.5 animate-spin" />
-                      Analizando con Gemini...
+                      {t("copilot.analyzing", "Analyzing with Gemini...")}
                     </>
                   ) : (
                     <>
                       <Send className="size-3.5" />
-                      Analizar & Procesar
+                      {t("copilot.analyze_process", "Analyze & Process")}
                     </>
                   )}
                 </Button>
@@ -582,7 +586,7 @@ export function AiSopCopilotModal({
             <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-xs text-destructive">
               <AlertCircle className="size-4 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold">No se pudo completar la operación</p>
+                <p className="font-semibold">{isEn ? "Could not complete operation" : "No se pudo completar la operación"}</p>
                 <p className="mt-0.5 text-destructive/80">{error}</p>
               </div>
             </div>
@@ -595,7 +599,7 @@ export function AiSopCopilotModal({
               <div className="rounded-xl border border-primary/20 bg-primary/[0.04] p-4">
                 <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider mb-2">
                   <Sparkles className="size-3.5" />
-                  Diagnóstico y Análisis de Gemini
+                  {isEn ? "Gemini Analysis & Diagnosis" : "Diagnóstico y Análisis de Gemini"}
                 </div>
                 <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
                   {response.summary}
@@ -611,7 +615,7 @@ export function AiSopCopilotModal({
               {response.sopModifications && response.sopModifications.length > 0 && (
                 <div className="space-y-2">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <Clock className="size-3.5" /> Modificaciones Operativas / SOP Detectadas
+                    <Clock className="size-3.5" /> {isEn ? "Detected SOP / Operational Modifications" : "Modificaciones Operativas / SOP Detectadas"}
                   </h4>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {response.sopModifications.map((mod, idx) => (
@@ -624,24 +628,24 @@ export function AiSopCopilotModal({
                         }`}
                       >
                         <div className="flex items-center justify-between font-bold text-foreground">
-                          <span>{mod.accountName || "Cuenta Comercial"}</span>
+                          <span>{mod.accountName || (isEn ? "Commercial Account" : "Cuenta Comercial")}</span>
                           <div className="flex items-center gap-1">
                             {mod.action === "delete_account" || mod.status === "inactive" ? (
                               <Badge variant="outline" className="text-[10px] border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-500/10">
-                                Eliminar Cuenta
+                                {isEn ? "Delete Account" : "Eliminar Cuenta"}
                               </Badge>
                             ) : mod.action === "reschedule" || mod.newDays ? (
                               <Badge variant="outline" className="text-[10px] border-blue-400 text-blue-600 dark:text-blue-400">
-                                Reagendar
+                                {isEn ? "Reschedule" : "Reagendar"}
                               </Badge>
                             ) : mod.action === "change_cleaner" ? (
                               <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-600 dark:text-amber-400">
-                                Cambiar Equipo
+                                {isEn ? "Change Team" : "Cambiar Equipo"}
                               </Badge>
                             ) : null}
                             {mod.newHours !== undefined && mod.newHours > 0 && (
                               <Badge variant="secondary" className="text-[10px]">
-                                {mod.newHours} hrs/visita
+                                {mod.newHours} {isEn ? "hrs/visit" : "hrs/visita"}
                               </Badge>
                             )}
                           </div>
@@ -653,12 +657,12 @@ export function AiSopCopilotModal({
                         )}
                         {mod.newDays && mod.newDays.length > 0 && (
                           <div className="text-muted-foreground">
-                            Días: <span className="text-foreground font-semibold">{mod.newDays.join(", ")}</span>
+                            {isEn ? "Days:" : "Días:"} <span className="text-foreground font-semibold">{mod.newDays.join(", ")}</span>
                           </div>
                         )}
                         {mod.newPricing !== undefined && (
                           <div className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                            Precio: ${mod.newPricing.toFixed(2)}
+                            {isEn ? "Price:" : "Precio:"} ${mod.newPricing.toFixed(2)}
                           </div>
                         )}
                         {mod.notes && <div className="text-[11px] text-muted-foreground italic">{mod.notes}</div>}
@@ -672,25 +676,25 @@ export function AiSopCopilotModal({
               {response.taskModifications && response.taskModifications.length > 0 && (
                 <div className="space-y-2">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <CheckCircle className="size-3.5 text-purple-600" /> Tareas del SOP a Modificar ({response.taskModifications.length})
+                    <CheckCircle className="size-3.5 text-purple-600" /> {isEn ? "SOP Tasks to Modify" : "Tareas del SOP a Modificar"} ({response.taskModifications.length})
                   </h4>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {response.taskModifications.map((tmod, idx) => (
                       <div key={idx} className="rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-500/[0.04] p-3 text-xs space-y-1">
                         <div className="flex items-center justify-between font-bold text-foreground">
-                          <span>{tmod.taskTitle || (tmod.action === "deduplicate" ? "Eliminar tareas duplicadas del SOP" : "Tarea SOP")}</span>
+                          <span>{tmod.taskTitle || (tmod.action === "deduplicate" ? (isEn ? "Remove duplicate SOP tasks" : "Eliminar tareas duplicadas del SOP") : (isEn ? "SOP Task" : "Tarea SOP"))}</span>
                           <Badge variant="outline" className="text-[10px] uppercase font-bold border-purple-400 text-purple-700 dark:text-purple-300">
                             {tmod.action}
                           </Badge>
                         </div>
                         {tmod.newDueDate && (
                           <div className="text-muted-foreground">
-                            Nueva fecha: <strong className="text-foreground font-mono">{tmod.newDueDate}</strong>
+                            {isEn ? "New date:" : "Nueva fecha:"} <strong className="text-foreground font-mono">{tmod.newDueDate}</strong>
                           </div>
                         )}
                         {tmod.newAssignee && (
                           <div className="text-muted-foreground">
-                            Nuevo asignado: <strong className="text-foreground">{tmod.newAssignee}</strong>
+                            {isEn ? "New assignee:" : "Nuevo asignado:"} <strong className="text-foreground">{tmod.newAssignee}</strong>
                           </div>
                         )}
                       </div>
@@ -704,24 +708,24 @@ export function AiSopCopilotModal({
                 <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-500/[0.06] p-4 text-xs space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
-                      <Calendar className="size-4 text-amber-600" /> Ausencia / Baja Médica / Vacaciones
+                      <Calendar className="size-4 text-amber-600" /> {isEn ? "Absence / Medical Leave / Vacation" : "Ausencia / Baja Médica / Vacaciones"}
                     </span>
                     <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-700 dark:text-amber-300 font-bold">
-                      {response.absenceRange.reason || "Baja temporal"}
+                      {response.absenceRange.reason || (isEn ? "Temporary leave" : "Baja temporal")}
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div>
-                      <span className="text-muted-foreground block text-[10px] uppercase">Cleaner Titular</span>
+                      <span className="text-muted-foreground block text-[10px] uppercase">{isEn ? "Primary Cleaner" : "Cleaner Titular"}</span>
                       <strong className="text-foreground">{response.absenceRange.cleanerName}</strong>
                     </div>
                     <div>
-                      <span className="text-muted-foreground block text-[10px] uppercase">Período</span>
+                      <span className="text-muted-foreground block text-[10px] uppercase">{isEn ? "Period" : "Período"}</span>
                       <strong className="text-foreground font-mono">{response.absenceRange.startDate} → {response.absenceRange.endDate}</strong>
                     </div>
                     <div>
-                      <span className="text-muted-foreground block text-[10px] uppercase">Sustituto de Relevo</span>
-                      <strong className="text-emerald-600 dark:text-emerald-400">{response.absenceRange.substituteCleaner || "Por Asignar"}</strong>
+                      <span className="text-muted-foreground block text-[10px] uppercase">{isEn ? "Relief Substitute" : "Sustituto de Relevo"}</span>
+                      <strong className="text-emerald-600 dark:text-emerald-400">{response.absenceRange.substituteCleaner || (isEn ? "Unassigned" : "Por Asignar")}</strong>
                     </div>
                   </div>
                 </div>
@@ -732,7 +736,7 @@ export function AiSopCopilotModal({
                 <div className="rounded-xl border border-blue-300 dark:border-blue-800 bg-blue-500/[0.06] p-4 text-xs space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-blue-800 dark:text-blue-200 flex items-center gap-1.5">
-                      <Key className="size-4 text-blue-600" /> Actualización de Códigos de Acceso & Lockbox
+                      <Key className="size-4 text-blue-600" /> {isEn ? "Access Codes & Lockbox Update" : "Actualización de Códigos de Acceso & Lockbox"}
                     </span>
                     <Badge variant="outline" className="text-[10px] border-blue-400 text-blue-700 dark:text-blue-300 font-bold">
                       {response.accessUpdate.accountName}
@@ -741,7 +745,7 @@ export function AiSopCopilotModal({
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {response.accessUpdate.alarmCode && (
                       <div className="rounded-lg bg-background p-2 border border-border/50">
-                        <span className="text-muted-foreground block text-[10px] uppercase">Alarma</span>
+                        <span className="text-muted-foreground block text-[10px] uppercase">{isEn ? "Alarm" : "Alarma"}</span>
                         <strong className="text-foreground font-mono text-sm">{response.accessUpdate.alarmCode}</strong>
                       </div>
                     )}
@@ -753,7 +757,7 @@ export function AiSopCopilotModal({
                     )}
                     {response.accessUpdate.gateCode && (
                       <div className="rounded-lg bg-background p-2 border border-border/50">
-                        <span className="text-muted-foreground block text-[10px] uppercase">Portón / Puerta</span>
+                        <span className="text-muted-foreground block text-[10px] uppercase">{isEn ? "Gate / Door" : "Portón / Puerta"}</span>
                         <strong className="text-foreground font-mono text-sm">{response.accessUpdate.gateCode}</strong>
                       </div>
                     )}
@@ -766,18 +770,18 @@ export function AiSopCopilotModal({
                 <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-500/[0.06] p-4 text-xs space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
-                      <DollarSign className="size-4 text-emerald-600" /> Tarifas y Labor por Servicio
+                      <DollarSign className="size-4 text-emerald-600" /> {isEn ? "Rates & Labor per Service" : "Tarifas y Labor por Servicio"}
                     </span>
                     <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-700 dark:text-emerald-300 font-bold">
-                      {response.updateAccountFinancials ? `${response.updateAccountFinancials.length} cuentas` : "Tarifa global"}
+                      {response.updateAccountFinancials ? `${response.updateAccountFinancials.length} ${isEn ? "accounts" : "cuentas"}` : (isEn ? "Global rate" : "Tarifa global")}
                     </Badge>
                   </div>
                   {response.bulkHourlyRateUpdate && (
                     <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2.5 text-xs text-emerald-800 dark:text-emerald-300">
-                      <strong>Tarifa Masiva: ${response.bulkHourlyRateUpdate.hourlyRate}/hr</strong>
+                      <strong>{isEn ? "Bulk Rate:" : "Tarifa Masiva:"} ${response.bulkHourlyRateUpdate.hourlyRate}/hr</strong>
                       {response.bulkHourlyRateUpdate.excludedAccounts && response.bulkHourlyRateUpdate.excludedAccounts.length > 0 && (
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                          Excepciones fijas: {response.bulkHourlyRateUpdate.excludedAccounts.join(", ")}
+                          {isEn ? "Fixed exceptions:" : "Excepciones fijas:"} {response.bulkHourlyRateUpdate.excludedAccounts.join(", ")}
                         </p>
                       )}
                     </div>
@@ -792,7 +796,7 @@ export function AiSopCopilotModal({
                               {fin.pricingModel || "per Service"}
                               {fin.hours !== undefined ? ` · ${fin.hours} hrs` : ""}
                               {fin.cleanerName ? ` · ${fin.cleanerName}` : ""}
-                              {fin.cost !== undefined && !fin.ratePerService ? ` · Costo: $${fin.cost}` : ""}
+                              {fin.cost !== undefined && !fin.ratePerService ? ` · ${isEn ? "Cost:" : "Costo:"} $${fin.cost}` : ""}
                             </p>
                           </div>
                           <div className="flex items-center gap-1.5">
@@ -803,7 +807,7 @@ export function AiSopCopilotModal({
                             )}
                             {fin.revenue ? (
                               <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-xs">
-                                ${fin.revenue}/mes
+                                ${fin.revenue}{isEn ? "/mo" : "/mes"}
                               </span>
                             ) : null}
                           </div>
@@ -820,7 +824,7 @@ export function AiSopCopilotModal({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <MessageSquare className="size-4 text-primary" />
-                      <span className="font-bold text-foreground">Despacho de Turno SMS / Quo</span>
+                      <span className="font-bold text-foreground">{isEn ? "Shift Dispatch SMS / Quo" : "Despacho de Turno SMS / Quo"}</span>
                     </div>
                     <Badge variant="outline" className="border-primary/40 text-primary font-bold">
                       {response.dispatchSmsQuo.cleanerName} ({response.dispatchSmsQuo.cleanerPhone || "949-570-4521"})
@@ -845,7 +849,7 @@ export function AiSopCopilotModal({
                       className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
                     >
                       {isSendingSms ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-                      {smsSentSuccess ? "SMS Enviado vía Quo" : "Enviar SMS Directo vía Quo"}
+                      {smsSentSuccess ? (isEn ? "SMS Sent via Quo" : "SMS Enviado vía Quo") : (isEn ? "Send Direct SMS via Quo" : "Enviar SMS Directo vía Quo")}
                     </Button>
                   </div>
                 </div>
@@ -856,33 +860,33 @@ export function AiSopCopilotModal({
                 <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-500/[0.05] p-4 text-xs space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
-                      <Building2 className="size-4 text-emerald-600" /> Cotización Comercial Calculada
+                      <Building2 className="size-4 text-emerald-600" /> {isEn ? "Calculated Commercial Quote" : "Cotización Comercial Calculada"}
                     </span>
                     <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-700 dark:text-emerald-300 font-bold">
-                      {response.commercialQuote.clientName || "Nueva Cuenta"}
+                      {response.commercialQuote.clientName || (isEn ? "New Account" : "Nueva Cuenta")}
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
                     <div className="rounded-lg bg-background p-2 border border-border/50">
-                      <span className="text-[10px] uppercase text-muted-foreground">Precio Mensual Sugerido</span>
+                      <span className="text-[10px] uppercase text-muted-foreground">{isEn ? "Suggested Monthly Price" : "Precio Mensual Sugerido"}</span>
                       <p className="font-black text-emerald-600 dark:text-emerald-400 text-sm mt-0.5">
                         ${response.commercialQuote.suggestedMonthlyPrice.toFixed(2)}
                       </p>
                     </div>
                     <div className="rounded-lg bg-background p-2 border border-border/50">
-                      <span className="text-[10px] uppercase text-muted-foreground">Horas / Visita</span>
+                      <span className="text-[10px] uppercase text-muted-foreground">{isEn ? "Hours / Visit" : "Horas / Visita"}</span>
                       <p className="font-bold text-foreground text-sm mt-0.5">
                         {response.commercialQuote.estimatedHoursPerVisit}h
                       </p>
                     </div>
                     <div className="rounded-lg bg-background p-2 border border-border/50">
-                      <span className="text-[10px] uppercase text-muted-foreground">Costo Cleaner</span>
+                      <span className="text-[10px] uppercase text-muted-foreground">{isEn ? "Cleaner Cost" : "Costo Cleaner"}</span>
                       <p className="font-bold text-amber-600 dark:text-amber-400 text-sm mt-0.5">
                         ${response.commercialQuote.estimatedCleanerCost.toFixed(2)}
                       </p>
                     </div>
                     <div className="rounded-lg bg-background p-2 border border-border/50">
-                      <span className="text-[10px] uppercase text-muted-foreground">Margen Bruto</span>
+                      <span className="text-[10px] uppercase text-muted-foreground">{isEn ? "Gross Margin" : "Margen Bruto"}</span>
                       <p className="font-black text-emerald-600 dark:text-emerald-400 text-sm mt-0.5">
                         {response.commercialQuote.profitMarginPct.toFixed(1)}%
                       </p>
@@ -901,7 +905,7 @@ export function AiSopCopilotModal({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <FileText className="size-3.5 text-primary" /> Servicios / Citas Extraídas ({response.extractedBookings.length})
+                      <FileText className="size-3.5 text-primary" /> {isEn ? "Extracted Bookings / Appointments" : "Servicios / Citas Extraídas"} ({response.extractedBookings.length})
                     </h4>
                   </div>
 
@@ -928,11 +932,11 @@ export function AiSopCopilotModal({
                             <p className="font-bold text-foreground mt-0.5">{b.cleanerTeam}</p>
                           </div>
                           <div className="rounded-lg bg-muted/40 p-2">
-                            <span className="text-[10px] uppercase font-bold text-muted-foreground">Cobro Subtotal</span>
+                            <span className="text-[10px] uppercase font-bold text-muted-foreground">{isEn ? "Subtotal Charged" : "Cobro Subtotal"}</span>
                             <p className="font-black text-foreground mt-0.5">${b.subTotal.toFixed(2)}</p>
                           </div>
                           <div className="rounded-lg bg-amber-500/10 p-2">
-                            <span className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-300">Pago Cleaner</span>
+                            <span className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-300">{isEn ? "Cleaner Payout" : "Pago Cleaner"}</span>
                             <p className="font-bold text-amber-700 dark:text-amber-300 mt-0.5">
                               ${b.teamEarningsWithoutTips.toFixed(2)} ({((b.teamEarningsWithoutTips / (b.subTotal || 1)) * 100).toFixed(0)}%)
                             </p>
@@ -944,7 +948,7 @@ export function AiSopCopilotModal({
                             </p>
                           </div>
                           <div className="rounded-lg bg-emerald-500/10 p-2">
-                            <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-300">Ganancia Pristine</span>
+                            <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-300">{isEn ? "Pristine Profit" : "Ganancia Pristine"}</span>
                             <p className="font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
                               ${b.pcEarnings.toFixed(2)} ({((b.pcEarnings / (b.subTotal || 1)) * 100).toFixed(0)}%)
                             </p>
@@ -967,7 +971,7 @@ export function AiSopCopilotModal({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <TrendingUp className="size-3.5" /> Items para Sales Track Report ({response.extractedSalesTrack.length})
+                      <TrendingUp className="size-3.5" /> {isEn ? "Sales Track Report Items" : "Items para Sales Track Report"} ({response.extractedSalesTrack.length})
                     </h4>
                     <div className="flex items-center gap-1.5">
                       <Button
@@ -996,14 +1000,14 @@ export function AiSopCopilotModal({
                       <table className="w-full text-left text-xs">
                         <thead className="border-b border-border bg-muted/60 text-muted-foreground font-semibold">
                           <tr>
-                            <th className="px-3 py-2">Cliente</th>
-                            <th className="px-3 py-2">Ciudad</th>
-                            <th className="px-3 py-2">Frecuencia / Días</th>
+                            <th className="px-3 py-2">{isEn ? "Client" : "Cliente"}</th>
+                            <th className="px-3 py-2">{isEn ? "City" : "Ciudad"}</th>
+                            <th className="px-3 py-2">{isEn ? "Frequency / Days" : "Frecuencia / Días"}</th>
                             <th className="px-3 py-2">Cleaner</th>
-                            <th className="px-3 py-2 text-right">Ingreso</th>
-                            <th className="px-3 py-2 text-right">Costo</th>
-                            <th className="px-3 py-2 text-right">Margen</th>
-                            <th className="px-3 py-2 text-center">Estado</th>
+                            <th className="px-3 py-2 text-right">{isEn ? "Revenue" : "Ingreso"}</th>
+                            <th className="px-3 py-2 text-right">{isEn ? "Cost" : "Costo"}</th>
+                            <th className="px-3 py-2 text-right">{isEn ? "Margin" : "Margen"}</th>
+                            <th className="px-3 py-2 text-center">{isEn ? "Status" : "Estado"}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border/60">
@@ -1025,7 +1029,7 @@ export function AiSopCopilotModal({
                                 <td className="px-3 py-2.5 text-muted-foreground">{item.city || "—"}</td>
                                 <td className="px-3 py-2.5">
                                   <div className="font-medium text-foreground">{item.serviceFrequency || "Weekly"}</div>
-                                  <div className="text-[10px] text-muted-foreground">{days || "Por definir"}</div>
+                                  <div className="text-[10px] text-muted-foreground">{days || (isEn ? "TBD" : "Por definir")}</div>
                                 </td>
                                 <td className="px-3 py-2.5 text-foreground">{item.cleanerTeam || "Unassigned"}</td>
                                 <td className="px-3 py-2.5 text-right font-bold text-foreground">${rev.toFixed(2)}</td>
@@ -1053,19 +1057,19 @@ export function AiSopCopilotModal({
                 <div className="rounded-xl border border-border/80 bg-card p-4 text-xs space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-foreground flex items-center gap-1.5">
-                      <TrendingUp className="size-4 text-primary" /> Tareas Operativas ({response.taskModifications.length})
+                      <TrendingUp className="size-4 text-primary" /> {isEn ? "Operational Tasks" : "Tareas Operativas"} ({response.taskModifications.length})
                     </span>
                     <Badge variant="outline" className="text-[10px] border-primary/30 text-primary font-bold">
-                      Listo para Aplicar
+                      {isEn ? "Ready to Apply" : "Listo para Aplicar"}
                     </Badge>
                   </div>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                     {response.taskModifications.map((t, idx) => (
                       <div key={idx} className="rounded-lg bg-background p-2.5 border border-border/50 flex items-center justify-between">
                         <div>
-                          <strong className="text-foreground">{t.taskTitle || "Tarea"}</strong>
+                          <strong className="text-foreground">{t.taskTitle || (isEn ? "Task" : "Tarea")}</strong>
                           <p className="text-muted-foreground text-[10px]">
-                            {t.action.toUpperCase()} · Asignado: {t.newAssignee || "Unassigned"} · Vence: {t.newDueDate || "N/A"}
+                            {t.action.toUpperCase()} · {isEn ? "Assignee:" : "Asignado:"} {t.newAssignee || "Unassigned"} · {isEn ? "Due:" : "Vence:"} {t.newDueDate || "N/A"}
                           </p>
                         </div>
                         <Badge variant="outline" className="text-[9px]">
@@ -1082,10 +1086,10 @@ export function AiSopCopilotModal({
                 <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-500/[0.05] p-4 text-xs space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
-                      <Sparkles className="size-4 text-emerald-600" /> Mutaciones del Sistema ({response.universalMutations.length})
+                      <Sparkles className="size-4 text-emerald-600" /> {isEn ? "System Mutations" : "Mutaciones del Sistema"} ({response.universalMutations.length})
                     </span>
                     <Badge variant="outline" className="text-[10px] border-emerald-400 text-emerald-700 dark:text-emerald-300 font-bold">
-                      Poder Supremo
+                      {isEn ? "Supreme Power" : "Poder Supremo"}
                     </Badge>
                   </div>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
@@ -1094,7 +1098,7 @@ export function AiSopCopilotModal({
                         <div>
                           <strong className="text-foreground">{m.description || `${m.action} ${m.entity}`}</strong>
                           <p className="text-muted-foreground text-[10px]">
-                            Tabla: {m.entity} · Objetivo: {m.targetIdentifier || "General"}
+                            {isEn ? "Table:" : "Tabla:"} {m.entity} · {isEn ? "Target:" : "Objetivo:"} {m.targetIdentifier || "General"}
                           </p>
                         </div>
                         <Badge variant="outline" className="text-[9px] uppercase font-bold">
@@ -1111,10 +1115,10 @@ export function AiSopCopilotModal({
                 <div className="text-xs text-muted-foreground">
                   {appliedSuccess ? (
                     <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
-                      <CheckCircle className="size-4" /> Cambios aplicados con éxito al sistema con Poder Supremo.
+                      <CheckCircle className="size-4" /> {isEn ? "Changes successfully applied to the system with Supreme Power." : "Cambios aplicados con éxito al sistema con Poder Supremo."}
                     </span>
                   ) : (
-                    "Revisa los datos antes de confirmar y aplicarlos a tu sistema."
+                    isEn ? "Review data before confirming and applying to your system." : "Revisa los datos antes de confirmar y aplicarlos a tu sistema."
                   )}
                 </div>
 
@@ -1127,11 +1131,11 @@ export function AiSopCopilotModal({
                       className="h-8 text-xs gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/20"
                     >
                       <RotateCcw className="size-3.5" />
-                      Deshacer Última Acción
+                      {isEn ? "Undo Last Action" : "Deshacer Última Acción"}
                     </Button>
                   )}
                   <Button variant="outline" size="sm" onClick={onClose} className="h-8 text-xs">
-                    Cerrar
+                    {isEn ? "Close" : "Cerrar"}
                   </Button>
                   <Button
                     size="sm"
@@ -1140,7 +1144,7 @@ export function AiSopCopilotModal({
                     className="h-8 text-xs gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold shadow-sm"
                   >
                     <Sparkles className="size-3.5" />
-                    ⚡ Aplicar Todo con Poder Supremo
+                    {isEn ? "⚡ Apply All with Supreme Power" : "⚡ Aplicar Todo con Poder Supremo"}
                   </Button>
                 </div>
               </div>

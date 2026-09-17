@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, CalendarDays, Building2, CheckSquare, ClipboardCheck, FileSpreadsheet, Home, LogOut, Settings, Sparkles, TrendingUp, Users, Wallet, PanelLeft, PanelLeftClose } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
+import { LanguageToggle, useLanguage } from "@/components/providers/language-provider";
 import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
 import { createClient } from "@/lib/supabase/client";
@@ -14,20 +15,16 @@ import { GlobalAiBubble } from "@/components/ai/global-ai-bubble";
 import { BookingKoalaImporterModal } from "@/components/operations/bookingkoala-importer-modal";
 
 const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
-  { label: "Sales Track & AI Copilot", href: "/commercial/sales-track", icon: TrendingUp, area: "workspace" as AccessArea },
-  { label: "Task Reminders", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
-  { label: "Residential payments / commercial hours", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
-  { label: "Schedules (Comm & QC)", href: "/schedules", icon: CalendarDays, area: "workspace" as AccessArea },
-  
-  
-  
-
-  { label: "Commercial Accounts", href: "/commercial/accounts", icon: Building2, area: "workspace" as AccessArea },
-  { label: "QC Inspections", href: "/qc/dashboard", icon: ClipboardCheck, area: "workspace" as AccessArea },
-  { label: "Staff / Teams", href: "/staff", icon: Users, area: "operations" as AccessArea },
-  { label: "Reports", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
-  { label: "Settings", href: "/settings", icon: Settings, area: "operations" as AccessArea },
+  { key: "nav.dashboard", label: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
+  { key: "nav.sales_track", label: "Sales Track & AI Copilot", href: "/commercial/sales-track", icon: TrendingUp, area: "workspace" as AccessArea },
+  { key: "nav.task_reminders", label: "Task Reminders", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
+  { key: "nav.residential", label: "Residential payments / commercial hours", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
+  { key: "nav.schedules", label: "Schedules (Comm & QC)", href: "/schedules", icon: CalendarDays, area: "workspace" as AccessArea },
+  { key: "nav.commercial_accounts", label: "Commercial Accounts", href: "/commercial/accounts", icon: Building2, area: "workspace" as AccessArea },
+  { key: "nav.qc_inspections", label: "QC Inspections", href: "/qc/dashboard", icon: ClipboardCheck, area: "workspace" as AccessArea },
+  { key: "nav.staff", label: "Staff / Teams", href: "/staff", icon: Users, area: "operations" as AccessArea },
+  { key: "nav.reports", label: "Reports", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
+  { key: "nav.settings", label: "Settings", href: "/settings", icon: Settings, area: "operations" as AccessArea },
 ];
 
 export function DashboardShell({
@@ -39,6 +36,7 @@ export function DashboardShell({
 }) {
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
+  const { t } = useLanguage();
   const [role, setRole] = useState<AppRole>("residential");
   const [isKoalaOpen, setIsKoalaOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -111,15 +109,15 @@ export function DashboardShell({
         <div className="px-4 py-3 space-y-2 shrink-0">
           <div className="flex items-center gap-2 rounded-xl border border-primary/10 bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-primary shadow-sm">
             <Sparkles className="size-[18px] shrink-0" />
-            <span className="truncate">Premium cleaning SOP</span>
+            <span className="truncate">{t("nav.premium_sop", "Premium cleaning SOP")}</span>
           </div>
           <button
             type="button"
             onClick={() => setIsKoalaOpen(true)}
-            className="w-full flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs font-bold text-primary hover:bg-primary/15 transition-all shadow-xs"
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs font-bold text-primary hover:bg-primary/15 transition-all shadow-xs cursor-pointer"
           >
             <FileSpreadsheet className="size-4 shrink-0" />
-            <span className="truncate">Importar BookingKoala</span>
+            <span className="truncate">{t("nav.import_bookingkoala", "Import BookingKoala")}</span>
           </button>
         </div>
         {/* Nav */}
@@ -139,7 +137,7 @@ export function DashboardShell({
                 "size-[18px] shrink-0 transition-transform duration-200 group-hover:scale-105",
                 (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`))) ? "text-primary" : "text-muted-foreground/80 group-hover:text-foreground"
               )} />
-              {item.label}
+              {t(item.key, item.label)}
             </Link>
           ))}
         </nav>
@@ -150,7 +148,7 @@ export function DashboardShell({
               {(userEmail ?? "PC").substring(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Signed in</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{t("nav.signed_in", "Signed in")}</p>
               <p className="truncate text-xs font-semibold text-foreground">{userEmail ?? "Pristine Cleaners"}</p>
             </div>
           </div>
@@ -164,7 +162,7 @@ export function DashboardShell({
             {/* Mobile branding */}
             <div className="lg:hidden">
               <p className="text-[11px] font-semibold text-primary">Pristine Cleaners</p>
-              <p className="text-sm font-semibold text-foreground">Operations SOP</p>
+              <p className="text-sm font-semibold text-foreground">{t("nav.operations_sop", "Operations SOP")}</p>
             </div>
             {/* Desktop: sidebar toggle */}
             <div className="hidden lg:flex items-center gap-2">
@@ -172,7 +170,7 @@ export function DashboardShell({
                 type="button"
                 onClick={toggleSidebar}
                 aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/60 border border-border/60 transition-all"
+                className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/60 border border-border/60 transition-all cursor-pointer"
               >
                 {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
               </button>
@@ -183,16 +181,17 @@ export function DashboardShell({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsKoalaOpen(true)}
-                className="gap-2 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 font-bold"
+                className="gap-2 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 font-bold cursor-pointer"
               >
                 <FileSpreadsheet className="size-4" />
-                <span className="hidden sm:inline">Importar BookingKoala</span>
+                <span className="hidden sm:inline">{t("nav.import_bookingkoala", "Import BookingKoala")}</span>
               </Button>
+              <LanguageToggle />
               <ThemeToggle />
               <form action="/auth/sign-out" method="post">
-                <Button variant="outline" size="sm">
-                  <LogOut />
-                  Sign out
+                <Button variant="outline" size="sm" className="cursor-pointer">
+                  <LogOut className="size-4" />
+                  <span className="hidden sm:inline">{t("nav.sign_out", "Sign out")}</span>
                 </Button>
               </form>
             </div>
@@ -211,7 +210,7 @@ export function DashboardShell({
                 key={item.href}
               >
                 <item.icon className="size-4" />
-                {item.label}
+                {t(item.key, item.label)}
               </Link>
             ))}
           </nav>

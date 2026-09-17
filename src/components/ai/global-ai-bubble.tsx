@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
+import { useLanguage } from "@/components/providers/language-provider";
 import {
   applyOccurrenceOverrideAction,
   applyAddStaffAction,
@@ -191,16 +192,19 @@ export function GlobalAiBubble() {
   const [showBulkReview, setShowBulkReview] = useState(false);
 
   // Speech & UI Language state
+  const { isEn: globalIsEn, setLanguage } = useLanguage();
   const [isListening, setIsListening] = useState(false);
-  const [speechLang, setSpeechLang] = useState<"es-US" | "en-US">("es-US");
+  const [speechLang, setSpeechLang] = useState<"es-US" | "en-US">(globalIsEn ? "en-US" : "es-US");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
+    setSpeechLang(globalIsEn ? "en-US" : "es-US");
+  }, [globalIsEn]);
+
+  useEffect(() => {
     const stored = localStorage.getItem("pristine_gemini_api_key");
     if (stored) setApiKey(stored);
-    const storedLang = localStorage.getItem("pristine_copilot_lang") as "es-US" | "en-US" | null;
-    if (storedLang) setSpeechLang(storedLang);
     const storedAutoApply = localStorage.getItem("pristine_copilot_auto_apply");
     if (storedAutoApply) setAutoApply(storedAutoApply === "true");
   }, []);
@@ -850,11 +854,12 @@ export function GlobalAiBubble() {
                 onClick={() => {
                   const next = speechLang === "es-US" ? "en-US" : "es-US";
                   setSpeechLang(next);
+                  setLanguage(next === "en-US" ? "en" : "es");
                   localStorage.setItem("pristine_copilot_lang", next);
                   if (isListening && recognitionRef.current) recognitionRef.current.lang = next;
                 }}
                 className="h-6 rounded-md border border-border/80 bg-background px-1.5 text-[10px] font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
-                title={isEn ? "Cambiar a Español (ES)" : "Switch to English (EN)"}
+                title={isEn ? "Switch to Spanish (ES)" : "Switch to English (EN)"}
               >
                 {speechLang === "es-US" ? "🇪🇸 ES" : "🇺🇸 EN"}
               </button>
@@ -1264,15 +1269,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "occurrence" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Registrando turno...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Logging shift..." : "Registrando turno..."}
                           </>
                         ) : savedActions.occurrence ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Turno Registrado en SOP!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Shift Logged in SOP!" : "¡Turno Registrado en SOP!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Confirmar & Registrar Turno en SOP
+                            <CheckCircle className="size-3.5" /> {isEn ? "Confirm & Log Shift in SOP" : "Confirmar & Registrar Turno en SOP"}
                           </>
                         )}
                       </Button>
@@ -1286,10 +1291,10 @@ export function GlobalAiBubble() {
                       <div className="rounded-xl border border-amber-500/40 bg-card p-3.5 shadow-sm space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-foreground flex items-center gap-1.5">
-                            <Key className="size-3.5 text-amber-500" /> Códigos de Acceso y Seguridad
+                            <Key className="size-3.5 text-amber-500" /> {isEn ? "Access Codes & Security" : "Códigos de Acceso y Seguridad"}
                           </span>
                           <Badge variant="outline" className="border-amber-500/30 text-amber-600 dark:text-amber-400 text-[10px] font-bold">
-                            {list.length} {list.length === 1 ? "cuenta" : "cuentas"}
+                            {list.length} {list.length === 1 ? (isEn ? "account" : "cuenta") : (isEn ? "accounts" : "cuentas")}
                           </Badge>
                         </div>
 
@@ -1307,17 +1312,17 @@ export function GlobalAiBubble() {
                                 )}
                                 {acc.alarmCode && (
                                   <span className="rounded-md bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-800 dark:text-amber-200">
-                                    🚨 Alarma: {acc.alarmCode}
+                                    🚨 {isEn ? "Alarm:" : "Alarma:"} {acc.alarmCode}
                                   </span>
                                 )}
                                 {acc.gateCode && (
                                   <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-mono">
-                                    Portón: {acc.gateCode}
+                                    {isEn ? "Gate:" : "Portón:"} {acc.gateCode}
                                   </span>
                                 )}
                                 {acc.keyLocation && (
                                   <span className="rounded-md bg-muted px-2 py-0.5 text-[10px]">
-                                    Llave: {acc.keyLocation}
+                                    {isEn ? "Key:" : "Llave:"} {acc.keyLocation}
                                   </span>
                                 )}
                               </div>
@@ -1347,15 +1352,15 @@ export function GlobalAiBubble() {
                         >
                           {executingAction === "access_update" ? (
                             <>
-                              <Loader2 className="size-3.5 animate-spin" /> Guardando códigos...
+                              <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Saving codes..." : "Guardando códigos..."}
                             </>
                           ) : savedActions.access_update ? (
                             <>
-                              <Check className="size-3.5 text-white" /> ¡Códigos Guardados en SOP!
+                              <Check className="size-3.5 text-white" /> {isEn ? "Codes Saved to SOP!" : "¡Códigos Guardados en SOP!"}
                             </>
                           ) : (
                             <>
-                              <CheckCircle className="size-3.5" /> Confirmar & Guardar Códigos de Acceso
+                              <CheckCircle className="size-3.5" /> {isEn ? "Confirm & Save Access Codes" : "Confirmar & Guardar Códigos de Acceso"}
                             </>
                           )}
                         </Button>
@@ -1368,7 +1373,7 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <Users className="size-3.5 text-primary" /> Alta de Personal (Cleaner / Staff)
+                          <Users className="size-3.5 text-primary" /> {isEn ? "Add Staff (Cleaner / Staff)" : "Alta de Personal (Cleaner / Staff)"}
                         </span>
                         <Badge variant="outline" className="text-[10px] font-bold">
                           ${response.addStaff.hourlyRate || 20}/hr
@@ -1376,9 +1381,9 @@ export function GlobalAiBubble() {
                       </div>
 
                       <div className="rounded-lg bg-muted/40 p-2.5 space-y-1 text-[11px]">
-                        <div>Nombre: <strong className="text-foreground">{response.addStaff.name}</strong></div>
-                        <div>Rol: <span className="text-muted-foreground">{response.addStaff.role}</span></div>
-                        {response.addStaff.phone && <div>Teléfono: <span className="font-mono text-foreground">{response.addStaff.phone}</span></div>}
+                        <div>{isEn ? "Name:" : "Nombre:"} <strong className="text-foreground">{response.addStaff.name}</strong></div>
+                        <div>{isEn ? "Role:" : "Rol:"} <span className="text-muted-foreground">{response.addStaff.role}</span></div>
+                        {response.addStaff.phone && <div>{isEn ? "Phone:" : "Teléfono:"} <span className="font-mono text-foreground">{response.addStaff.phone}</span></div>}
                       </div>
 
                       <Button
@@ -1393,15 +1398,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "staff" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Añadiendo personal...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Adding staff..." : "Añadiendo personal..."}
                           </>
                         ) : savedActions.staff ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Personal Añadido al Sistema!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Staff Added to System!" : "¡Personal Añadido al Sistema!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Confirmar & Añadir a Staff
+                            <CheckCircle className="size-3.5" /> {isEn ? "Confirm & Add to Staff" : "Confirmar & Añadir a Staff"}
                           </>
                         )}
                       </Button>
@@ -1434,7 +1439,7 @@ export function GlobalAiBubble() {
                           className="flex-1 h-8 text-xs gap-1.5"
                         >
                           {isCopied ? <Check className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
-                          {isCopied ? "¡Copiado!" : "Copiar Texto"}
+                          {isCopied ? (isEn ? "Copied!" : "¡Copiado!") : (isEn ? "Copy Text" : "Copiar Texto")}
                         </Button>
 
                         <Button
@@ -1446,12 +1451,12 @@ export function GlobalAiBubble() {
                           {isSendingSms ? (
                             <>
                               <Loader2 className="size-3.5 animate-spin" />
-                              Enviando Quo...
+                              {isEn ? "Sending Quo..." : "Enviando Quo..."}
                             </>
                           ) : (
                             <>
                               <Send className="size-3.5" />
-                              🚀 Enviar SMS por Quo
+                              {isEn ? "🚀 Send SMS via Quo" : "🚀 Enviar SMS por Quo"}
                             </>
                           )}
                         </Button>
@@ -1471,28 +1476,28 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <Building2 className="size-3.5 text-primary" /> Cotización Comercial Inteligente
+                          <Building2 className="size-3.5 text-primary" /> {isEn ? "Smart Commercial Quote" : "Cotización Comercial Inteligente"}
                         </span>
                         <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
-                          {response.commercialQuote.profitMarginPct.toFixed(1)}% Margen
+                          {response.commercialQuote.profitMarginPct.toFixed(1)}% {isEn ? "Margin" : "Margen"}
                         </Badge>
                       </div>
 
                       <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
                         <div className="rounded-lg bg-muted/40 p-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Precio / Mes</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Price / Mo" : "Precio / Mes"}</span>
                           <p className="font-black text-foreground mt-0.5">
                             ${response.commercialQuote.suggestedMonthlyPrice}
                           </p>
                         </div>
                         <div className="rounded-lg bg-amber-500/10 p-2">
-                          <span className="text-[9px] uppercase font-bold text-amber-700 dark:text-amber-300">Costo Cleaner</span>
+                          <span className="text-[9px] uppercase font-bold text-amber-700 dark:text-amber-300">{isEn ? "Cleaner Cost" : "Costo Cleaner"}</span>
                           <p className="font-bold text-amber-700 dark:text-amber-300 mt-0.5">
                             ${response.commercialQuote.estimatedCleanerCost}
                           </p>
                         </div>
                         <div className="rounded-lg bg-emerald-500/10 p-2">
-                          <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-300">Horas / Visita</span>
+                          <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-300">{isEn ? "Hours / Visit" : "Horas / Visita"}</span>
                           <p className="font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
                             {response.commercialQuote.estimatedHoursPerVisit}h
                           </p>
@@ -1517,15 +1522,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "quote" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Creando cuenta...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Creating account..." : "Creando cuenta..."}
                           </>
                         ) : savedActions.quote ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Cuenta Comercial Creada!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Commercial Account Created!" : "¡Cuenta Comercial Creada!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Crear Cuenta Comercial con esta Cotización
+                            <CheckCircle className="size-3.5" /> {isEn ? "Create Commercial Account with this Quote" : "Crear Cuenta Comercial con esta Cotización"}
                           </>
                         )}
                       </Button>
@@ -1537,24 +1542,24 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <ShieldCheck className="size-3.5 text-primary" /> Auditoría de Cleaner: {response.cleanerAudit.cleanerName}
+                          <ShieldCheck className="size-3.5 text-primary" /> {isEn ? "Cleaner Audit:" : "Auditoría de Cleaner:"} {response.cleanerAudit.cleanerName}
                         </span>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 text-center text-[11px]">
                         <div className="rounded-lg bg-muted/40 p-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Horas Acumuladas</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Accumulated Hours" : "Horas Acumuladas"}</span>
                           <p className="font-black text-foreground mt-0.5">{response.cleanerAudit.totalHours || 0} hrs</p>
                         </div>
                         <div className="rounded-lg bg-muted/40 p-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Pago Estimado</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Estimated Payout" : "Pago Estimado"}</span>
                           <p className="font-black text-foreground mt-0.5">${response.cleanerAudit.estimatedPay || 0}</p>
                         </div>
                       </div>
 
                       {response.cleanerAudit.accounts && response.cleanerAudit.accounts.length > 0 && (
                         <div className="text-[11px] text-muted-foreground">
-                          Cuentas Asignadas: <strong className="text-foreground">{response.cleanerAudit.accounts.join(", ")}</strong>
+                          {isEn ? "Assigned Accounts:" : "Cuentas Asignadas:"} <strong className="text-foreground">{response.cleanerAudit.accounts.join(", ")}</strong>
                         </div>
                       )}
 
@@ -1694,15 +1699,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "ingest" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Guardando en SOP...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Saving to SOP..." : "Guardando en SOP..."}
                           </>
                         ) : savedActions.ingest ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Schedule Guardado en SOP con Éxito!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Schedule Saved to SOP Successfully!" : "¡Schedule Guardado en SOP con Éxito!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Guardar Schedule en SOP
+                            <CheckCircle className="size-3.5" /> {isEn ? "Save Schedule to SOP" : "Guardar Schedule en SOP"}
                           </>
                         )}
                       </Button>
@@ -1714,10 +1719,10 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <Sparkles className="size-3.5 text-primary" /> Modificaciones Operativas / SOP
+                          <Sparkles className="size-3.5 text-primary" /> {isEn ? "SOP / Operational Modifications" : "Modificaciones Operativas / SOP"}
                         </span>
                         <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
-                          {response.sopModifications.length} {response.sopModifications.length === 1 ? "cambio" : "cambios"}
+                          {response.sopModifications.length} {response.sopModifications.length === 1 ? (isEn ? "change" : "cambio") : (isEn ? "changes" : "cambios")}
                         </Badge>
                       </div>
 
@@ -1725,7 +1730,7 @@ export function GlobalAiBubble() {
                         {response.sopModifications.map((mod, idx) => (
                           <div key={idx} className="rounded-lg bg-muted/40 p-2.5 text-[11px] space-y-1">
                             <div className="flex items-center justify-between">
-                              <strong className="text-foreground font-semibold">{mod.accountName || "Cuenta"}</strong>
+                              <strong className="text-foreground font-semibold">{mod.accountName || (isEn ? "Account" : "Cuenta")}</strong>
                               {(mod.status || mod.action) && (
                                 <Badge
                                   className={
@@ -1735,10 +1740,10 @@ export function GlobalAiBubble() {
                                   }
                                 >
                                   {mod.status === "inactive" || mod.action === "delete_account"
-                                    ? "Desprogramar"
+                                    ? (isEn ? "Unschedule" : "Desprogramar")
                                     : mod.status === "cancelled"
-                                    ? "Cancelada"
-                                    : "Activa / En Schedule"}
+                                    ? (isEn ? "Cancelled" : "Cancelada")
+                                    : (isEn ? "Active / In Schedule" : "Activa / En Schedule")}
                                 </Badge>
                               )}
                             </div>
@@ -1754,7 +1759,7 @@ export function GlobalAiBubble() {
                                 const cutoff = mod.effectiveUntil || mod.contractEnd || mod.effectiveDate;
                                 return cutoff ? (
                                   <p className="text-rose-600 dark:text-rose-400 font-medium text-[10px]">
-                                    Fecha final / Corte: {cutoff}
+                                    {isEn ? "Final cutoff date:" : "Fecha final / Corte:"} {cutoff}
                                   </p>
                                 ) : null;
                               }
@@ -1772,17 +1777,17 @@ export function GlobalAiBubble() {
                                 <div className="space-y-0.5 text-[10px]">
                                   {startDate && (
                                     <p className="text-emerald-600 dark:text-emerald-400 font-medium">
-                                      Inicio programado: <span className="font-semibold">{startDate}</span>
+                                      {isEn ? "Scheduled start:" : "Inicio programado:"} <span className="font-semibold">{startDate}</span>
                                     </p>
                                   )}
                                   {mod.frequency && (
                                     <p className="text-muted-foreground">
-                                      Frecuencia: <strong className="text-foreground">{mod.frequency}</strong>
+                                      {isEn ? "Frequency:" : "Frecuencia:"} <strong className="text-foreground">{mod.frequency}</strong>
                                     </p>
                                   )}
                                   {daysList && (
                                     <p className="text-muted-foreground">
-                                      Día(s): <strong className="text-foreground capitalize">{daysList}</strong>
+                                      {isEn ? "Day(s):" : "Día(s):"} <strong className="text-foreground capitalize">{daysList}</strong>
                                     </p>
                                   )}
                                 </div>
@@ -1791,17 +1796,17 @@ export function GlobalAiBubble() {
 
                             {typeof mod.newHours === "number" && mod.action !== "delete_account" && mod.newHours > 0 && (
                               <p className="text-muted-foreground text-[10px]">
-                                Horas: <strong className="text-foreground">{mod.newHours} hrs</strong>
+                                {isEn ? "Hours:" : "Horas:"} <strong className="text-foreground">{mod.newHours} hrs</strong>
                               </p>
                             )}
                             {typeof mod.ratePerService === "number" && (
                               <p className="text-muted-foreground text-[10px]">
-                                Tarifa por servicio: <strong className="text-foreground">${mod.ratePerService}</strong>
+                                {isEn ? "Rate per service:" : "Tarifa por servicio:"} <strong className="text-foreground">${mod.ratePerService}</strong>
                               </p>
                             )}
                             {mod.cleanerName && (
                               <p className="text-muted-foreground text-[10px]">
-                                Cleaner asignada: <strong className="text-foreground">{mod.cleanerName}</strong>
+                                {isEn ? "Assigned cleaner:" : "Cleaner asignada:"} <strong className="text-foreground">{mod.cleanerName}</strong>
                               </p>
                             )}
                             {mod.notes && <p className="text-muted-foreground italic text-[10px]">{mod.notes}</p>}
@@ -1821,15 +1826,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "sop_modifications" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Aplicando modificaciones...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Applying modifications..." : "Aplicando modificaciones..."}
                           </>
                         ) : savedActions.sop_modifications ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Modificaciones Aplicadas en SOP!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Modifications Applied in SOP!" : "¡Modificaciones Aplicadas en SOP!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar en SOP
+                            <CheckCircle className="size-3.5" /> {isEn ? "Confirm & Apply in SOP" : "Confirmar & Aplicar en SOP"}
                           </>
                         )}
                       </Button>
@@ -1840,10 +1845,10 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-background/60 p-3 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          <Users className="size-3.5 text-primary" /> Modificaciones de Personal / Staff
+                          <Users className="size-3.5 text-primary" /> {isEn ? "Staff / Personnel Modifications" : "Modificaciones de Personal / Staff"}
                         </span>
                         <Badge variant="outline" className="text-[10px]">
-                          {response.staffModifications.length} {response.staffModifications.length === 1 ? "cambio" : "cambios"}
+                          {response.staffModifications.length} {response.staffModifications.length === 1 ? (isEn ? "change" : "cambio") : (isEn ? "changes" : "cambios")}
                         </Badge>
                       </div>
 
@@ -1859,17 +1864,17 @@ export function GlobalAiBubble() {
                                     : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px]"
                                 }
                               >
-                                {smod.action === "deactivate" ? "Baja de Personal" : "Alta / Activo"}
+                                {smod.action === "deactivate" ? (isEn ? "Deactivate Staff" : "Baja de Personal") : (isEn ? "Active Staff" : "Alta / Activo")}
                               </Badge>
                             </div>
                             {smod.effectiveDate && (
                               <p className="text-rose-600 dark:text-rose-400 font-medium text-[10px]">
-                                Fecha efectiva: {smod.effectiveDate}
+                                {isEn ? "Effective date:" : "Fecha efectiva:"} {smod.effectiveDate}
                               </p>
                             )}
                             {smod.replacementCleaner && (
                               <p className="text-muted-foreground">
-                                Reemplazo: <strong className="text-foreground">{smod.replacementCleaner}</strong>
+                                {isEn ? "Replacement:" : "Reemplazo:"} <strong className="text-foreground">{smod.replacementCleaner}</strong>
                               </p>
                             )}
                             {smod.notes && <p className="text-muted-foreground italic">{smod.notes}</p>}
@@ -1889,15 +1894,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "staff_modifications" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Aplicando...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Applying..." : "Aplicando..."}
                           </>
                         ) : savedActions.staff_modifications ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Personal Actualizado!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Staff Updated!" : "¡Personal Actualizado!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar en Personal
+                            <CheckCircle className="size-3.5" /> {isEn ? "Confirm & Apply to Staff" : "Confirmar & Aplicar en Personal"}
                           </>
                         )}
                       </Button>
@@ -1909,10 +1914,10 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <Calendar className="size-3.5 text-primary" /> Eventos Comerciales / As-Needed
+                          <Calendar className="size-3.5 text-primary" /> {isEn ? "Commercial / As-Needed Events" : "Eventos Comerciales / As-Needed"}
                         </span>
                         <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
-                          {response.eventBookings.length} {response.eventBookings.length === 1 ? "evento" : "eventos"}
+                          {response.eventBookings.length} {response.eventBookings.length === 1 ? (isEn ? "event" : "evento") : (isEn ? "events" : "eventos")}
                         </Badge>
                       </div>
                       <div className="space-y-1.5">
@@ -1944,15 +1949,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "event_bookings" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Registrando eventos...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Logging events..." : "Registrando eventos..."}
                           </>
                         ) : savedActions.event_bookings ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Eventos Guardados en Calendario!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Events Saved to Calendar!" : "¡Eventos Guardados en Calendario!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Registrar Eventos en el Calendario
+                            <CheckCircle className="size-3.5" /> {isEn ? "Log Events to Calendar" : "Registrar Eventos en el Calendario"}
                           </>
                         )}
                       </Button>
@@ -1964,10 +1969,10 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <ClipboardCheck className="size-3.5 text-primary" /> Inspecciones de Control de Calidad (QC)
+                          <ClipboardCheck className="size-3.5 text-primary" /> {isEn ? "Quality Control (QC) Inspections" : "Inspecciones de Control de Calidad (QC)"}
                         </span>
                         <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
-                          {response.qcScheduleBatch.length} {response.qcScheduleBatch.length === 1 ? "inspección" : "inspecciones"}
+                          {response.qcScheduleBatch.length} {response.qcScheduleBatch.length === 1 ? (isEn ? "inspection" : "inspección") : (isEn ? "inspections" : "inspecciones")}
                         </Badge>
                       </div>
                       <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 no-scrollbar">
@@ -1976,7 +1981,7 @@ export function GlobalAiBubble() {
                             <div>
                               <strong className="text-foreground">{qc.accountName}</strong>
                               <p className="text-muted-foreground text-[10px]">
-                                {qc.date} {qc.time ? `a las ${qc.time}` : ""}
+                                {qc.date} {qc.time ? (isEn ? `at ${qc.time}` : `a las ${qc.time}`) : ""}
                               </p>
                             </div>
                             <Badge variant="outline" className="text-[10px] bg-primary/5 text-primary border-primary/20">
@@ -1997,15 +2002,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "qc_schedule" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Programando QC...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Scheduling QC..." : "Programando QC..."}
                           </>
                         ) : savedActions.qc_schedule ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Inspecciones de QC Programadas!
+                            <Check className="size-3.5 text-white" /> {isEn ? "QC Inspections Scheduled!" : "¡Inspecciones de QC Programadas!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Programar Inspecciones de QC
+                            <CheckCircle className="size-3.5" /> {isEn ? "Schedule QC Inspections" : "Programar Inspecciones de QC"}
                           </>
                         )}
                       </Button>
@@ -2017,11 +2022,13 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <Users className="size-3.5 text-primary" /> Limpieza de Personal y Deduplicación
+                          <Users className="size-3.5 text-primary" /> {isEn ? "Staff Deduplication & Cleanup" : "Limpieza de Personal y Deduplicación"}
                         </span>
                       </div>
                       <p className="text-[11px] text-muted-foreground">
-                        Se identificaron empleados duplicados o no requeridos. Al aplicar, se fusionarán y eliminarán los duplicados dejando perfiles únicos y limpios.
+                        {isEn
+                          ? "Duplicate or redundant employees were identified. Applying will merge and remove duplicates, keeping unique, clean profiles."
+                          : "Se identificaron empleados duplicados o no requeridos. Al aplicar, se fusionarán y eliminarán los duplicados dejando perfiles únicos y limpios."}
                       </p>
                       <Button
                         size="sm"
@@ -2035,15 +2042,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "cleanup_staff" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Limpiando personal...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Cleaning staff..." : "Limpiando personal..."}
                           </>
                         ) : savedActions.cleanup_staff ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Personal Limpio y Único!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Clean Unique Staff!" : "¡Personal Limpio y Único!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Limpiar y Deduplicar Personal
+                            <CheckCircle className="size-3.5" /> {isEn ? "Clean & Deduplicate Staff" : "Limpiar y Deduplicar Personal"}
                           </>
                         )}
                       </Button>
@@ -2148,15 +2155,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "update_financials" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Guardando tarifas...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Saving rates..." : "Guardando tarifas..."}
                           </>
                         ) : savedActions.update_financials ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Tarifas Actualizadas en SOP!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Rates Updated in SOP!" : "¡Tarifas Actualizadas en SOP!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar Tarifas por Servicio
+                            <CheckCircle className="size-3.5" /> {isEn ? "Confirm & Apply Rates per Service" : "Confirmar & Aplicar Tarifas por Servicio"}
                           </>
                         )}
                       </Button>
@@ -2168,19 +2175,19 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <ClipboardCheck className="size-3.5 text-primary" /> Tareas Operativas ({response.taskModifications.length})
+                          <ClipboardCheck className="size-3.5 text-primary" /> {isEn ? "Operational Tasks" : "Tareas Operativas"} ({response.taskModifications.length})
                         </span>
                         <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
-                          Tareas
+                          {isEn ? "Tasks" : "Tareas"}
                         </Badge>
                       </div>
                       <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                         {response.taskModifications.map((t, idx) => (
                           <div key={idx} className="rounded-lg bg-muted/40 p-2 text-[11px] flex items-center justify-between">
                             <div>
-                              <strong className="text-foreground">{t.taskTitle || "Tarea"}</strong>
+                              <strong className="text-foreground">{t.taskTitle || (isEn ? "Task" : "Tarea")}</strong>
                               <p className="text-muted-foreground text-[10px]">
-                                {t.action.toUpperCase()} · Asignado: {t.newAssignee || "Unassigned"} · Vence: {t.newDueDate || "N/A"}
+                                {t.action.toUpperCase()} · {isEn ? "Assignee:" : "Asignado:"} {t.newAssignee || "Unassigned"} · {isEn ? "Due:" : "Vence:"} {t.newDueDate || "N/A"}
                               </p>
                             </div>
                             <Badge variant="outline" className="text-[9px]">
@@ -2215,15 +2222,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "tasks" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Guardando tareas...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Saving tasks..." : "Guardando tareas..."}
                           </>
                         ) : savedActions.tasks ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Tareas Actualizadas!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Tasks Updated!" : "¡Tareas Actualizadas!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar Tareas
+                            <CheckCircle className="size-3.5" /> {isEn ? "Confirm & Apply Tasks" : "Confirmar & Aplicar Tareas"}
                           </>
                         )}
                       </Button>
@@ -2235,7 +2242,7 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <Sparkles className="size-3.5 text-primary" /> Mutaciones del Sistema ({response.universalMutations.length})
+                          <Sparkles className="size-3.5 text-primary" /> {isEn ? "System Mutations" : "Mutaciones del Sistema"} ({response.universalMutations.length})
                         </span>
                         <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
                           Universal
@@ -2247,7 +2254,7 @@ export function GlobalAiBubble() {
                             <div>
                               <strong className="text-foreground">{m.description || `${m.action} ${m.entity}`}</strong>
                               <p className="text-muted-foreground text-[10px]">
-                                Tabla: {m.entity} · Objetivo: {m.targetIdentifier || "General"}
+                                {isEn ? "Table:" : "Tabla:"} {m.entity} · {isEn ? "Target:" : "Objetivo:"} {m.targetIdentifier || "General"}
                               </p>
                             </div>
                             <Badge variant="outline" className="text-[9px] uppercase font-bold">
@@ -2282,15 +2289,15 @@ export function GlobalAiBubble() {
                       >
                         {executingAction === "universal" ? (
                           <>
-                            <Loader2 className="size-3.5 animate-spin" /> Aplicando mutaciones...
+                            <Loader2 className="size-3.5 animate-spin" /> {isEn ? "Applying mutations..." : "Aplicando mutaciones..."}
                           </>
                         ) : savedActions.universal ? (
                           <>
-                            <Check className="size-3.5 text-white" /> ¡Mutaciones Aplicadas!
+                            <Check className="size-3.5 text-white" /> {isEn ? "Mutations Applied!" : "¡Mutaciones Aplicadas!"}
                           </>
                         ) : (
                           <>
-                            <CheckCircle className="size-3.5" /> Confirmar & Aplicar Mutaciones
+                            <CheckCircle className="size-3.5" /> {isEn ? "Confirm & Apply Mutations" : "Confirmar & Aplicar Mutaciones"}
                           </>
                         )}
                       </Button>
