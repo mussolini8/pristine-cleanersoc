@@ -80,7 +80,7 @@ export function DashboardShell({
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden border-r border-border/70 bg-card/96 shadow-[18px_0_60px_-58px_hsl(215_40%_20%)] backdrop-blur-xl lg:flex lg:flex-col transition-[width,transform] duration-300 ease-in-out overflow-hidden",
+          "fixed inset-y-0 left-0 z-30 hidden border-r border-border/70 bg-card/96 shadow-[18px_0_60px_-58px_hsl(215_40%_20%)] backdrop-blur-xl lg:flex lg:flex-col transition-[width,transform] duration-300 ease-in-out overflow-hidden pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]",
           sidebarCollapsed ? "w-0 border-r-0" : "w-[16rem]"
         )}
       >
@@ -99,8 +99,8 @@ export function DashboardShell({
           <button
             type="button"
             onClick={toggleSidebar}
-            aria-label="Collapse sidebar"
-            className="shrink-0 flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all"
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="shrink-0 flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all cursor-pointer"
           >
             <PanelLeftClose size={15} />
           </button>
@@ -157,12 +157,15 @@ export function DashboardShell({
 
       {/* Main content area */}
       <div className={cn("transition-[padding-left] duration-300 ease-in-out", sidebarCollapsed ? "lg:pl-0" : "lg:pl-[16rem]")}>
-        <header className="sticky top-0 z-20 border-b border-border/70 bg-background/85 backdrop-blur-xl">
-          <div className="flex h-[3.75rem] items-center justify-between px-4 sm:px-6">
+        <header className="sticky top-0 z-20 border-b border-border/70 bg-background/90 backdrop-blur-xl pt-[env(safe-area-inset-top,0px)]">
+          <div className="flex min-h-[3.5rem] sm:min-h-[3.75rem] items-center justify-between px-3.5 sm:px-6 py-1.5">
             {/* Mobile branding */}
-            <div className="lg:hidden">
-              <p className="text-[11px] font-semibold text-primary">Pristine Cleaners</p>
-              <p className="text-sm font-semibold text-foreground">{t("nav.operations_sop", "Operations SOP")}</p>
+            <div className="flex items-center gap-2.5 min-w-0 lg:hidden">
+              <img src="/logo-icon.png" alt="Pristine Cleaners" className="size-7 sm:size-8 object-contain shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold leading-tight text-primary truncate">Pristine Cleaners</p>
+                <p className="text-xs sm:text-sm font-bold leading-tight text-foreground truncate">{t("nav.operations_sop", "Operations SOP")}</p>
+              </div>
             </div>
             {/* Desktop: sidebar toggle */}
             <div className="hidden lg:flex items-center gap-2">
@@ -176,46 +179,49 @@ export function DashboardShell({
               </button>
             </div>
             {/* Right actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setIsKoalaOpen(true)}
-                className="gap-2 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 font-bold cursor-pointer"
+                className="hidden sm:inline-flex gap-2 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 font-bold cursor-pointer"
               >
                 <FileSpreadsheet className="size-4" />
-                <span className="hidden sm:inline">{t("nav.import_bookingkoala", "Import BookingKoala")}</span>
+                <span>{t("nav.import_bookingkoala", "Import BookingKoala")}</span>
               </Button>
               <LanguageToggle />
               <ThemeToggle />
               <form action="/auth/sign-out" method="post">
-                <Button variant="outline" size="sm" className="cursor-pointer">
+                <Button variant="outline" size="sm" className="cursor-pointer h-8 sm:h-9 px-2 sm:px-3">
                   <LogOut className="size-4" />
-                  <span className="hidden sm:inline">{t("nav.sign_out", "Sign out")}</span>
+                  <span className="hidden md:inline">{t("nav.sign_out", "Sign out")}</span>
                 </Button>
               </form>
             </div>
           </div>
           {/* Mobile nav */}
-          <nav className="flex gap-2 overflow-x-auto border-t border-border/50 px-4 py-2 lg:hidden" aria-label="SOP navigation">
+          <nav className="flex gap-2 overflow-x-auto border-t border-border/50 px-3 sm:px-4 py-2 lg:hidden no-scrollbar touch-scroll" aria-label="SOP navigation">
             {visibleNavItems.map((item) => (
               <Link
                 className={cn(
-                  "inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3.5 text-xs font-semibold transition-all duration-150",
+                  "inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all duration-150 active:scale-95",
                   (pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`)))
-                    ? "border-primary/30 bg-primary/[0.06] text-primary shadow-sm"
+                    ? "border-primary/40 bg-primary/[0.08] text-primary shadow-xs font-bold"
                     : "border-border/60 bg-card/85 text-muted-foreground hover:bg-accent/40 hover:text-foreground",
                 )}
                 href={item.href}
                 key={item.href}
               >
-                <item.icon className="size-4" />
-                {t(item.key, item.label)}
+                <item.icon className="size-4 shrink-0" />
+                <span className="whitespace-nowrap">{t(item.key, item.label)}</span>
               </Link>
             ))}
           </nav>
         </header>
-        <main className={cn("mx-auto p-4 sm:p-6 lg:p-8 transition-[max-width] duration-300", sidebarCollapsed ? "max-w-[1900px]" : "max-w-[1500px]")}>{children}</main>
+        <main className={cn(
+          "mx-auto p-3.5 sm:p-6 lg:p-8 pb-[calc(7rem+env(safe-area-inset-bottom,0px))] sm:pb-12 transition-[max-width] duration-300",
+          sidebarCollapsed ? "max-w-[1900px]" : "max-w-[1500px]"
+        )}>{children}</main>
       </div>
 
       {/* BookingKoala Smart Importer Modal */}

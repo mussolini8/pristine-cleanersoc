@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [state, action, pending] = useActionState(signIn, {});
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-[linear-gradient(180deg,#f8faf9,#edf3ef)] px-4 py-10 text-[#0f172a]">
+    <main className="grid min-h-dvh place-items-center bg-[linear-gradient(180deg,#f8faf9,#edf3ef)] px-4 py-8 pt-[calc(2rem+env(safe-area-inset-top,0px))] pb-[calc(2rem+env(safe-area-inset-bottom,0px))] text-[#0f172a]">
       <section className="w-full max-w-[420px] rounded-lg border border-white/80 bg-white/95 p-7 shadow-[0_22px_70px_-48px_rgba(15,23,42,0.58)] backdrop-blur">
         <div className="mb-8 flex flex-col items-center text-center">
           <Image

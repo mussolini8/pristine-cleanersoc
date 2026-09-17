@@ -306,7 +306,7 @@ export function SalesTrackClient() {
               onClick={() => setIsCopilotOpen(true)}
               className="gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 font-bold text-white shadow-md hover:from-emerald-700 hover:to-teal-700"
             >
-              <img src="/pristiner-logo.png" alt="Pristiner" className="size-4 object-contain brightness-0 invert" />
+              <img src="/pristiner-logo-white.png" alt="Pristiner" className="size-4 object-contain" />
               Pristiner (Copiloto IA)
             </Button>
             <Button

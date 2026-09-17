@@ -781,16 +781,16 @@ export function GlobalAiBubble() {
     <>
       {/* Floating Trigger Bubble Button (Bottom Right) */}
       {!isOpen && (
-        <div className="fixed bottom-5 right-5 z-40 flex items-center gap-2">
+        <div className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] sm:bottom-5 right-3.5 sm:right-5 z-40 flex items-center gap-2">
           <button
             onClick={() => setIsOpen(true)}
-            className="group flex items-center gap-2.5 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 px-4 py-2.5 text-white shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-emerald-500/25 active:scale-95 border-0"
+            className="group flex items-center gap-2 sm:gap-2.5 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 px-3.5 py-2 sm:px-4 sm:py-2.5 text-white shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-emerald-500/25 active:scale-95 border-0 cursor-pointer"
             title="Abrir Pristiner Copiloto IA"
           >
-            <div className="relative flex size-6 items-center justify-center">
-              <img src="/pristiner-logo.png" alt="Pristiner" className="size-5 object-contain brightness-0 invert" />
+            <div className="relative flex size-5 sm:size-6 items-center justify-center shrink-0">
+              <img src="/pristiner-logo-white.png" alt="Pristiner" className="size-4 sm:size-5 object-contain" />
             </div>
-            <span className="text-xs font-black tracking-wide pr-1">Pristiner Copiloto</span>
+            <span className="text-xs font-black tracking-wide pr-0.5">Pristiner Copiloto</span>
           </button>
         </div>
       )}
@@ -800,8 +800,8 @@ export function GlobalAiBubble() {
         <div
           className={`fixed z-50 transition-all duration-300 ${
             isMinimized
-              ? "bottom-5 right-5 w-80 shadow-xl"
-              : "bottom-5 right-5 w-[94vw] max-w-xl max-h-[85vh] sm:w-[540px] shadow-2xl"
+              ? "bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] sm:bottom-5 right-3.5 sm:right-5 w-[calc(100vw-2rem)] max-w-xs shadow-xl"
+              : "bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:bottom-5 right-2 sm:right-5 w-[calc(100vw-1rem)] max-w-xl max-h-[85dvh] sm:w-[540px] shadow-2xl"
           } flex flex-col rounded-2xl border border-border/80 bg-card text-foreground overflow-hidden`}
           onPaste={handlePaste}
         >

@@ -675,3 +675,22 @@ textarea {
 .ops-table-wrap {
   overflow-x: auto;
 }
+
+/* Mobile & Touch Viewport Optimizations */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
