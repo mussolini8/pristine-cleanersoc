@@ -16,6 +16,16 @@ function preprocessOptionalUrl(value: unknown) {
   return `https://${normalized}`;
 }
 
+function preprocessRequiredUrl(value: unknown) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed === "undefined" || trimmed === "null") {
+    return trimmed;
+  }
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 function preprocessOptionalEmail(value: unknown) {
   const normalized = preprocessEnv(value);
   if (typeof normalized !== "string") return normalized;
@@ -29,11 +39,11 @@ const optionalUrl = z.preprocess(preprocessOptionalUrl, z.url().optional());
 const publicEnvSchema = z.object({
   APP_BASE_URL: optionalUrl,
   NEXT_PUBLIC_APP_URL: z.preprocess(
-    (val) => (typeof val === "string" ? val.trim() : val),
+    preprocessRequiredUrl,
     z.url().default("http://localhost:3000")
   ),
   NEXT_PUBLIC_SUPABASE_URL: z.preprocess(
-    (val) => (typeof val === "string" ? val.trim() : val),
+    preprocessRequiredUrl,
     z.url()
   ),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.preprocess(
