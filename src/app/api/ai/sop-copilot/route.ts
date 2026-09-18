@@ -99,7 +99,7 @@ export async function POST(req: Request) {
       bodyText = await req.text();
     } catch {
       return NextResponse.json(
-        { success: false, error: "La solicitud es demasiado grande. Intenta con menos imágenes a la vez (máximo 5)." },
+        { success: false, error: "The request is too large. Try fewer images at a time (maximum 5)." },
         { status: 413 }
       );
     }
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
       body = JSON.parse(bodyText);
     } catch {
       return NextResponse.json(
-        { success: false, error: "Error al leer la solicitud. Si subiste muchas imágenes, intenta con menos a la vez (máximo 5)." },
+        { success: false, error: "Error reading the request. If you uploaded many images, try fewer at a time (maximum 5)." },
         { status: 400 }
       );
     }
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Falta la clave GEMINI_API_KEY. Puedes configurarla en el archivo .env.local o ingresarla directamente en el panel del Asistente.",
+          error: "Missing GEMINI_API_KEY. You can set it in .env.local or enter it directly in the Assistant panel.",
           needsApiKey: true,
         },
         { status: 400 }
@@ -143,7 +143,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: `Recibiste ${rawImages.length} imágenes. El límite es 5 por solicitud. Por favor envía menos imágenes a la vez.`,
+          error: `You sent  images. The limit is 5 per request. Please send fewer images at a time.`,
         },
         { status: 400 }
       );
@@ -247,7 +247,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || "Ocurrió un error al procesar la solicitud con Gemini.",
+        error: error?.message || "An error occurred while processing the request with Gemini.",
       },
       { status: 500 }
     );

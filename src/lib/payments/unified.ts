@@ -391,7 +391,7 @@ export async function syncCommercialPayrollPeriodToPayments(periodId: string) {
   ]);
   if (!period) throw new Error("Payroll period not found.");
 
-  const results = [];
+  const results: Awaited<ReturnType<typeof syncCommercialPayrollEntryToPayment>>[] = [];
   for (const entry of (entries ?? []) as PayrollEntryRow[]) {
     results.push(await syncCommercialPayrollEntryToPayment(entry, period as PayrollPeriodRow));
   }

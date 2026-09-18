@@ -1,5 +1,115 @@
-import { redirect } from "next/navigation";
+ "use client";
+
+import Image from "next/image";
+import Link from "next/link";
+import { useActionState } from "react";
+import { Loader2, UserPlus } from "lucide-react";
+import { signUp } from "./actions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function SignupPage() {
-  redirect("/login");
+  const [state, action, pending] = useActionState(signUp, {});
+
+  return (
+    <main className="grid min-h-dvh place-items-center bg-[linear-gradient(180deg,#f8faf9,#edf3ef)] px-4 py-10 text-[#0f172a]">
+      <section className="w-full max-w-[420px] rounded-lg border border-white/80 bg-white/95 p-7 shadow-[0_22px_70px_-48px_rgba(15,23,42,0.58)] backdrop-blur">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <Image
+            alt="Pristine Cleaners"
+            className="h-auto w-[210px]"
+            height={247}
+            priority
+            src="/logo-full.png"
+            width={853}
+          />
+          <h1 className="mt-7 text-2xl font-semibold tracking-normal text-[#0f172a]">
+            Create access
+          </h1>
+          <p className="mt-2 text-sm font-medium text-[#64748b]">
+            Set up your Pristine Cleaners login
+          </p>
+        </div>
+
+        <form action={action} className="grid gap-5">
+          <div className="grid gap-2">
+            <Label className="text-[13px] font-semibold text-[#334155]" htmlFor="fullName">
+              Full name
+            </Label>
+            <Input
+              autoComplete="name"
+              className="h-11 rounded-lg border-[#dbe3ea] bg-[#f8fafc] px-4 text-[15px] font-medium text-[#0f172a]"
+              id="fullName"
+              name="fullName"
+              type="text"
+            />
+            {state.errors?.fullName?.map((error) => (
+              <p className="text-sm font-semibold text-destructive" key={error}>
+                {error}
+              </p>
+            ))}
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-[13px] font-semibold text-[#334155]" htmlFor="email">
+              Email
+            </Label>
+            <Input
+              autoComplete="email"
+              className="h-11 rounded-lg border-[#dbe3ea] bg-[#f8fafc] px-4 text-[15px] font-medium text-[#0f172a]"
+              id="email"
+              name="email"
+              type="email"
+            />
+            {state.errors?.email?.map((error) => (
+              <p className="text-sm font-semibold text-destructive" key={error}>
+                {error}
+              </p>
+            ))}
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-[13px] font-semibold text-[#334155]" htmlFor="password">
+              Password
+            </Label>
+            <Input
+              autoComplete="new-password"
+              className="h-11 rounded-lg border-[#dbe3ea] bg-[#f8fafc] px-4 text-[15px] font-medium text-[#0f172a]"
+              id="password"
+              name="password"
+              type="password"
+            />
+            {state.errors?.password?.map((error) => (
+              <p className="text-sm font-semibold text-destructive" key={error}>
+                {error}
+              </p>
+            ))}
+          </div>
+
+          {state.message ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {state.message}
+            </p>
+          ) : null}
+
+          <Button
+            className="h-11 rounded-lg bg-[#3f765f] text-[15px] font-semibold text-white shadow-[0_12px_28px_-18px_rgba(67,125,101,0.9)] hover:bg-[#356351]"
+            disabled={pending}
+            type="submit"
+          >
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+            Create account
+          </Button>
+        </form>
+
+        <p className="mt-6 text-center text-sm font-medium text-[#64748b]">
+          Already have access?{" "}
+          <Link className="font-semibold text-[#3f765f] hover:text-[#356351]" href="/login">
+            Sign in
+          </Link>
+        </p>
+      </section>
+    </main>
+  );
 }

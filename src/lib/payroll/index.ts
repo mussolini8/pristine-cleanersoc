@@ -334,7 +334,7 @@ export async function applyCommercialAccountChangesGoingForward(accountId: strin
     ? periodsToRefresh.map((period) => ({ startDate: period.start_date, endDate: period.end_date, label: period.label ?? currentPeriod.label }))
     : [currentPeriod, ...periodsToRefresh.map((period) => ({ startDate: period.start_date, endDate: period.end_date, label: period.label ?? currentPeriod.label }))];
 
-  const results = [];
+  const results: Awaited<ReturnType<typeof generatePayrollForPeriod>>[] = [];
   for (const period of requestedPeriods) {
     results.push(await generatePayrollForPeriod(period, { userId, forceRecalculate: true }));
   }

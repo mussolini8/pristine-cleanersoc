@@ -1518,7 +1518,7 @@ export default function CommercialPage() {
             "Vanessa Ortega"
           ];
 
-          const staffToInsert = [];
+          const staffToInsert: Record<string, unknown>[] = [];
           for (const name of seedCleaners) {
             const normalized = name.trim().toLowerCase();
             if (!existingStaffNames.has(normalized)) {

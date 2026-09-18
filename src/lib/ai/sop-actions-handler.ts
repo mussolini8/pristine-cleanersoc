@@ -204,7 +204,7 @@ export async function applyOccurrenceOverrideAction(
 
     if (supabase) {
       // Check if there is an existing entry for this account and date
-      let existingEntry = null;
+      let existingEntry: { id: string } | null = null;
       if (accountId) {
         const { data: existing } = await supabase
           .from("commercial_hours_entries")
@@ -2381,4 +2381,3 @@ export async function applyPaymentModificationsAction(
 
   return { success: true, message: results.join("\n") };
 }
-

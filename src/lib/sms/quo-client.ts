@@ -42,7 +42,7 @@ export async function sendQuoSms({
   const resolvedFromPhone = fromPhone || env.QUO_FROM_PHONE || process.env.QUO_FROM_PHONE || "+19495704521";
 
   if (!resolvedApiKey) {
-    throw new Error("QUO_API_KEY no está configurada en las variables de entorno.");
+    throw new Error("QUO_API_KEY is not configured in the environment variables.");
   }
 
   const formattedTo = formatPhoneNumber(to);
@@ -81,7 +81,7 @@ export async function sendQuoSms({
         const resData = await response.json().catch(() => ({}));
         return {
           success: true,
-          message: `SMS enviado exitosamente a ${formattedTo} vía Quo (${formattedFrom}).`,
+          message: `SMS sent successfully to ${formattedTo} via Quo (${formattedFrom}).`,
           data: resData,
         };
       } else {
@@ -97,7 +97,7 @@ export async function sendQuoSms({
   console.log(`[Quo Dispatch Gateway] Transmitted message to ${formattedTo} from ${formattedFrom}: "${message}"`);
   return {
     success: true,
-    message: `Despacho procesado para ${formattedTo} vía Quo (${formattedFrom}).`,
+    message: `Despacho procesado para ${formattedTo} via Quo (${formattedFrom}).`,
     data: { to: formattedTo, from: formattedFrom, message, status: "queued" },
   };
 }

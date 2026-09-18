@@ -1103,7 +1103,7 @@ export function SimpleOperationsClient({
         "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin"
       ];
 
-      const staffToInsert = [];
+      const staffToInsert: Record<string, unknown>[] = [];
       const nowString = new Date().toISOString();
       for (const name of seedCleaners) {
         const normalized = name.trim().toLowerCase();
@@ -3842,7 +3842,7 @@ export function SimpleOperationsClient({
             const au = copilotResp.accessUpdate;
             const acc = await findOrMaterializeAccount(au.accountName);
             if (acc) {
-              const parts = [];
+              const parts: string[] = [];
               if (au.alarmCode) parts.push(`Alarma: ${au.alarmCode}`);
               if (au.lockboxCode) parts.push(`Lockbox: ${au.lockboxCode}`);
               if (au.gateCode) parts.push(`Portón: ${au.gateCode}`);

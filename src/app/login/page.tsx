@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useActionState } from "react";
 import { Loader2, LogIn } from "lucide-react";
 import { signIn } from "./actions";
@@ -85,6 +86,13 @@ export default function LoginPage() {
             Sign in
           </Button>
         </form>
+
+        <p className="mt-6 text-center text-sm font-medium text-[#64748b]">
+          Need a login?{" "}
+          <Link className="font-semibold text-[#3f765f] hover:text-[#356351]" href="/signup">
+            Create account
+          </Link>
+        </p>
       </section>
     </main>
   );
