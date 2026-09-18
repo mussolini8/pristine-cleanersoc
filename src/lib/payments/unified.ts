@@ -204,7 +204,8 @@ export function normalizePaymentExtra(row: PaymentExtraUnifiedRow): UnifiedPayme
 }
 
 export function normalizeCommercialPayrollEntry(entry: PayrollEntryRow, period?: PayrollPeriodRow | null): UnifiedPayment {
-  const payrollEligible = isCommercialPayrollEligible(entry.cleaner_name);
+  const isFixedSupervisorPay = entry.source === "fixed_qc_supervisor";
+  const payrollEligible = isFixedSupervisorPay || isCommercialPayrollEligible(entry.cleaner_name);
   return {
     id: entry.id,
     sourceType: "commercial_payroll",
@@ -213,7 +214,7 @@ export function normalizeCommercialPayrollEntry(entry: PayrollEntryRow, period?:
     accountId: entry.account_id ?? undefined,
     accountName: entry.account_name,
     category: "commercial",
-    paymentType: "hourly",
+    paymentType: isFixedSupervisorPay ? "fixed" : "hourly",
     baseHours: entry.base_hours,
     adjustedHours: entry.adjusted_hours,
     payRate: entry.pay_rate,
@@ -262,7 +263,8 @@ export async function syncCommercialPayrollEntryToPayment(entry: PayrollEntryRow
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id ?? null;
   const now = new Date().toISOString();
-  if (!isCommercialPayrollEligible(entry.cleaner_name)) {
+  const isFixedSupervisorPay = entry.source === "fixed_qc_supervisor";
+  if (!isFixedSupervisorPay && !isCommercialPayrollEligible(entry.cleaner_name)) {
     const { data: existing } = await supabase
       .from("payment_entries")
       .select("id,status")
@@ -304,7 +306,7 @@ export async function syncCommercialPayrollEntryToPayment(entry: PayrollEntryRow
     account_id: entry.account_id,
     account_name: entry.account_name,
     category: "commercial",
-    payment_type: "hourly",
+    payment_type: isFixedSupervisorPay ? "fixed" : "hourly",
     base_hours: entry.base_hours,
     adjusted_hours: entry.adjusted_hours,
     pay_rate: entry.pay_rate,

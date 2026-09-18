@@ -100,7 +100,7 @@ export type PayrollGeneratedEntry = {
   review_status: string;
   review_notes: string | null;
   payment_method: string | null;
-  source: "schedule_rule" | "account_fallback";
+  source: "schedule_rule" | "account_fallback" | "fixed_qc_supervisor";
   exceptions: PayrollExceptionCode[];
 };
 

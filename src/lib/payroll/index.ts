@@ -17,6 +17,7 @@ import type {
   CommercialScheduleRule,
   PayrollAdjustmentRow,
   PayrollEntryRow,
+  PayrollGeneratedEntry,
   PayrollPeriod,
   PayrollPeriodRow,
 } from "./types";
@@ -32,6 +33,23 @@ const COMMERCIAL_SCHEDULE_RULE_COLUMNS = "id,user_id,commercial_account_id,day_o
 const PAYROLL_PERIOD_COLUMNS = "id,user_id,start_date,end_date,label,status,total_estimated_hours,total_adjusted_hours,total_estimated_amount,total_final_amount,generated_at,approved_at,paid_at,locked_at,notes,created_at,updated_at";
 const PAYROLL_ENTRY_COLUMNS = "id,pay_period_id,cleaner_name,cleaner_id,account_id,account_name,city,service_date,scheduled_day,base_hours,adjusted_hours,pay_rate,estimated_amount,adjustment_amount,final_amount,status,requires_manual_review,review_status,review_notes,reviewed_by,reviewed_at,approved_by,approved_at,paid_at,notes,payment_method,source,exceptions,created_at,updated_at";
 const PAYROLL_ADJUSTMENT_COLUMNS = "id,pay_period_id,payroll_entry_id,cleaner_name,account_id,adjustment_type,hours_delta,amount_delta,reason,internal_note,created_by,created_at";
+
+const FIXED_QC_SUPERVISOR_PAYROLL = [
+  {
+    cleanerName: "Ana Morales",
+    baseHours: 80,
+    payRate: 20,
+    amount: 1600,
+    notes: "QC supervisor fixed pay: 80 hours at $20/hour per pay period.",
+  },
+  {
+    cleanerName: "Maria Lopez",
+    baseHours: 0,
+    payRate: 0,
+    amount: 1000,
+    notes: "QC supervisor fixed pay: $1,000 per pay period.",
+  },
+] as const;
 
 const LUCIA_REVIEW_SETTING: CleanerPaymentSetting = {
   cleaner_name: "Lucia Portillo",
@@ -212,6 +230,38 @@ function payrollNaturalKey(entry: Pick<PayrollEntryRow, "account_name" | "cleane
   ].join("|");
 }
 
+function isFixedQcSupervisorEntry(entry: Pick<PayrollEntryRow, "source">) {
+  return entry.source === "fixed_qc_supervisor";
+}
+
+function isPayrollEntryPayEligible(entry: Pick<PayrollEntryRow, "cleaner_name" | "source">) {
+  return isFixedQcSupervisorEntry(entry) || isCommercialPayrollEligible(entry.cleaner_name);
+}
+
+function buildFixedQcSupervisorEntries(period: PayrollPeriod): PayrollGeneratedEntry[] {
+  return FIXED_QC_SUPERVISOR_PAYROLL.map((setting) => ({
+    cleaner_name: setting.cleanerName,
+    account_id: null,
+    account_name: "QC Supervisor Fixed Pay",
+    city: null,
+    service_date: period.endDate,
+    scheduled_day: "Pay period",
+    base_hours: setting.baseHours,
+    adjusted_hours: setting.baseHours,
+    pay_rate: setting.payRate,
+    estimated_amount: setting.amount,
+    adjustment_amount: 0,
+    final_amount: setting.amount,
+    status: "draft",
+    requires_manual_review: false,
+    review_status: "not_required",
+    review_notes: setting.notes,
+    payment_method: null,
+    source: "fixed_qc_supervisor",
+    exceptions: [],
+  }));
+}
+
 export async function generatePayrollForPeriod(period: PayrollPeriod, options: { userId?: string | null; forceRecalculate?: boolean } = {}) {
   const supabase = createClient();
   const userId = options.userId ?? await getUserId(supabase);
@@ -257,7 +307,8 @@ export async function generatePayrollForPeriod(period: PayrollPeriod, options: {
       .not("status", "in", "(approved,paid,locked)");
   }
 
-  const entries = accounts.flatMap((account) => generateEntriesForAccount(account, period, settings, rulesForAccount(account, scheduleRules)));
+  const accountEntries = accounts.flatMap((account) => generateEntriesForAccount(account, period, settings, rulesForAccount(account, scheduleRules)));
+  const entries = [...accountEntries, ...buildFixedQcSupervisorEntries(period)];
   const summary = summarizeEntries(entries);
   const status = summary.needs_review_count > 0 ? "in_review" : "draft";
 
@@ -401,16 +452,25 @@ export async function updatePayrollEntry(entry: PayrollEntryRow, changes: Partia
   const supabase = createClient();
   const userId = await getUserId(supabase);
   const nextAdjustedHours = Number(changes.adjusted_hours ?? entry.adjusted_hours ?? entry.base_hours ?? 0);
-  const payrollEligible = isCommercialPayrollEligible(entry.cleaner_name);
-  const nextPayRate = payrollEligible ? Number(changes.pay_rate ?? entry.pay_rate ?? 0) : 0;
+  const payrollEligible = isPayrollEntryPayEligible(entry);
+  const isFlatFixedSupervisorPay = isFixedQcSupervisorEntry(entry) && Number(entry.base_hours ?? 0) === 0;
+  const nextPayRate = payrollEligible && !isFlatFixedSupervisorPay ? Number(changes.pay_rate ?? entry.pay_rate ?? 0) : 0;
   const nextAdjustmentAmount = Number(changes.adjustment_amount ?? entry.adjustment_amount ?? 0);
-  const finalAmount = payrollEligible ? Number((nextAdjustedHours * nextPayRate + nextAdjustmentAmount).toFixed(2)) : 0;
+  const finalAmount = !payrollEligible
+    ? 0
+    : isFlatFixedSupervisorPay
+      ? Number((Number(entry.estimated_amount ?? entry.final_amount ?? 0) + nextAdjustmentAmount).toFixed(2))
+      : Number((nextAdjustedHours * nextPayRate + nextAdjustmentAmount).toFixed(2));
   const payload = {
     ...changes,
     adjusted_hours: nextAdjustedHours,
     pay_rate: nextPayRate,
     final_amount: finalAmount,
-    estimated_amount: payrollEligible ? Number((Number(entry.base_hours ?? 0) * nextPayRate).toFixed(2)) : 0,
+    estimated_amount: payrollEligible
+      ? isFlatFixedSupervisorPay
+        ? Number(entry.estimated_amount ?? entry.final_amount ?? 0)
+        : Number((Number(entry.base_hours ?? 0) * nextPayRate).toFixed(2))
+      : 0,
     requires_manual_review: payrollEligible ? changes.requires_manual_review ?? entry.requires_manual_review : true,
     review_notes: payrollEligible ? changes.review_notes ?? entry.review_notes : "Mixed route · Not in commercial payroll",
     updated_at: new Date().toISOString(),
