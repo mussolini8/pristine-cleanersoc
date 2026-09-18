@@ -80,6 +80,11 @@ function handleValidationError(error: z.ZodError, envData: Record<string, unknow
   });
 }
 
+function envValidationMessage(error: z.ZodError) {
+  const fields = error.issues.map((issue) => issue.path.join(".") || "environment").join(", ");
+  return `Invalid server environment variables configuration: ${fields}`;
+}
+
 export function getPublicEnv() {
   const envData = {
     APP_BASE_URL: process.env.APP_BASE_URL,
@@ -91,7 +96,7 @@ export function getPublicEnv() {
   const result = publicEnvSchema.safeParse(envData);
   if (!result.success) {
     handleValidationError(result.error, envData);
-    throw new Error("Invalid public environment variables configuration");
+    throw new Error(envValidationMessage(result.error));
   }
   return result.data;
 }
@@ -116,7 +121,7 @@ export function getServerEnv() {
   const result = serverEnvSchema.safeParse(envData);
   if (!result.success) {
     handleValidationError(result.error, envData);
-    throw new Error("Invalid server environment variables configuration");
+    throw new Error(envValidationMessage(result.error));
   }
   return result.data;
 }
