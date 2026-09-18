@@ -9,9 +9,22 @@ function preprocessEnv(value: unknown) {
   return trimmed;
 }
 
+function preprocessOptionalUrl(value: unknown) {
+  const normalized = preprocessEnv(value);
+  if (typeof normalized !== "string") return normalized;
+  if (/^https?:\/\//i.test(normalized)) return normalized;
+  return `https://${normalized}`;
+}
+
+function preprocessOptionalEmail(value: unknown) {
+  const normalized = preprocessEnv(value);
+  if (typeof normalized !== "string") return normalized;
+  return z.email().safeParse(normalized).success ? normalized : undefined;
+}
+
 const optionalString = z.preprocess(preprocessEnv, z.string().min(1).optional());
-const optionalEmail = z.preprocess(preprocessEnv, z.email().optional());
-const optionalUrl = z.preprocess(preprocessEnv, z.url().optional());
+const optionalEmail = z.preprocess(preprocessOptionalEmail, z.email().optional());
+const optionalUrl = z.preprocess(preprocessOptionalUrl, z.url().optional());
 
 const publicEnvSchema = z.object({
   APP_BASE_URL: optionalUrl,
