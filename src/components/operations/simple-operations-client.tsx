@@ -1644,7 +1644,7 @@ export function SimpleOperationsClient({
         const explicitFlatRow = summary.rows.find((r) => r.payment_type === "flat_base" || r.city?.toLowerCase() === "flat base");
         const housesRows = summary.rows.filter((r) => r !== explicitFlatRow);
         const housesTotal = housesRows.reduce((sum, r) => sum + (toNumber(r.residential_amount) > 0 ? toNumber(r.residential_amount) : paymentLineTotal(r)), 0);
-        const flatBase = getMariaLopezFlatPayForPeriod(periodMode);
+        const flatBase = getMariaLopezFlatPayForPeriod(periodMode, quincenaInfo.isQuincena);
         summary.flatBase = flatBase;
         summary.housesTotal = housesTotal;
         summary.paymentTotal = roundHours(flatBase + housesTotal);
@@ -2809,6 +2809,13 @@ export function SimpleOperationsClient({
 
     if (!summary.rows.length) {
       if (isMariaLopez(summary.teamName)) {
+        const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end);
+        const flatAmount = getMariaLopezFlatPayForPeriod(periodMode, quincenaInfo.isQuincena);
+        if (flatAmount === 0) {
+          openPaymentModal(summary, "residential");
+          setMessage({ tone: "info", text: "En semanas regulares sin corte de quincena, agrega las casas de Maria Lopez con + Row." });
+          return;
+        }
         setSavingPaymentKey(summary.key);
         const newId = crypto.randomUUID();
         const baseRow: ResidentialWeeklyPaymentLineRow = {
@@ -2819,15 +2826,15 @@ export function SimpleOperationsClient({
           work_date: weekRange.end,
           city: "Flat base",
           custom_city: null,
-          payment_amount: MARIA_LOPEZ_FLAT_PAY,
-          residential_amount: MARIA_LOPEZ_FLAT_PAY,
+          payment_amount: flatAmount,
+          residential_amount: flatAmount,
           commercial_amount: 0,
           payment_type: "flat_base",
           payment_mode: "residential_only",
           week_start: weekRange.start,
           week_end: weekRange.end,
           status,
-          notes: "Maria Lopez $1,000 base flat payment",
+          notes: `Maria Lopez $1,000 base flat payment (${quincenaInfo.label})`,
           created_at: now,
           updated_at: now,
           deleted_at: null,
@@ -2844,7 +2851,7 @@ export function SimpleOperationsClient({
           }
           return next;
         });
-        setMessage({ tone: "success", text: `Maria Lopez base flat payment of $1,000 marked ${status}.` });
+        setMessage({ tone: "success", text: `Maria Lopez base flat payment de ${formatMoney(flatAmount)} marcado como ${status}.` });
         try {
           await supabase.from("residential_weekly_payment_rows").insert(baseRow);
         } catch (err) {
@@ -5717,16 +5724,17 @@ function renderHeader() {
     const ana = isAnaMorales(summary.teamName);
     const validJobRows = summary.rows.filter((row) => paymentLineTotal(row) > 0 || Boolean(row.work_date));
     const hasRows = validJobRows.length > 0;
-    const housesTotal = maria ? validJobRows.reduce((sum, row) => sum + (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : paymentLineTotal(row)), 0) : 0;
-    const mariaFlatBase = getMariaLopezFlatPayForPeriod(periodMode);
+    const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end);
+    const housesTotal = maria ? validJobRows.filter((r) => r.payment_type !== "flat_base" && r.city?.toLowerCase() !== "flat base").reduce((sum, row) => sum + (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : paymentLineTotal(row)), 0) : 0;
+    const mariaFlatBase = getMariaLopezFlatPayForPeriod(periodMode, quincenaInfo.isQuincena);
     const mariaTotal = roundHours(mariaFlatBase + housesTotal);
     const anaBase = getAnaMoralesPayForPeriod(periodMode);
     const anaExtraTotal = ana ? validJobRows.filter((r) => r.payment_type !== "quincena_base" && r.city?.toLowerCase() !== "quincena base").reduce((sum, row) => sum + (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : paymentLineTotal(row)), 0) : 0;
     const anaTotal = roundHours(anaBase + anaExtraTotal);
     const paymentCardTotal = maria ? mariaTotal : ana ? anaTotal : summary.paymentTotal;
-    const paidHouses = validJobRows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
+    const paidHouses = validJobRows.filter((row) => row.status === "paid" && row.payment_type !== "flat_base" && row.city?.toLowerCase() !== "flat base").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const paidAmount = maria 
-      ? (paidHouses + (summary.rows.some((r) => r.status === "paid") ? mariaFlatBase : 0)) 
+      ? (paidHouses + (summary.rows.some((r) => r.status === "paid" && (r.payment_type === "flat_base" || r.city?.toLowerCase() === "flat base")) ? mariaFlatBase : 0)) 
       : ana
         ? (validJobRows.filter((row) => row.status === "paid" && row.payment_type !== "quincena_base").reduce((sum, r) => sum + paymentLineTotal(r), 0) + (summary.rows.some((r) => r.status === "paid" && (r.payment_type === "quincena_base" || r.city?.toLowerCase() === "quincena base")) || summary.payment?.status === "paid" ? anaBase : 0))
         : summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
@@ -5735,7 +5743,6 @@ function renderHeader() {
     const overallStatus = paymentSummaryStatus(summary);
     const initials = summary.teamName.split(" ").map((w: string) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
     const paidPct = paymentCardTotal > 0 ? Math.round((paidAmount / paymentCardTotal) * 100) : 0;
-    const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end);
 
     const headerGradient = mixed ? "from-amber-950 via-amber-900 to-amber-800" : carlos ? "from-emerald-950 via-emerald-900 to-emerald-800" : maria ? "from-violet-950 via-violet-900 to-violet-800" : ana ? "from-sky-950 via-sky-900 to-sky-800" : "from-slate-950 via-slate-900 to-slate-800";
     const avatarBg = mixed ? "bg-amber-700/70" : carlos ? "bg-emerald-700/70" : maria ? "bg-violet-700/70" : ana ? "bg-sky-700/70" : "bg-slate-700/70";
@@ -5750,7 +5757,7 @@ function renderHeader() {
       : carlos 
         ? "Ops Mgr." 
         : maria 
-          ? (periodMode === "week" ? "Flat $500/sem + Casas semanales" : "Flat $1,000/quincena + Casas") 
+          ? (quincenaInfo.isQuincena ? "Flat $1,000/quincena + Casas" : "Casas semanales (Base $1,000 quincenal)") 
           : ana 
             ? "80h / Quincena" 
             : "Residential";
@@ -5922,11 +5929,16 @@ function renderHeader() {
           {maria ? (
             <div className="mx-4 mb-3 mt-1 grid gap-2 rounded-xl border border-violet-200/60 bg-violet-50/60 p-3 dark:border-violet-800/40 dark:bg-violet-950/20">
               <div className="flex items-center justify-between text-xs font-medium text-violet-800 dark:text-violet-300">
-                <span>Base Flat ({periodMode === "biweekly" ? "Quincenal" : periodMode === "week" ? "Semanal" : "Mensual"}):</span>
-                <span className="font-semibold tabular-nums">{formatMoney(mariaFlatBase)} <span className="text-[10px] text-muted-foreground font-normal">($1,000 / quincena)</span></span>
+                <span>Base Flat ({periodMode === "month" ? "Mensual · 2 quincenas" : quincenaInfo.isQuincena ? (quincenaInfo.type === "15th" ? "Quincena: 15 de mes" : "Quincena: Fin de mes") : "Semana regular"}):</span>
+                <span className="font-semibold tabular-nums">
+                  {formatMoney(mariaFlatBase)} 
+                  <span className="text-[10px] text-muted-foreground font-normal ml-1">
+                    {mariaFlatBase > 0 ? "($1,000 cada 15 días)" : "(Base $1,000 el 15 y fin de mes)"}
+                  </span>
+                </span>
               </div>
               <div className="flex items-center justify-between text-xs font-medium text-violet-800 dark:text-violet-300">
-                <span>Casas agregadas ({validJobRows.length}):</span>
+                <span>Casas agregadas ({validJobRows.filter((r) => r.payment_type !== "flat_base" && r.city?.toLowerCase() !== "flat base").length}):</span>
                 <span className="font-semibold tabular-nums">+{formatMoney(housesTotal)}</span>
               </div>
               <div className="my-0.5 border-t border-violet-200/40 dark:border-violet-800/30" />

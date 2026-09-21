@@ -84,10 +84,14 @@ export function getAnaMoralesPayForPeriod(periodMode: "week" | "biweekly" | "mon
   return ANA_MORALES_BIWEEKLY_PAY; // 1440 por quincena
 }
 
-export function getMariaLopezFlatPayForPeriod(periodMode: "week" | "biweekly" | "month" = "biweekly"): number {
-  if (periodMode === "week") return 500;
-  if (periodMode === "month") return 2000;
-  return MARIA_LOPEZ_BIWEEKLY_FLAT_PAY; // 1000 cada quincena
+export function getMariaLopezFlatPayForPeriod(
+  periodMode: "week" | "biweekly" | "month" = "biweekly",
+  isQuincena: boolean = true
+): number {
+  if (periodMode === "month") return MARIA_LOPEZ_BIWEEKLY_FLAT_PAY * 2; // 2,000 por 2 quincenas
+  if (periodMode === "biweekly") return MARIA_LOPEZ_BIWEEKLY_FLAT_PAY; // 1,000 cada quincena
+  // En modo semanal: se pagan $1,000 estrictamente en semanas que contengan el corte de quincena (15 o fin de mes). Cero en semanas regulares.
+  return isQuincena ? MARIA_LOPEZ_BIWEEKLY_FLAT_PAY : 0;
 }
 
 export function isAnaMorales(cleanerName?: string | null | undefined): boolean {
