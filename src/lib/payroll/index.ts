@@ -38,9 +38,9 @@ const FIXED_QC_SUPERVISOR_PAYROLL = [
   {
     cleanerName: "Ana Morales",
     baseHours: 80,
-    payRate: 20,
-    amount: 1600,
-    notes: "QC supervisor fixed pay: 80 hours at $20/hour per pay period.",
+    payRate: 18,
+    amount: 1440,
+    notes: "QC supervisor fixed pay: 80 hours at $18/hour per pay period (quincenal: 15 y fin de mes).",
   },
   {
     cleanerName: "Maria Lopez",

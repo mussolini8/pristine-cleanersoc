@@ -16,7 +16,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Tarifa Base General**: El resto de limpiadoras comerciales por hora tienen una tarifa estándar de **$18.00 por hora** (salvo cuentas de tarifa fija como Mama's a $200 y Green Leaf a $119).
 
 # Reglas de Pagos: Ana y Maria Lopez
-- **Ana Morales**: Tiene asignada una regla de **80 horas cada quincena** (equivalente a 40 horas por semana en períodos semanales). En pagos y nómina quincenales, sus horas asignadas son 80 horas (a su tarifa estándar de $18.00/hr = $1,440.00 por quincena).
+- **Ana Morales**: Tiene asignada una regla de **80 horas cada quincena** ($1,440.00 por quincena a su tarifa de $18.00/hr). **SE MUESTRA ESTRICTAMENTE CADA QUINCENA (para el 15 y el último de mes), NO CADA SEMANA**. No tiene equivalente semanal de 40h ni $720/sem. En períodos semanales, NO se muestra salvo que la semana contenga el corte de quincena (el día 15 o el último día del mes), en cuyo caso se muestra con su pago quincenal completo de 80h ($1,440.00). En períodos quincenales ("Every 15 days"), se muestra siempre en cada quincena con 80 horas ($1,440.00).
 - **Maria Lopez**: Tiene un **pago flat garantizado de $1,000 cada quincena** (equivalente a $500 por semana en pagos semanales). **Las casas son estrictamente semanales** (como se ha venido haciendo siempre): cada semana se le suman a su base flat las casas que haya hecho o se le agreguen en esa semana. En pagos semanales su total es: **$500 base semanal ($1,000 quincenal) + casas de la semana**. En pagos quincenales su total es: **$1,000 base quincenal + casas de la quincena**.
 
 

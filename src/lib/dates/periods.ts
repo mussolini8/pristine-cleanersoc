@@ -60,6 +60,71 @@ export function getEvery15DaysPeriod(anchor: string | Date = new Date()): Payrol
   return { start: formatDateOnly(start), end: formatDateOnly(end), label };
 }
 
+export type QuincenaInfo = {
+  isQuincena: boolean;
+  type: "15th" | "month_end" | "both" | null;
+  label: string;
+};
+
+export function checkQuincenaPeriod(mode: PayrollPeriodMode, start: string, end: string): QuincenaInfo {
+  if (mode === "biweekly") {
+    const startDate = parseDateOnly(start);
+    const isFirstHalf = startDate ? startDate.getDate() <= 15 : true;
+    return {
+      isQuincena: true,
+      type: isFirstHalf ? "15th" : "month_end",
+      label: isFirstHalf ? "15 de mes" : "Fin de mes",
+    };
+  }
+
+  if (mode === "month") {
+    return {
+      isQuincena: true,
+      type: "both",
+      label: "Mes completo (2 quincenas)",
+    };
+  }
+
+  const startDate = parseDateOnly(start);
+  const endDate = parseDateOnly(end);
+  if (!startDate || !endDate) return { isQuincena: false, type: null, label: "" };
+
+  let contains15th = false;
+  let containsMonthEnd = false;
+
+  const cursor = new Date(startDate);
+  while (cursor <= endDate) {
+    const day = cursor.getDate();
+    if (day === 15) contains15th = true;
+    const lastDayOfMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+    if (day === lastDayOfMonth) containsMonthEnd = true;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  if (contains15th && containsMonthEnd) {
+    return { isQuincena: true, type: "both", label: "Quincena 15 y Fin de mes" };
+  }
+  if (contains15th) {
+    return { isQuincena: true, type: "15th", label: "Quincena del 15" };
+  }
+  if (containsMonthEnd) {
+    return { isQuincena: true, type: "month_end", label: "Quincena fin de mes" };
+  }
+  return { isQuincena: false, type: null, label: "" };
+}
+
+export function getNextBiweeklyAnchor(anchor: string | Date = new Date(), direction: 1 | -1 = 1): string {
+  const anchorDate = anchor instanceof Date ? anchor : parseDateOnly(anchor) ?? new Date();
+  const year = anchorDate.getFullYear();
+  const month = anchorDate.getMonth();
+  const isFirstHalf = anchorDate.getDate() <= 15;
+  if (direction === 1) {
+    return isFirstHalf ? formatDateOnly(new Date(year, month, 16)) : formatDateOnly(new Date(year, month + 1, 1));
+  } else {
+    return isFirstHalf ? formatDateOnly(new Date(year, month - 1, 16)) : formatDateOnly(new Date(year, month, 1));
+  }
+}
+
 export function getMonthPeriod(anchor: string | Date = new Date()): PayrollPeriodRange {
   const anchorDate = anchor instanceof Date ? anchor : parseDateOnly(anchor) ?? new Date();
   return {

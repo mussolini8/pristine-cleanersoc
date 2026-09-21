@@ -74,8 +74,15 @@ export function commercialContextRole(name: string | null | undefined, role?: st
 }
 
 export const ANA_MORALES_BIWEEKLY_HOURS = 80;
+export const ANA_MORALES_HOURLY_RATE = 18;
+export const ANA_MORALES_BIWEEKLY_PAY = 1440; // 80h * $18/hr cada quincena
 export const MARIA_LOPEZ_BIWEEKLY_FLAT_PAY = 1000;
 export const MARIA_LOPEZ_FLAT_PAY = 1000;
+
+export function getAnaMoralesPayForPeriod(periodMode: "week" | "biweekly" | "month" = "biweekly"): number {
+  if (periodMode === "month") return ANA_MORALES_BIWEEKLY_PAY * 2; // 2880 por 2 quincenas
+  return ANA_MORALES_BIWEEKLY_PAY; // 1440 por quincena
+}
 
 export function getMariaLopezFlatPayForPeriod(periodMode: "week" | "biweekly" | "month" = "biweekly"): number {
   if (periodMode === "week") return 500;

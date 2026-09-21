@@ -51,7 +51,8 @@ import { getCleanerPhone } from "@/lib/cleaner-contacts";
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
 import { resolveCanonicalAccountName } from "@/lib/ai/sop-actions-handler";
-import { canonicalizeStaffName, ANA_MORALES_BIWEEKLY_HOURS, MARIA_LOPEZ_FLAT_PAY, MARIA_LOPEZ_BIWEEKLY_FLAT_PAY, getMariaLopezFlatPayForPeriod, isAnaMorales, isMariaLopez } from "@/lib/staff-rules";
+import { canonicalizeStaffName, ANA_MORALES_BIWEEKLY_HOURS, ANA_MORALES_BIWEEKLY_PAY, MARIA_LOPEZ_FLAT_PAY, MARIA_LOPEZ_BIWEEKLY_FLAT_PAY, getAnaMoralesPayForPeriod, getMariaLopezFlatPayForPeriod, isAnaMorales, isMariaLopez } from "@/lib/staff-rules";
+import { checkQuincenaPeriod, getNextBiweeklyAnchor } from "@/lib/dates/periods";
 import { importedCommercialAccounts, importedCommercialEventEntries } from "@/lib/commercial-accounts-data";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
@@ -1605,8 +1606,17 @@ export function SimpleOperationsClient({
     ensureSummary(carlosTeam?.id ?? null, CARLOS_LOPEZ_NAME);
     const mariaTeam = activeResidentialTeams.find((team) => isMariaLopez(team.name)) ?? staff.find((person) => isMariaLopez(person.name));
     ensureSummary(mariaTeam?.id ?? null, "Maria Lopez");
-    const anaTeam = activeResidentialTeams.find((team) => isAnaMorales(team.name)) ?? staff.find((person) => isAnaMorales(person.name));
-    ensureSummary(anaTeam?.id ?? null, "Ana Morales");
+
+    // Ana Morales payment rule:
+    // Strictly quincenal (80 hours = $1,440.00). Must be shown every quincena (15th and end of month), NOT every week.
+    // In weekly periods, only show Ana if this week covers a quincena cutoff (15th or month end), or if explicit rows/logs exist.
+    const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end);
+    const hasAnaRows = paymentRowsInWeek.some((r) => isAnaMorales(r.cleaner_name));
+    const hasAnaLogs = logsInPaymentWeek.some((l) => isAnaMorales(l.team_name));
+    if (quincenaInfo.isQuincena || hasAnaRows || hasAnaLogs) {
+      const anaTeam = activeResidentialTeams.find((team) => isAnaMorales(team.name)) ?? staff.find((person) => isAnaMorales(person.name));
+      ensureSummary(anaTeam?.id ?? null, "Ana Morales");
+    }
 
     for (const log of logsInPaymentWeek) {
       const current = ensureSummary(log.team_id, log.team_name);
@@ -1628,7 +1638,7 @@ export function SimpleOperationsClient({
 
     // Apply special business payment rules:
     // 1. Maria Lopez: $1,000 flat payment base cada quincena (biweekly), and houses added are summed on top of that flat base.
-    // 2. Ana Morales: 80 hours per quincena (40 hours per week).
+    // 2. Ana Morales: 80 hours cada quincena (15 y fin de mes = $1,440.00 quincenal). No semanal.
     for (const summary of map.values()) {
       if (isMariaLopez(summary.teamName)) {
         const explicitFlatRow = summary.rows.find((r) => r.payment_type === "flat_base" || r.city?.toLowerCase() === "flat base");
@@ -1640,11 +1650,14 @@ export function SimpleOperationsClient({
         summary.paymentTotal = roundHours(flatBase + housesTotal);
       }
       if (isAnaMorales(summary.teamName)) {
-        if (periodMode === "biweekly" && summary.totalHours === 0) {
-          summary.totalHours = ANA_MORALES_BIWEEKLY_HOURS;
-        } else if (periodMode === "week" && summary.totalHours === 0) {
-          summary.totalHours = 40;
-        }
+        const explicitBaseRow = summary.rows.find((r) => r.payment_type === "quincena_base" || r.city?.toLowerCase() === "quincena base");
+        const extraRows = summary.rows.filter((r) => r !== explicitBaseRow);
+        const extraTotal = extraRows.reduce((sum, r) => sum + (toNumber(r.residential_amount) > 0 ? toNumber(r.residential_amount) : paymentLineTotal(r)), 0);
+        const anaBase = getAnaMoralesPayForPeriod(periodMode);
+        summary.totalHours = periodMode === "month" ? 160 : ANA_MORALES_BIWEEKLY_HOURS;
+        summary.flatBase = anaBase;
+        summary.housesTotal = extraTotal;
+        summary.paymentTotal = roundHours(anaBase + extraTotal);
       }
     }
 
@@ -2836,6 +2849,53 @@ export function SimpleOperationsClient({
           await supabase.from("residential_weekly_payment_rows").insert(baseRow);
         } catch (err) {
           console.warn("Supabase insert Maria flat row warning:", err);
+        } finally {
+          setSavingPaymentKey(null);
+        }
+        return;
+      }
+      if (isAnaMorales(summary.teamName)) {
+        setSavingPaymentKey(summary.key);
+        const newId = crypto.randomUUID();
+        const anaPay = getAnaMoralesPayForPeriod(periodMode);
+        const baseRow: ResidentialWeeklyPaymentLineRow = {
+          id: newId,
+          user_id: effectiveUserId,
+          cleaner_id: summary.teamId,
+          cleaner_name: "Ana Morales",
+          work_date: weekRange.end,
+          city: "Quincena base",
+          custom_city: null,
+          payment_amount: anaPay,
+          residential_amount: anaPay,
+          commercial_amount: 0,
+          payment_type: "quincena_base",
+          payment_mode: "residential_only",
+          week_start: weekRange.start,
+          week_end: weekRange.end,
+          status,
+          notes: `Ana Morales pago quincenal 80h (${formatMoney(anaPay)})`,
+          created_at: now,
+          updated_at: now,
+          deleted_at: null,
+          paid_at: status === "paid" ? now : null,
+        };
+        setWeeklyPaymentRows((current) => {
+          const next = [...current, baseRow];
+          try {
+            if (typeof window !== "undefined") {
+              localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(next));
+            }
+          } catch (err) {
+            console.warn("Could not cache Ana payment locally:", err);
+          }
+          return next;
+        });
+        setMessage({ tone: "success", text: `Ana Morales pago quincenal de ${formatMoney(anaPay)} marcado ${status}.` });
+        try {
+          await supabase.from("residential_weekly_payment_rows").insert(baseRow);
+        } catch (err) {
+          console.warn("Supabase insert Ana quincena row warning:", err);
         } finally {
           setSavingPaymentKey(null);
         }
@@ -5268,7 +5328,20 @@ function renderHeader() {
       <div className="space-y-5">
         <section className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3 shadow-sm">
-            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)))}><ChevronLeft /></Button>
+            <Button
+              size="icon"
+              variant="outline"
+              aria-label="Previous period"
+              onClick={() => {
+                if (periodMode === "biweekly") {
+                  setPaymentWeekStart(getNextBiweeklyAnchor(paymentWeekStart, -1));
+                } else {
+                  setPaymentWeekStart(formatDateKey(addDays(weekStartDate, -periodStepDays)));
+                }
+              }}
+            >
+              <ChevronLeft />
+            </Button>
             
             <select
               aria-label="Select pay period week"
@@ -5290,7 +5363,20 @@ function renderHeader() {
               ))}
             </select>
 
-            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)))}><ChevronRight /></Button>
+            <Button
+              size="icon"
+              variant="outline"
+              aria-label="Next period"
+              onClick={() => {
+                if (periodMode === "biweekly") {
+                  setPaymentWeekStart(getNextBiweeklyAnchor(paymentWeekStart, 1));
+                } else {
+                  setPaymentWeekStart(formatDateKey(addDays(weekStartDate, periodStepDays)));
+                }
+              }}
+            >
+              <ChevronRight />
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setPaymentWeekStart(formatDateKey(startOfWeek(new Date())))}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
           </div>
@@ -5634,16 +5720,22 @@ function renderHeader() {
     const housesTotal = maria ? validJobRows.reduce((sum, row) => sum + (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : paymentLineTotal(row)), 0) : 0;
     const mariaFlatBase = getMariaLopezFlatPayForPeriod(periodMode);
     const mariaTotal = roundHours(mariaFlatBase + housesTotal);
-    const paymentCardTotal = maria ? mariaTotal : summary.paymentTotal;
+    const anaBase = getAnaMoralesPayForPeriod(periodMode);
+    const anaExtraTotal = ana ? validJobRows.filter((r) => r.payment_type !== "quincena_base" && r.city?.toLowerCase() !== "quincena base").reduce((sum, row) => sum + (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : paymentLineTotal(row)), 0) : 0;
+    const anaTotal = roundHours(anaBase + anaExtraTotal);
+    const paymentCardTotal = maria ? mariaTotal : ana ? anaTotal : summary.paymentTotal;
     const paidHouses = validJobRows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const paidAmount = maria 
       ? (paidHouses + (summary.rows.some((r) => r.status === "paid") ? mariaFlatBase : 0)) 
-      : summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
+      : ana
+        ? (validJobRows.filter((row) => row.status === "paid" && row.payment_type !== "quincena_base").reduce((sum, r) => sum + paymentLineTotal(r), 0) + (summary.rows.some((r) => r.status === "paid" && (r.payment_type === "quincena_base" || r.city?.toLowerCase() === "quincena base")) || summary.payment?.status === "paid" ? anaBase : 0))
+        : summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
     const pendingAmount = Math.max(0, paymentCardTotal - paidAmount);
     const overtimeAmount = roundHours(toNumber(carlosOvertimeHours) * CARLOS_OVERTIME_RATE);
     const overallStatus = paymentSummaryStatus(summary);
     const initials = summary.teamName.split(" ").map((w: string) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
     const paidPct = paymentCardTotal > 0 ? Math.round((paidAmount / paymentCardTotal) * 100) : 0;
+    const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end);
 
     const headerGradient = mixed ? "from-amber-950 via-amber-900 to-amber-800" : carlos ? "from-emerald-950 via-emerald-900 to-emerald-800" : maria ? "from-violet-950 via-violet-900 to-violet-800" : ana ? "from-sky-950 via-sky-900 to-sky-800" : "from-slate-950 via-slate-900 to-slate-800";
     const avatarBg = mixed ? "bg-amber-700/70" : carlos ? "bg-emerald-700/70" : maria ? "bg-violet-700/70" : ana ? "bg-sky-700/70" : "bg-slate-700/70";
@@ -5660,7 +5752,7 @@ function renderHeader() {
         : maria 
           ? (periodMode === "week" ? "Flat $500/sem + Casas semanales" : "Flat $1,000/quincena + Casas") 
           : ana 
-            ? (periodMode === "week" ? "40h / Sem (80h quincenal)" : "80h / Quincena") 
+            ? "80h / Quincena" 
             : "Residential";
 
     function rowStatusAccent(st: string | null | undefined) {
@@ -5727,7 +5819,7 @@ function renderHeader() {
                 {validJobRows.length === 0 ? (
                   <tr>
                     <td className="px-3 py-8 text-center text-[13px] font-medium text-muted-foreground/60" colSpan={mixed ? 5 : 4}>
-                      {maria ? "No houses added to payment yet. Click + Row to add houses." : "No payments recorded for this period."}
+                      {maria ? "No houses added to payment yet. Click + Row to add houses." : ana ? "80 horas base quincenal ($1,440.00). Haz clic en + Row para agregar trabajos extras." : "No payments recorded for this period."}
                     </td>
                   </tr>
                 ) : null}
@@ -5785,13 +5877,13 @@ function renderHeader() {
               <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{maria ? "Casas" : "Total"}</span>
               <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">{validJobRows.length}</span>
             </div>
-            <span className={cn("text-xl font-bold tabular-nums tracking-tight", (hasRows || maria) ? (mixed ? "text-amber-700 dark:text-amber-400" : carlos ? "text-emerald-700 dark:text-emerald-400" : maria ? "text-violet-700 dark:text-violet-400" : "text-foreground") : "text-muted-foreground/40")}>
+            <span className={cn("text-xl font-bold tabular-nums tracking-tight", (hasRows || maria || ana) ? (mixed ? "text-amber-700 dark:text-amber-400" : carlos ? "text-emerald-700 dark:text-emerald-400" : maria ? "text-violet-700 dark:text-violet-400" : ana ? "text-sky-700 dark:text-sky-400" : "text-foreground") : "text-muted-foreground/40")}>
               {formatMoney(paymentCardTotal)}
             </span>
           </div>
 
           {/* PAID/PENDING PROGRESS BAR */}
-          {(hasRows || maria) && (
+          {(hasRows || maria || ana) && (
             <div className="border-t border-border/40 px-4 pb-3 pt-2.5">
               <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
                 <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${paidPct}%` }} />
@@ -5853,10 +5945,21 @@ function renderHeader() {
                 <span className="rounded-full bg-sky-200/70 px-2 py-0.5 text-[10px] font-bold text-sky-800 dark:bg-sky-900/60 dark:text-sky-200">80 horas / quincena</span>
               </div>
               <div className="flex items-center justify-between text-xs text-sky-800 dark:text-sky-300">
-                <span>{periodMode === "biweekly" ? "Período actual (Quincenal)" : periodMode === "week" ? "Equivalente semanal (40h)" : "Período mensual (160h)"}:</span>
+                <span>{periodMode === "month" ? "Período mensual (2 quincenas · 160h)" : quincenaInfo.type === "15th" ? "Quincena: 15 de mes (80h)" : quincenaInfo.type === "month_end" ? "Quincena: Fin de mes (80h)" : "Pago quincenal (80h)"}:</span>
                 <span className="font-semibold tabular-nums">
-                  {periodMode === "biweekly" ? `80.0 hrs · ${formatMoney(80 * 18)}` : periodMode === "week" ? `40.0 hrs · ${formatMoney(40 * 18)}` : `160.0 hrs · ${formatMoney(160 * 18)}`}
+                  {formatMoney(anaBase)}
                 </span>
+              </div>
+              {anaExtraTotal > 0 ? (
+                <div className="flex items-center justify-between text-xs text-sky-800 dark:text-sky-300">
+                  <span>Trabajos adicionales ({validJobRows.filter((r) => r.payment_type !== "quincena_base" && r.city?.toLowerCase() !== "quincena base").length}):</span>
+                  <span className="font-semibold tabular-nums">+{formatMoney(anaExtraTotal)}</span>
+                </div>
+              ) : null}
+              <div className="my-0.5 border-t border-sky-200/40 dark:border-sky-800/30" />
+              <div className="flex items-center justify-between text-xs font-bold text-sky-950 dark:text-sky-100">
+                <span>{summary.teamName} total:</span>
+                <span className="text-sm tabular-nums">{formatMoney(paymentCardTotal)}</span>
               </div>
             </div>
           ) : null}
@@ -5887,13 +5990,13 @@ function renderHeader() {
               type="button"
               disabled={savingPaymentKey === summary.key}
               onClick={() => {
-                if (summary.rows.length === 0) {
+                if (summary.rows.length === 0 && !maria && !ana) {
                   openPaymentModal(summary, mixed ? "juan" : "residential");
                 } else {
                   updatePaymentRowsStatus(summary, "verified");
                 }
               }}
-              title={summary.rows.length === 0 ? "Click to add a payment row" : "Mark rows as verified"}
+              title={summary.rows.length === 0 && !maria && !ana ? "Click to add a payment row" : "Mark as verified"}
               className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 text-[12px] font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-sky-800/60 dark:bg-sky-950/20 dark:text-sky-400"
             >
               <BadgeCheck className="size-3.5" /> Verified
@@ -5902,13 +6005,13 @@ function renderHeader() {
               type="button"
               disabled={savingPaymentKey === summary.key}
               onClick={() => {
-                if (summary.rows.length === 0) {
+                if (summary.rows.length === 0 && !maria && !ana) {
                   openPaymentModal(summary, mixed ? "juan" : "residential");
                 } else {
                   updatePaymentRowsStatus(summary, "paid");
                 }
               }}
-              title={summary.rows.length === 0 ? "Click to add a payment row" : "Mark rows as paid"}
+              title={summary.rows.length === 0 && !maria && !ana ? "Click to add a payment row" : "Mark as paid"}
               className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-[12px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-700 dark:hover:bg-emerald-600"
             >
               <CheckCircle2 className="size-3.5" /> Paid
@@ -5917,13 +6020,13 @@ function renderHeader() {
               type="button"
               disabled={savingPaymentKey === summary.key}
               onClick={() => {
-                if (summary.rows.length === 0) {
+                if (summary.rows.length === 0 && !maria && !ana) {
                   openPaymentModal(summary, mixed ? "juan" : "residential");
                 } else {
                   updatePaymentRowsStatus(summary, "pending");
                 }
               }}
-              title={summary.rows.length === 0 ? "Click to add a payment row" : "Mark rows as pending"}
+              title={summary.rows.length === 0 && !maria && !ana ? "Click to add a payment row" : "Mark as pending"}
               className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 text-[12px] font-semibold text-orange-700 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-orange-800/60 dark:bg-orange-950/20 dark:text-orange-400"
             >
               <Clock className="size-3.5" /> Pending
@@ -6273,9 +6376,35 @@ function renderHeader() {
       <div className="space-y-5">
         <section className="space-y-4">
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/80 p-3 shadow-sm">
-            <Button size="icon" variant="outline" aria-label="Previous period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : periodMode === "biweekly" ? -15 : -7)))}><ChevronLeft /></Button>
+            <Button
+              size="icon"
+              variant="outline"
+              aria-label="Previous period"
+              onClick={() => {
+                if (periodMode === "biweekly") {
+                  setPaymentWeekStart(getNextBiweeklyAnchor(paymentWeekStart, -1));
+                } else {
+                  setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? -31 : -7)));
+                }
+              }}
+            >
+              <ChevronLeft />
+            </Button>
             <div className="min-w-[220px] flex-1 text-center text-sm font-semibold text-foreground">{dateRangeLabel(commercialRange.start, commercialRange.end)}</div>
-            <Button size="icon" variant="outline" aria-label="Next period" onClick={() => setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : periodMode === "biweekly" ? 15 : 7)))}><ChevronRight /></Button>
+            <Button
+              size="icon"
+              variant="outline"
+              aria-label="Next period"
+              onClick={() => {
+                if (periodMode === "biweekly") {
+                  setPaymentWeekStart(getNextBiweeklyAnchor(paymentWeekStart, 1));
+                } else {
+                  setPaymentWeekStart(formatDateKey(addDays(parseDateKey(paymentWeekStart) ?? new Date(), periodMode === "month" ? 31 : 7)));
+                }
+              }}
+            >
+              <ChevronRight />
+            </Button>
             <Button variant="outline" size="sm" onClick={() => { setCommercialCustomStart(""); setCommercialCustomEnd(""); setCommercialDateMenuOpen(false); setPaymentWeekStart(formatDateKey(startOfWeek(new Date()))); }}>Current week</Button>
             <PeriodSegment value={periodMode} onChange={setPeriodMode} />
             <div className="relative">
