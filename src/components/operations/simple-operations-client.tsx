@@ -51,7 +51,7 @@ import { getCleanerPhone } from "@/lib/cleaner-contacts";
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
 import { resolveCanonicalAccountName } from "@/lib/ai/sop-actions-handler";
-import { canonicalizeStaffName } from "@/lib/staff-rules";
+import { canonicalizeStaffName, ANA_MORALES_BIWEEKLY_HOURS, MARIA_LOPEZ_FLAT_PAY, MARIA_LOPEZ_BIWEEKLY_FLAT_PAY, getMariaLopezFlatPayForPeriod, isAnaMorales, isMariaLopez } from "@/lib/staff-rules";
 import { importedCommercialAccounts, importedCommercialEventEntries } from "@/lib/commercial-accounts-data";
 import { writeOperationTaskAudit, writePayrollAudit } from "@/lib/operations/audit";
 import {
@@ -476,7 +476,11 @@ function displayPaymentCity(row: Pick<ResidentialWeeklyPaymentLineRow, "city" | 
 
 function displayShortDate(value: string | null | undefined) {
   if (!value) return "No date";
-  return displayDate(value);
+  const full = displayDate(value);
+  if (!full || full === "—") return "—";
+  const m = full.match(/^(\d{1,2}\/\d{1,2})\/\d{4}$/);
+  if (m) return m[1];
+  return full;
 }
 
 function monthWindow(value: string) {
@@ -1520,6 +1524,8 @@ export function SimpleOperationsClient({
       paymentTotal: number;
       payment?: ResidentialWeeklyPaymentRow;
       team?: StaffMemberRow;
+      flatBase?: number;
+      housesTotal?: number;
     }>();
 
     function ensureSummary(teamId: string | null, teamName: string) {
@@ -1565,6 +1571,8 @@ export function SimpleOperationsClient({
         paymentTotal: number;
         payment?: ResidentialWeeklyPaymentRow;
         team?: StaffMemberRow;
+        flatBase?: number;
+        housesTotal?: number;
       } = {
         key,
         teamId,
@@ -1595,6 +1603,10 @@ export function SimpleOperationsClient({
     ensureSummary(juanTeam?.id ?? null, JUAN_ROMERO_NAME);
     const carlosTeam = staff.find((person) => isCarlosLopez(person.name));
     ensureSummary(carlosTeam?.id ?? null, CARLOS_LOPEZ_NAME);
+    const mariaTeam = activeResidentialTeams.find((team) => isMariaLopez(team.name)) ?? staff.find((person) => isMariaLopez(person.name));
+    ensureSummary(mariaTeam?.id ?? null, "Maria Lopez");
+    const anaTeam = activeResidentialTeams.find((team) => isAnaMorales(team.name)) ?? staff.find((person) => isAnaMorales(person.name));
+    ensureSummary(anaTeam?.id ?? null, "Ana Morales");
 
     for (const log of logsInPaymentWeek) {
       const current = ensureSummary(log.team_id, log.team_name);
@@ -1614,6 +1626,28 @@ export function SimpleOperationsClient({
       }
     }
 
+    // Apply special business payment rules:
+    // 1. Maria Lopez: $1,000 flat payment base cada quincena (biweekly), and houses added are summed on top of that flat base.
+    // 2. Ana Morales: 80 hours per quincena (40 hours per week).
+    for (const summary of map.values()) {
+      if (isMariaLopez(summary.teamName)) {
+        const explicitFlatRow = summary.rows.find((r) => r.payment_type === "flat_base" || r.city?.toLowerCase() === "flat base");
+        const housesRows = summary.rows.filter((r) => r !== explicitFlatRow);
+        const housesTotal = housesRows.reduce((sum, r) => sum + (toNumber(r.residential_amount) > 0 ? toNumber(r.residential_amount) : paymentLineTotal(r)), 0);
+        const flatBase = getMariaLopezFlatPayForPeriod(periodMode);
+        summary.flatBase = flatBase;
+        summary.housesTotal = housesTotal;
+        summary.paymentTotal = roundHours(flatBase + housesTotal);
+      }
+      if (isAnaMorales(summary.teamName)) {
+        if (periodMode === "biweekly" && summary.totalHours === 0) {
+          summary.totalHours = ANA_MORALES_BIWEEKLY_HOURS;
+        } else if (periodMode === "week" && summary.totalHours === 0) {
+          summary.totalHours = 40;
+        }
+      }
+    }
+
     for (const payment of weeklyPayments.filter((item) => item.week_start === weekRange.start)) {
       const current = ensureSummary(payment.team_id, payment.team_name);
       if (!current.totalHours) current.totalHours = toNumber(payment.total_hours);
@@ -1621,7 +1655,7 @@ export function SimpleOperationsClient({
     }
 
     return Array.from(new Set(map.values())).sort((a, b) => a.teamName.localeCompare(b.teamName));
-  }, [activeResidentialTeams, logsInPaymentWeek, paymentRowsInWeek, staff, teamByKey, weekRange.start, weeklyPayments]);
+  }, [activeResidentialTeams, logsInPaymentWeek, paymentRowsInWeek, periodMode, staff, teamByKey, weekRange.start, weeklyPayments]);
 
   const pendingPaymentTotal = useMemo(() => weeklyPaymentSummaries.reduce((sum, item) => {
     return paymentSummaryStatus(item) === "paid" ? sum : sum + item.paymentTotal;
@@ -2749,13 +2783,69 @@ export function SimpleOperationsClient({
 
   async function updatePaymentRowsStatus(summary: (typeof weeklyPaymentSummaries)[number], status: WeeklyPaymentStatus) {
     if (savingPaymentKey) return;
+    let effectiveUserId = userId;
+    if (!effectiveUserId) {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id ?? "00000000-0000-0000-0000-000000000000";
+      } catch {
+        effectiveUserId = "00000000-0000-0000-0000-000000000000";
+      }
+    }
+    const now = new Date().toISOString();
+
     if (!summary.rows.length) {
+      if (isMariaLopez(summary.teamName)) {
+        setSavingPaymentKey(summary.key);
+        const newId = crypto.randomUUID();
+        const baseRow: ResidentialWeeklyPaymentLineRow = {
+          id: newId,
+          user_id: effectiveUserId,
+          cleaner_id: summary.teamId,
+          cleaner_name: "Maria Lopez",
+          work_date: weekRange.end,
+          city: "Flat base",
+          custom_city: null,
+          payment_amount: MARIA_LOPEZ_FLAT_PAY,
+          residential_amount: MARIA_LOPEZ_FLAT_PAY,
+          commercial_amount: 0,
+          payment_type: "flat_base",
+          payment_mode: "residential_only",
+          week_start: weekRange.start,
+          week_end: weekRange.end,
+          status,
+          notes: "Maria Lopez $1,000 base flat payment",
+          created_at: now,
+          updated_at: now,
+          deleted_at: null,
+          paid_at: status === "paid" ? now : null,
+        };
+        setWeeklyPaymentRows((current) => {
+          const next = [...current, baseRow];
+          try {
+            if (typeof window !== "undefined") {
+              localStorage.setItem("pristine_weekly_payment_rows", JSON.stringify(next));
+            }
+          } catch (err) {
+            console.warn("Could not cache Maria payment locally:", err);
+          }
+          return next;
+        });
+        setMessage({ tone: "success", text: `Maria Lopez base flat payment of $1,000 marked ${status}.` });
+        try {
+          await supabase.from("residential_weekly_payment_rows").insert(baseRow);
+        } catch (err) {
+          console.warn("Supabase insert Maria flat row warning:", err);
+        } finally {
+          setSavingPaymentKey(null);
+        }
+        return;
+      }
       openPaymentModal(summary, isMixedPaySummary(summary) ? "juan" : "residential");
       setMessage({ tone: "info", text: `Please add a payment row for ${summary.teamName} first.` });
       return;
     }
     setSavingPaymentKey(summary.key);
-    const now = new Date().toISOString();
 
     const rowIds = new Set(summary.rows.map((row) => row.id));
     setWeeklyPaymentRows((current) => {
@@ -5151,7 +5241,7 @@ function renderHeader() {
     const totalJobs = weeklyPaymentSummaries.filter((summary) => !isCarlosLopez(summary.teamName)).reduce((sum, summary) => sum + summary.rows.length, 0);
     const displayedSummaries = (showAllPaymentCleaners
       ? weeklyPaymentSummaries
-      : weeklyPaymentSummaries.filter((summary) => summary.rows.some((row) => paymentLineTotal(row) > 0))
+      : weeklyPaymentSummaries.filter((summary) => summary.rows.some((row) => paymentLineTotal(row) > 0) || isMariaLopez(summary.teamName))
     ).filter((summary) => {
       const mixed = isMixedPaySummary(summary);
       if (isCarlosLopez(summary.teamName)) return false;
@@ -5537,19 +5627,41 @@ function renderHeader() {
   function renderCleanerPaymentCard(summary: (typeof weeklyPaymentSummaries)[number]) {
     const mixed = isMixedPaySummary(summary);
     const carlos = isCarlosLopez(summary.teamName);
+    const maria = isMariaLopez(summary.teamName);
+    const ana = isAnaMorales(summary.teamName);
     const validJobRows = summary.rows.filter((row) => paymentLineTotal(row) > 0 || Boolean(row.work_date));
     const hasRows = validJobRows.length > 0;
-    const paidAmount = summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
-    const pendingAmount = summary.paymentTotal - paidAmount;
+    const housesTotal = maria ? validJobRows.reduce((sum, row) => sum + (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : paymentLineTotal(row)), 0) : 0;
+    const mariaFlatBase = getMariaLopezFlatPayForPeriod(periodMode);
+    const mariaTotal = roundHours(mariaFlatBase + housesTotal);
+    const paymentCardTotal = maria ? mariaTotal : summary.paymentTotal;
+    const paidHouses = validJobRows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
+    const paidAmount = maria 
+      ? (paidHouses + (summary.rows.some((r) => r.status === "paid") ? mariaFlatBase : 0)) 
+      : summary.rows.filter((row) => row.status === "paid").reduce((sum, row) => sum + paymentLineTotal(row), 0);
+    const pendingAmount = Math.max(0, paymentCardTotal - paidAmount);
     const overtimeAmount = roundHours(toNumber(carlosOvertimeHours) * CARLOS_OVERTIME_RATE);
     const overallStatus = paymentSummaryStatus(summary);
     const initials = summary.teamName.split(" ").map((w: string) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
-    const paidPct = summary.paymentTotal > 0 ? Math.round((paidAmount / summary.paymentTotal) * 100) : 0;
+    const paidPct = paymentCardTotal > 0 ? Math.round((paidAmount / paymentCardTotal) * 100) : 0;
 
-    const headerGradient = mixed ? "from-amber-950 via-amber-900 to-amber-800" : carlos ? "from-emerald-950 via-emerald-900 to-emerald-800" : "from-slate-950 via-slate-900 to-slate-800";
-    const avatarBg = mixed ? "bg-amber-700/70" : carlos ? "bg-emerald-700/70" : "bg-slate-700/70";
-    const typePillStyle = mixed ? "bg-amber-400/15 text-amber-200 border-amber-400/30" : carlos ? "bg-emerald-400/15 text-emerald-200 border-emerald-400/30" : "bg-slate-400/15 text-slate-300 border-slate-400/30";
-    const statusPillStyle = overallStatus === "paid" ? "bg-emerald-400/20 text-emerald-300 border-emerald-400/40" : (overallStatus as string) === "verified" ? "bg-sky-400/20 text-sky-300 border-sky-400/40" : "bg-orange-400/20 text-orange-300 border-orange-400/40";
+    const headerGradient = mixed ? "from-amber-950 via-amber-900 to-amber-800" : carlos ? "from-emerald-950 via-emerald-900 to-emerald-800" : maria ? "from-violet-950 via-violet-900 to-violet-800" : ana ? "from-sky-950 via-sky-900 to-sky-800" : "from-slate-950 via-slate-900 to-slate-800";
+    const avatarBg = mixed ? "bg-amber-700/70" : carlos ? "bg-emerald-700/70" : maria ? "bg-violet-700/70" : ana ? "bg-sky-700/70" : "bg-slate-700/70";
+    const typePillStyle = mixed ? "bg-amber-400/15 text-amber-200 border-amber-400/30" : carlos ? "bg-emerald-400/15 text-emerald-200 border-emerald-400/30" : maria ? "bg-violet-400/15 text-violet-200 border-violet-400/30" : ana ? "bg-sky-400/15 text-sky-200 border-sky-400/30" : "bg-slate-400/15 text-slate-300 border-slate-400/30";
+    const statusPillStyle = overallStatus === "paid" 
+      ? "bg-emerald-400/15 text-emerald-300 border-emerald-400/30" 
+      : overallStatus === "verified" 
+        ? "bg-sky-400/15 text-sky-300 border-sky-400/30" 
+        : "bg-amber-400/15 text-amber-300 border-amber-400/30";
+    const typeLabel = mixed 
+      ? "Res + Com" 
+      : carlos 
+        ? "Ops Mgr." 
+        : maria 
+          ? (periodMode === "week" ? "Flat $500/sem + Casas semanales" : "Flat $1,000/quincena + Casas") 
+          : ana 
+            ? (periodMode === "week" ? "40h / Sem (80h quincenal)" : "80h / Quincena") 
+            : "Residential";
 
     function rowStatusAccent(st: string | null | undefined) {
       if (st === "paid") return "border-l-[3px] border-l-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10";
@@ -5558,7 +5670,7 @@ function renderHeader() {
     }
 
     return (
-      <div className={cn("overflow-hidden rounded-2xl ring-1 shadow-[0_4px_24px_-4px_hsl(215_40%_12%/0.14)]", mixed ? "ring-amber-200/60 dark:ring-amber-800/40" : carlos ? "ring-emerald-200/60 dark:ring-emerald-800/40" : "ring-border/70")} key={summary.key}>
+      <div className={cn("overflow-hidden rounded-2xl ring-1 shadow-[0_4px_24px_-4px_hsl(215_40%_12%/0.14)]", mixed ? "ring-amber-200/60 dark:ring-amber-800/40" : carlos ? "ring-emerald-200/60 dark:ring-emerald-800/40" : maria ? "ring-violet-200/60 dark:ring-violet-800/40" : ana ? "ring-sky-200/60 dark:ring-sky-800/40" : "ring-border/70")} key={summary.key}>
         {/* HEADER */}
         <div className={cn("bg-gradient-to-br px-4 py-3.5", headerGradient)}>
           <div className="flex items-center justify-between gap-3">
@@ -5567,7 +5679,7 @@ function renderHeader() {
               <div className="min-w-0">
                 <p className="truncate text-[15px] font-semibold leading-tight text-white">{summary.teamName}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", typePillStyle)}>{mixed ? "Res + Com" : carlos ? "Ops Mgr." : "Residential"}</span>
+                  <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", typePillStyle)}>{typeLabel}</span>
                   <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", statusPillStyle)}>{statusLabel(overallStatus)}</span>
                 </div>
               </div>
@@ -5595,43 +5707,48 @@ function renderHeader() {
             <table className={cn("sop-table w-full table-fixed border-separate border-spacing-0 text-[13px]", mixed ? "min-w-[360px]" : "min-w-[280px]")}>
               <thead>
                 <tr className="text-left">
-                  <th className="w-[18%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</th>
-                  <th className={cn("border-b border-border/60 bg-muted/30 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground", mixed ? "w-[38%]" : "w-[50%]")}>City</th>
+                  <th className="w-[70px] min-w-[70px] border-b border-border/60 bg-muted/30 px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Date</th>
+                  <th className="border-b border-border/60 bg-muted/30 px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">City</th>
                   {mixed ? (
                     <>
-                      <th className="w-[15%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Res.</th>
-                      <th className="w-[15%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Com.</th>
+                      <th className="w-[64px] min-w-[64px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Res.</th>
+                      <th className="w-[64px] min-w-[64px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Com.</th>
                     </>
                   ) : (
-                    <th className="w-[18%] border-b border-border/60 bg-muted/30 px-3 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payment</th>
+                    <th className="w-[76px] min-w-[76px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{maria ? "Casa" : "Payment"}</th>
                   )}
-                  <th className="w-[14%] border-b border-border/60 bg-muted/30 px-2 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Actions</th>
+                  <th className="w-[36px] min-w-[36px] border-b border-border/60 bg-muted/30 px-1 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <span className="sr-only">Actions</span>
+                    <MoreVertical className="mx-auto size-3 opacity-40" />
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {validJobRows.length === 0 ? (
                   <tr>
                     <td className="px-3 py-8 text-center text-[13px] font-medium text-muted-foreground/60" colSpan={mixed ? 5 : 4}>
-                      No payments recorded for this period.
+                      {maria ? "No houses added to payment yet. Click + Row to add houses." : "No payments recorded for this period."}
                     </td>
                   </tr>
                 ) : null}
                 {validJobRows.map((row) => (
                   <tr className={cn("group align-middle transition-colors hover:brightness-[0.97] dark:hover:brightness-110", rowStatusAccent(row.status))} key={row.id}>
-                    <td className="border-b border-border/50 px-3 py-2.5 font-semibold text-foreground">{displayShortDate(row.work_date)}</td>
-                    <td className="border-b border-border/50 px-3 py-2.5">
-                      <span className="block truncate font-medium text-foreground/90" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
+                    <td className="border-b border-border/50 px-2.5 py-2 font-semibold tabular-nums text-foreground text-xs whitespace-nowrap" title={displayDate(row.work_date)}>
+                      {displayShortDate(row.work_date)}
                     </td>
-                    <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
+                    <td className="border-b border-border/50 px-2.5 py-2 min-w-0">
+                      <span className="block truncate font-medium text-foreground/90 text-xs" title={displayPaymentCity(row)}>{displayPaymentCity(row)}</span>
+                    </td>
+                    <td className="border-b border-border/50 px-2 py-2 text-right font-semibold tabular-nums text-foreground text-xs whitespace-nowrap">
                       {formatMoney(mixed ? (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : (!row.commercial_amount ? toNumber(row.payment_amount) : 0)) : paymentLineTotal(row))}
                     </td>
                     {mixed ? (
-                      <td className="border-b border-border/50 px-3 py-2.5 text-right font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                      <td className="border-b border-border/50 px-2 py-2 text-right font-semibold tabular-nums text-amber-600 dark:text-amber-400 text-xs whitespace-nowrap">
                         {toNumber(row.commercial_amount) ? formatMoney(toNumber(row.commercial_amount)) : <span className="text-muted-foreground/40">—</span>}
                       </td>
                     ) : null}
-                    <td className="border-b border-border/50 px-1.5 py-2 text-right">
-                      <div className="flex items-center justify-end">
+                    <td className="border-b border-border/50 px-1 py-1.5 text-center">
+                      <div className="flex items-center justify-center">
                         <button
                           type="button"
                           className={cn(
@@ -5663,18 +5780,18 @@ function renderHeader() {
           </div>
 
           {/* TOTAL FOOTER */}
-          <div className={cn("flex items-center justify-between gap-3 border-t border-border/60 px-4 py-3", mixed ? "bg-amber-50/40 dark:bg-amber-950/10" : carlos ? "bg-emerald-50/40 dark:bg-emerald-950/10" : "bg-muted/15")}>
+          <div className={cn("flex items-center justify-between gap-3 border-t border-border/60 px-4 py-3", mixed ? "bg-amber-50/40 dark:bg-amber-950/10" : carlos ? "bg-emerald-50/40 dark:bg-emerald-950/10" : maria ? "bg-violet-50/40 dark:bg-violet-950/10" : ana ? "bg-sky-50/40 dark:bg-sky-950/10" : "bg-muted/15")}>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Total</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{maria ? "Casas" : "Total"}</span>
               <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">{validJobRows.length}</span>
             </div>
-            <span className={cn("text-xl font-bold tabular-nums tracking-tight", hasRows ? (mixed ? "text-amber-700 dark:text-amber-400" : carlos ? "text-emerald-700 dark:text-emerald-400" : "text-foreground") : "text-muted-foreground/40")}>
-              {formatMoney(summary.paymentTotal)}
+            <span className={cn("text-xl font-bold tabular-nums tracking-tight", (hasRows || maria) ? (mixed ? "text-amber-700 dark:text-amber-400" : carlos ? "text-emerald-700 dark:text-emerald-400" : maria ? "text-violet-700 dark:text-violet-400" : "text-foreground") : "text-muted-foreground/40")}>
+              {formatMoney(paymentCardTotal)}
             </span>
           </div>
 
           {/* PAID/PENDING PROGRESS BAR */}
-          {hasRows && (
+          {(hasRows || maria) && (
             <div className="border-t border-border/40 px-4 pb-3 pt-2.5">
               <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
                 <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${paidPct}%` }} />
@@ -5705,6 +5822,41 @@ function renderHeader() {
               <div className="flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
                 <span>{summary.teamName} combined:</span>
                 <span className="text-sm tabular-nums">{formatMoney(summary.paymentTotal)}</span>
+              </div>
+            </div>
+          ) : null}
+
+          {/* MARIA LOPEZ FLAT + HOUSES */}
+          {maria ? (
+            <div className="mx-4 mb-3 mt-1 grid gap-2 rounded-xl border border-violet-200/60 bg-violet-50/60 p-3 dark:border-violet-800/40 dark:bg-violet-950/20">
+              <div className="flex items-center justify-between text-xs font-medium text-violet-800 dark:text-violet-300">
+                <span>Base Flat ({periodMode === "biweekly" ? "Quincenal" : periodMode === "week" ? "Semanal" : "Mensual"}):</span>
+                <span className="font-semibold tabular-nums">{formatMoney(mariaFlatBase)} <span className="text-[10px] text-muted-foreground font-normal">($1,000 / quincena)</span></span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-medium text-violet-800 dark:text-violet-300">
+                <span>Casas agregadas ({validJobRows.length}):</span>
+                <span className="font-semibold tabular-nums">+{formatMoney(housesTotal)}</span>
+              </div>
+              <div className="my-0.5 border-t border-violet-200/40 dark:border-violet-800/30" />
+              <div className="flex items-center justify-between text-xs font-bold text-violet-950 dark:text-violet-100">
+                <span>{summary.teamName} total:</span>
+                <span className="text-sm tabular-nums">{formatMoney(paymentCardTotal)}</span>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ANA MORALES 80H QUINCENA */}
+          {ana ? (
+            <div className="mx-4 mb-3 mt-1 grid gap-1.5 rounded-xl border border-sky-200/60 bg-sky-50/60 p-3 dark:border-sky-800/40 dark:bg-sky-950/20">
+              <div className="flex items-center justify-between text-xs font-bold text-sky-950 dark:text-sky-100">
+                <span>Regla de horas:</span>
+                <span className="rounded-full bg-sky-200/70 px-2 py-0.5 text-[10px] font-bold text-sky-800 dark:bg-sky-900/60 dark:text-sky-200">80 horas / quincena</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-sky-800 dark:text-sky-300">
+                <span>{periodMode === "biweekly" ? "Período actual (Quincenal)" : periodMode === "week" ? "Equivalente semanal (40h)" : "Período mensual (160h)"}:</span>
+                <span className="font-semibold tabular-nums">
+                  {periodMode === "biweekly" ? `80.0 hrs · ${formatMoney(80 * 18)}` : periodMode === "week" ? `40.0 hrs · ${formatMoney(40 * 18)}` : `160.0 hrs · ${formatMoney(160 * 18)}`}
+                </span>
               </div>
             </div>
           ) : null}

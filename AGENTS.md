@@ -15,3 +15,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Maria Lopez**: Gana **$22.00 por hora** (NO $18). Cualquier cuenta comercial asignada a ella (ej. *ILG Irvine Office*) calcula su tarifa por servicio y costo de nómina en base a **$22.00/hr**. En actualizaciones masivas de tarifas a $18/hr, su tarifa de $22.00 debe preservarse.
 - **Tarifa Base General**: El resto de limpiadoras comerciales por hora tienen una tarifa estándar de **$18.00 por hora** (salvo cuentas de tarifa fija como Mama's a $200 y Green Leaf a $119).
 
+# Reglas de Pagos: Ana y Maria Lopez
+- **Ana Morales**: Tiene asignada una regla de **80 horas cada quincena** (equivalente a 40 horas por semana en períodos semanales). En pagos y nómina quincenales, sus horas asignadas son 80 horas (a su tarifa estándar de $18.00/hr = $1,440.00 por quincena).
+- **Maria Lopez**: Tiene un **pago flat garantizado de $1,000 cada quincena** (equivalente a $500 por semana en pagos semanales). **Las casas son estrictamente semanales** (como se ha venido haciendo siempre): cada semana se le suman a su base flat las casas que haya hecho o se le agreguen en esa semana. En pagos semanales su total es: **$500 base semanal ($1,000 quincenal) + casas de la semana**. En pagos quincenales su total es: **$1,000 base quincenal + casas de la quincena**.
+
+

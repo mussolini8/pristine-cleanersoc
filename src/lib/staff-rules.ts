@@ -73,6 +73,28 @@ export function commercialContextRole(name: string | null | undefined, role?: st
   return definition.displayRole;
 }
 
+export const ANA_MORALES_BIWEEKLY_HOURS = 80;
+export const MARIA_LOPEZ_BIWEEKLY_FLAT_PAY = 1000;
+export const MARIA_LOPEZ_FLAT_PAY = 1000;
+
+export function getMariaLopezFlatPayForPeriod(periodMode: "week" | "biweekly" | "month" = "biweekly"): number {
+  if (periodMode === "week") return 500;
+  if (periodMode === "month") return 2000;
+  return MARIA_LOPEZ_BIWEEKLY_FLAT_PAY; // 1000 cada quincena
+}
+
+export function isAnaMorales(cleanerName?: string | null | undefined): boolean {
+  if (!cleanerName) return false;
+  const norm = normalizePersonName(cleanerName);
+  return norm.includes("ana") && (norm.includes("morales") || norm === "ana");
+}
+
+export function isMariaLopez(cleanerName?: string | null | undefined): boolean {
+  if (!cleanerName) return false;
+  const norm = normalizePersonName(cleanerName);
+  return norm.includes("maria") && norm.includes("lopez");
+}
+
 /**
  * Business rule for commercial cleaner hourly rates:
  * - Emmi Garcia / Emmi Guerra: $18.15 / hr
@@ -90,3 +112,4 @@ export function getCleanerDefaultHourlyRate(cleanerName?: string | null | undefi
   }
   return 18;
 }
+
