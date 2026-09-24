@@ -27,19 +27,19 @@ export async function POST(req: Request) {
 
     if (!serviceType || !bedrooms || !bathrooms || !pay || !serviceDate || !city) {
       return NextResponse.json(
-        { error: "Faltan campos obligatorios: serviceType, bedrooms, bathrooms, pay, serviceDate, city." },
+        { error: "Missing required fields: serviceType, bedrooms, bathrooms, pay, serviceDate, city." },
         { status: 400 }
       );
     }
 
     if (!recipients || recipients.length === 0) {
       return NextResponse.json(
-        { error: "Debes seleccionar al menos una limpiadora para enviar el mensaje." },
+        { error: "Please select at least one cleaner to receive the message." },
         { status: 400 }
       );
     }
 
-    // Build the SMS body
+    // Build the SMS body in English
     const smsBody = buildSmsBody({ serviceType, bedrooms, bathrooms, pay, serviceDate, city, details });
 
     const results: { name: string; phone: string; success: boolean; error?: string }[] = [];
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
         });
         results.push({ name: recipient.name, phone: recipient.phone, success: true });
       } catch (err: any) {
-        results.push({ name: recipient.name, phone: recipient.phone, success: false, error: err?.message || "Error desconocido" });
+        results.push({ name: recipient.name, phone: recipient.phone, success: false, error: err?.message || "Unknown error" });
       }
     }
 
@@ -66,12 +66,12 @@ export async function POST(req: Request) {
       failCount,
       results,
       smsBody,
-      message: `Difusión enviada: ${sentCount} enviados${failCount > 0 ? `, ${failCount} fallidos` : ""}.`,
+      message: `Broadcast complete: ${sentCount} sent${failCount > 0 ? `, ${failCount} failed` : ""}.`,
     });
   } catch (error: any) {
     console.error("[Job Broadcast] Error:", error);
     return NextResponse.json(
-      { error: error?.message || "Error al enviar la difusión de trabajo." },
+      { error: error?.message || "Error sending job broadcast SMS." },
       { status: 500 }
     );
   }
@@ -86,23 +86,30 @@ function buildSmsBody({
   city,
   details,
 }: Omit<BroadcastJobPayload, "recipients">): string {
+  const serviceLabel =
+    serviceType === "Move In/Out"
+      ? "Move In/Out Clean"
+      : serviceType === "Deep Clean"
+      ? "Deep Clean"
+      : "Express Clean";
+
   const lines = [
-    `🏠 *TRABAJO DISPONIBLE – Pristine Cleaners*`,
+    `🏠 *AVAILABLE JOB – Pristine Cleaners*`,
     ``,
-    `📋 Tipo: ${serviceType === "Move In/Out" ? "Mudanza (Move In/Out)" : serviceType}`,
-    `🛏 Habitaciones: ${bedrooms}`,
-    `🚿 Baños: ${bathrooms}`,
-    `💵 Pago: ${pay}`,
-    `📅 Fecha: ${serviceDate}`,
-    `📍 Ciudad: ${city}`,
+    `📋 Service: ${serviceLabel}`,
+    `🛏 Bedrooms: ${bedrooms}`,
+    `🚿 Bathrooms: ${bathrooms}`,
+    `💵 Pay: ${pay}`,
+    `📅 Date: ${serviceDate}`,
+    `📍 City: ${city}`,
   ];
 
   if (details && details.trim()) {
-    lines.push(`📝 Detalles: ${details.trim()}`);
+    lines.push(`📝 Details: ${details.trim()}`);
   }
 
   lines.push(``);
-  lines.push(`✅ Si puedes tomar este trabajo, responde a este mensaje.`);
+  lines.push(`✅ Reply to this message if you can take this job.`);
 
   return lines.join("\n");
 }

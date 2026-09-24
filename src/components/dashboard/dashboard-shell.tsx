@@ -205,7 +205,7 @@ export function DashboardShell({
                 title="Difundir trabajo a cleaners residenciales"
               >
                 <Megaphone className="size-3.5 sm:size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="hidden sm:inline">Difundir Trabajo</span>
+                <span className="hidden sm:inline">Broadcast Job</span>
               </Button>
               <LanguageToggle />
               <ThemeToggle />
