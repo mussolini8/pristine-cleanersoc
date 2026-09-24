@@ -108,6 +108,10 @@ const QUICK_PROMPTS_ES = [
     /** Special marker: clicking this will open the file picker automatically */
     text: "__OPEN_FILE_PICKER__",
   },
+  {
+    label: "📢 Difundir Casas",
+    text: "__OPEN_JOB_BROADCAST__",
+  },
 ];
 
 const QUICK_PROMPTS_EN = [
@@ -158,6 +162,10 @@ const QUICK_PROMPTS_EN = [
   {
     label: "📅 Ingest Schedule",
     text: "__OPEN_FILE_PICKER__",
+  },
+  {
+    label: "📢 Broadcast Jobs",
+    text: "__OPEN_JOB_BROADCAST__",
   },
 ];
 
@@ -924,7 +932,9 @@ export function GlobalAiBubble() {
                     <button
                       key={idx}
                       onClick={() => {
-                        if (qp.text === "__OPEN_FILE_PICKER__") {
+                        if (qp.text === "__OPEN_JOB_BROADCAST__") {
+                          window.dispatchEvent(new CustomEvent("open-job-broadcast"));
+                        } else if (qp.text === "__OPEN_FILE_PICKER__") {
                           // Special: set the ingestion prompt and open file picker
                           setPrompt(
                             isEn

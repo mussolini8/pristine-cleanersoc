@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, CalendarDays, Building2, CheckSquare, ClipboardCheck, FileSpreadsheet, Home, LogOut, Settings, Sparkles, TrendingUp, Users, Wallet, PanelLeft, PanelLeftClose } from "lucide-react";
+import { BarChart3, CalendarDays, Building2, CheckSquare, ClipboardCheck, FileSpreadsheet, Home, LogOut, Settings, Sparkles, TrendingUp, Users, Wallet, PanelLeft, PanelLeftClose, Megaphone } from "lucide-react";
 import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { LanguageToggle, useLanguage } from "@/components/providers/language-provider";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { GlobalAiBubble } from "@/components/ai/global-ai-bubble";
 import { BookingKoalaImporterModal } from "@/components/operations/bookingkoala-importer-modal";
+import { JobBroadcastModal } from "@/components/ai/job-broadcast-modal";
 
 const navItems = [
   { key: "nav.dashboard", label: "Dashboard", shortLabel: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
@@ -39,6 +40,7 @@ export function DashboardShell({
   const { t } = useLanguage();
   const [role, setRole] = useState<AppRole>("residential");
   const [isKoalaOpen, setIsKoalaOpen] = useState(false);
+  const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -47,6 +49,12 @@ export function DashboardShell({
       const saved = localStorage.getItem("pristine_sidebar_collapsed");
       if (saved === "true") setSidebarCollapsed(true);
     } catch {}
+  }, []);
+
+  useEffect(() => {
+    const handleOpenBroadcast = () => setIsBroadcastOpen(true);
+    window.addEventListener("open-job-broadcast", handleOpenBroadcast);
+    return () => window.removeEventListener("open-job-broadcast", handleOpenBroadcast);
   }, []);
 
   function toggleSidebar() {
@@ -189,6 +197,16 @@ export function DashboardShell({
                 <FileSpreadsheet className="size-4" />
                 <span>{t("nav.import_bookingkoala", "Import BookingKoala")}</span>
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsBroadcastOpen(true)}
+                className="inline-flex items-center gap-1.5 sm:gap-2 border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400 font-bold cursor-pointer h-8 sm:h-9 px-2 sm:px-3"
+                title="Difundir trabajo a cleaners residenciales"
+              >
+                <Megaphone className="size-3.5 sm:size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="hidden sm:inline">Difundir Trabajo</span>
+              </Button>
               <LanguageToggle />
               <ThemeToggle />
               <form action="/auth/sign-out" method="post">
@@ -236,6 +254,12 @@ export function DashboardShell({
 
       {/* Global AI Copilot Floating Bubble */}
       <GlobalAiBubble />
+
+      {/* Job Broadcast Modal (Difusión de Trabajo Residencial) */}
+      <JobBroadcastModal
+        isOpen={isBroadcastOpen}
+        onClose={() => setIsBroadcastOpen(false)}
+      />
     </div>
   );
 }
