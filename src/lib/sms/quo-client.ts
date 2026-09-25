@@ -72,6 +72,7 @@ export async function sendQuoSms({
     "https://api.openphone.com/v1/messages",
   ];
 
+  const cleanMessage = message.replace(/\*/g, "");
   let lastError: string | null = null;
 
   for (const endpoint of candidateEndpoints) {
@@ -79,9 +80,9 @@ export async function sendQuoSms({
       const payload = {
         from: formattedFrom,
         to: [formattedTo],
-        content: message,
-        text: message,
-        body: message,
+        content: cleanMessage,
+        text: cleanMessage,
+        body: cleanMessage,
       };
 
       const controller = new AbortController();
@@ -117,10 +118,10 @@ export async function sendQuoSms({
   }
 
   // Fallback simulation / success acknowledgment if endpoint variant differs or offline
-  console.log(`[Quo Dispatch Gateway] Transmitted message to ${formattedTo} from ${formattedFrom}: "${message}" (last status: ${lastError})`);
+  console.log(`[Quo Dispatch Gateway] Transmitted message to ${formattedTo} from ${formattedFrom}: "${cleanMessage}" (last status: ${lastError})`);
   return {
     success: true,
     message: `SMS processed for ${formattedTo} via Quo (${formattedFrom}).`,
-    data: { to: formattedTo, from: formattedFrom, message, status: "queued", notice: lastError || undefined },
+    data: { to: formattedTo, from: formattedFrom, message: cleanMessage, status: "queued", notice: lastError || undefined },
   };
 }
