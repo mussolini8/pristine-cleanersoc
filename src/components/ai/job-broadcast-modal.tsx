@@ -20,7 +20,7 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RESIDENTIAL_CLEANER_CONTACTS } from "@/lib/cleaner-contacts";
+import { RESIDENTIAL_CLEANER_CONTACTS, type CleanerContact } from "@/lib/cleaner-contacts";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -63,6 +63,7 @@ const JAKE_TEST_CONTACT = {
 };
 
 const STORAGE_KEY = "pristine_broadcast_jobs_history";
+const CUSTOM_CLEANERS_STORAGE_KEY = "pristine_custom_residential_cleaners";
 
 function inputCls(extra = "") {
   return (
@@ -93,6 +94,13 @@ export function JobBroadcastModal({
   const [city, setCity] = useState("");
   const [details, setDetails] = useState("");
 
+  // Custom dynamically added cleaners
+  const [customCleaners, setCustomCleaners] = useState<CleanerContact[]>([]);
+  const [showAddCleaner, setShowAddCleaner] = useState(false);
+  const [newCleanerName, setNewCleanerName] = useState("");
+  const [newCleanerPhone, setNewCleanerPhone] = useState("");
+  const [addCleanerError, setAddCleanerError] = useState<string | null>(null);
+
   // Recipients selection
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
@@ -115,7 +123,7 @@ export function JobBroadcastModal({
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [actionFeedbackMsg, setActionFeedbackMsg] = useState<string | null>(null);
 
-  // Load history from localStorage
+  // Load history and custom cleaners from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -124,6 +132,15 @@ export function JobBroadcastModal({
       }
     } catch (e) {
       console.error("[Broadcast] Failed to load history from localStorage:", e);
+    }
+
+    try {
+      const savedCleaners = localStorage.getItem(CUSTOM_CLEANERS_STORAGE_KEY);
+      if (savedCleaners) {
+        setCustomCleaners(JSON.parse(savedCleaners));
+      }
+    } catch (e) {
+      console.error("[Broadcast] Failed to load custom cleaners from localStorage:", e);
     }
   }, []);
 
@@ -140,12 +157,21 @@ export function JobBroadcastModal({
 
   // ── Derived ──────────────────────────────────────────────────────────────
 
+  const allCleaners: CleanerContact[] = [
+    ...RESIDENTIAL_CLEANER_CONTACTS,
+    ...customCleaners.filter(
+      (c) =>
+        !RESIDENTIAL_CLEANER_CONTACTS.some(
+          (base) => base.phone.replace(/\D/g, "") === c.phone.replace(/\D/g, "")
+        )
+    ),
+  ];
+
   const activeJobsCount = historyJobs.filter((j) => j.status === "available").length;
 
   const selectedCount = Object.values(selected).filter(Boolean).length;
   const allSelected =
-    RESIDENTIAL_CLEANER_CONTACTS.length > 0 &&
-    selectedCount === RESIDENTIAL_CLEANER_CONTACTS.length;
+    allCleaners.length > 0 && selectedCount === allCleaners.length;
 
   const isFormValid =
     serviceType !== "" &&
@@ -162,13 +188,76 @@ export function JobBroadcastModal({
       setSelected({});
     } else {
       const all: Record<string, boolean> = {};
-      RESIDENTIAL_CLEANER_CONTACTS.forEach((c) => (all[c.phone] = true));
+      allCleaners.forEach((c) => (all[c.phone] = true));
       setSelected(all);
     }
   }
 
   function toggleCleaner(phone: string) {
     setSelected((prev) => ({ ...prev, [phone]: !prev[phone] }));
+  }
+
+  function handleAddCleaner() {
+    setAddCleanerError(null);
+    const trimmedName = newCleanerName.trim();
+    const trimmedPhone = newCleanerPhone.trim();
+
+    if (!trimmedName) {
+      setAddCleanerError("Please enter the cleaner's name.");
+      return;
+    }
+
+    const digits = trimmedPhone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setAddCleanerError("Please enter a valid 10-digit phone number.");
+      return;
+    }
+
+    const formatted =
+      digits.length === 10
+        ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+        : `+${digits}`;
+
+    const exists = allCleaners.some(
+      (c) => c.phone.replace(/\D/g, "") === digits
+    );
+    if (exists) {
+      setAddCleanerError("A cleaner with this phone number already exists.");
+      return;
+    }
+
+    const newContact: CleanerContact = {
+      name: trimmedName,
+      phone: formatted,
+      status: "Active",
+      type: "Location-Based",
+    };
+
+    const updated = [...customCleaners, newContact];
+    setCustomCleaners(updated);
+    try {
+      localStorage.setItem(CUSTOM_CLEANERS_STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.error("[Broadcast] Failed to save custom cleaner:", e);
+    }
+
+    setSelected((prev) => ({ ...prev, [formatted]: true }));
+    setNewCleanerName("");
+    setNewCleanerPhone("");
+    setShowAddCleaner(false);
+  }
+
+  function handleDeleteCustomCleaner(phone: string) {
+    const updated = customCleaners.filter((c) => c.phone !== phone);
+    setCustomCleaners(updated);
+    try {
+      localStorage.setItem(CUSTOM_CLEANERS_STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {}
+    setSelected((prev) => {
+      const next = { ...prev };
+      delete next[phone];
+      return next;
+    });
   }
 
   function handleReset() {
@@ -242,7 +331,7 @@ export function JobBroadcastModal({
     setSmsPreview(null);
     setTestSuccessMsg(null);
 
-    const recipients = RESIDENTIAL_CLEANER_CONTACTS.filter((c) => selected[c.phone]).map((c) => ({
+    const recipients = allCleaners.filter((c) => selected[c.phone]).map((c) => ({
       name: c.name,
       phone: c.phone,
     }));
@@ -697,44 +786,143 @@ export function JobBroadcastModal({
 
                   {/* Cleaners Selection */}
                   <section className="space-y-3 pt-2">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         <Users className="size-3.5" />
-                        Residential Cleaners to Notify ({RESIDENTIAL_CLEANER_CONTACTS.length})
+                        Residential Cleaners to Notify ({allCleaners.length})
                       </h3>
-                      <button
-                        type="button"
-                        onClick={toggleAll}
-                        className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:underline transition-colors cursor-pointer"
-                      >
-                        {allSelected ? "Deselect all" : "Select all"}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setShowAddCleaner((prev) => !prev);
+                            setAddCleanerError(null);
+                          }}
+                          className="h-6 text-[11px] px-2 gap-1 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 cursor-pointer"
+                        >
+                          <PlusCircle className="size-3" />
+                          <span>{showAddCleaner ? "Close" : "Add Cleaner"}</span>
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={toggleAll}
+                          className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:underline transition-colors cursor-pointer"
+                        >
+                          {allSelected ? "Deselect all" : "Select all"}
+                        </button>
+                      </div>
                     </div>
 
+                    {/* Add Cleaner Inline Form */}
+                    {showAddCleaner && (
+                      <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3 space-y-2.5 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                            <PlusCircle className="size-3.5 text-emerald-600" />
+                            Add New Residential Cleaner
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            Saved automatically for SMS broadcasting
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <input
+                              type="text"
+                              placeholder="Full Name (e.g. Maria Gonzalez)"
+                              value={newCleanerName}
+                              onChange={(e) => setNewCleanerName(e.target.value)}
+                              className={inputCls("h-8 text-xs")}
+                            />
+                          </div>
+                          <div>
+                            <input
+                              type="tel"
+                              placeholder="Phone (e.g. 714-555-1234)"
+                              value={newCleanerPhone}
+                              onChange={(e) => setNewCleanerPhone(e.target.value)}
+                              className={inputCls("h-8 text-xs font-mono")}
+                            />
+                          </div>
+                        </div>
+
+                        {addCleanerError && (
+                          <p className="text-[11px] text-destructive flex items-center gap-1">
+                            <AlertTriangle className="size-3 shrink-0" />
+                            {addCleanerError}
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setShowAddCleaner(false);
+                              setAddCleanerError(null);
+                            }}
+                            className="h-7 text-xs px-2.5"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={handleAddCleaner}
+                            className="h-7 text-xs px-3 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                          >
+                            Save & Select
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="rounded-xl border border-border/60 divide-y divide-border/40 overflow-hidden">
-                      {RESIDENTIAL_CLEANER_CONTACTS.map((cleaner) => {
+                      {allCleaners.map((cleaner) => {
                         const checked = !!selected[cleaner.phone];
+                        const isCustom = customCleaners.some((c) => c.phone === cleaner.phone);
                         return (
-                          <label
+                          <div
                             key={cleaner.phone}
-                            className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors select-none ${
+                            className={`flex items-center justify-between px-4 py-2.5 transition-colors select-none ${
                               checked ? "bg-emerald-500/8" : "bg-card hover:bg-muted/40"
                             }`}
                           >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleCleaner(cleaner.phone)}
-                              className="accent-emerald-600 size-4 rounded shrink-0 cursor-pointer"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-foreground truncate">{cleaner.name}</p>
-                              <p className="text-[11px] text-muted-foreground font-mono">{cleaner.phone}</p>
+                            <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleCleaner(cleaner.phone)}
+                                className="accent-emerald-600 size-4 rounded shrink-0 cursor-pointer"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-foreground truncate">{cleaner.name}</p>
+                                <p className="text-[11px] text-muted-foreground font-mono">{cleaner.phone}</p>
+                              </div>
+                            </label>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 rounded-full px-2 py-0.5 shrink-0 font-medium">
+                                Residential
+                              </span>
+                              {isCustom && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteCustomCleaner(cleaner.phone);
+                                  }}
+                                  className="text-muted-foreground hover:text-destructive p-1 rounded transition-colors ml-1 cursor-pointer"
+                                  title="Delete cleaner from custom list"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              )}
                             </div>
-                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 rounded-full px-2 py-0.5 shrink-0 font-medium">
-                              Residential
-                            </span>
-                          </label>
+                          </div>
                         );
                       })}
                     </div>

@@ -37,6 +37,7 @@ export const RESIDENTIAL_CLEANER_CONTACTS: CleanerContact[] = [
   { name: "Juan Romero", phone: "840-239-9108", status: "Active", type: "Location-Based" },
   { name: "Rosa Calderon", phone: "714-659-9949", status: "Active", type: "Location-Based" },
   { name: "Blanca Garcia", phone: "714-615-8757", status: "Active", type: "Location-Based" },
+  { name: "Dovissy Calderon", phone: "(657) 358-2963", status: "Active", type: "Location-Based" },
 ];
 
 export const CLEANER_PHONE_DIRECTORY: Record<string, string> = {
@@ -61,6 +62,7 @@ export const CLEANER_PHONE_DIRECTORY: Record<string, string> = {
   "juan romero": "840-239-9108",
   "rosa calderon": "714-659-9949",
   "blanca garcia": "714-615-8757",
+  "dovissy calderon": "657-358-2963",
 };
 
 export function getCleanerPhone(name: string | null | undefined): string | null {

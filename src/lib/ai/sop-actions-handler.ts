@@ -298,6 +298,25 @@ export async function applyAddStaffAction(
       updated_at: new Date().toISOString(),
     };
 
+    if (staff.phone && typeof window !== "undefined") {
+      try {
+        const customCleanersStr = localStorage.getItem("pristine_custom_residential_cleaners") || "[]";
+        const customCleaners = JSON.parse(customCleanersStr);
+        const digits = staff.phone.replace(/\D/g, "");
+        if (!customCleaners.some((c: any) => c.phone.replace(/\D/g, "") === digits)) {
+          customCleaners.push({
+            name: staff.name,
+            phone: staff.phone,
+            status: "Active",
+            type: "Location-Based",
+          });
+          localStorage.setItem("pristine_custom_residential_cleaners", JSON.stringify(customCleaners));
+        }
+      } catch (e) {
+        console.error("Error auto-syncing cleaner to broadcast list:", e);
+      }
+    }
+
     if (supabase) {
       const { data, error } = await supabase
         .from("staff_members")
