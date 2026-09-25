@@ -116,6 +116,8 @@ export function getServerEnv() {
     SEO_USER_EMAIL: process.env.SEO_USER_EMAIL,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    QUO_API_KEY: process.env.QUO_API_KEY,
+    QUO_FROM_PHONE: process.env.QUO_FROM_PHONE,
   };
 
   const result = serverEnvSchema.safeParse(envData);
