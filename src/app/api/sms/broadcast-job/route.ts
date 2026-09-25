@@ -94,7 +94,7 @@ function buildSmsBody({
       : "Limpieza Express";
 
   const lines = [
-    `🏠 *TRABAJO DISPONIBLE – Pristine Cleaners*`,
+    `🏠 TRABAJO DISPONIBLE – Pristine Cleaners`,
     ``,
     `📋 Servicio: ${serviceLabel}`,
     `🛏 Recámaras: ${bedrooms}`,

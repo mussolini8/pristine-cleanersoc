@@ -1240,7 +1240,7 @@ export function JobBroadcastModal({
                     This will send a reminder SMS to all <strong className="text-foreground">{actionJob.recipients.length} cleaners</strong> that the <strong className="text-foreground">{actionJob.serviceType}</strong> in <strong className="text-foreground">{actionJob.city}</strong> ({actionJob.pay}) is still available.
                   </p>
                   <div className="rounded-lg bg-muted/40 p-2.5 font-mono text-[11px] border border-border/50 text-foreground whitespace-pre-wrap">
-                    🔔 *RECORDATORIO: TRABAJO AÚN DISPONIBLE – Pristine Cleaners*
+                    🔔 RECORDATORIO: TRABAJO AÚN DISPONIBLE – Pristine Cleaners
                     {"\n\n"}📋 Servicio: {actionJob.serviceType}
                     {"\n"}🛏 Recámaras: {actionJob.bedrooms} · 🚿 Baños: {actionJob.bathrooms}
                     {"\n"}💵 Pago: {actionJob.pay}

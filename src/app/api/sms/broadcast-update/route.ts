@@ -122,7 +122,7 @@ function buildTakenSmsBody({
 }): string {
   const serviceLabel = getServiceLabel(serviceType);
   const lines = [
-    `🏠 *ACTUALIZACIÓN – Pristine Cleaners*`,
+    `🏠 ACTUALIZACIÓN – Pristine Cleaners`,
     ``,
     `El trabajo de ${serviceLabel} en ${city} para ${serviceDate} (${pay}) YA NO ESTÁ DISPONIBLE (ya fue asignado).`,
     ``,
@@ -150,7 +150,7 @@ function buildReminderSmsBody({
 }): string {
   const serviceLabel = getServiceLabel(serviceType);
   const lines = [
-    `🔔 *RECORDATORIO: TRABAJO AÚN DISPONIBLE – Pristine Cleaners*`,
+    `🔔 RECORDATORIO: TRABAJO AÚN DISPONIBLE – Pristine Cleaners`,
     ``,
     `📋 Servicio: ${serviceLabel}`,
     `🛏 Recámaras: ${bedrooms}`,
