@@ -102,9 +102,9 @@ export async function POST(req: Request) {
 }
 
 function getServiceLabel(serviceType: string): string {
-  if (serviceType === "Move In/Out") return "Move In/Out Clean";
-  if (serviceType === "Deep Clean") return "Deep Clean";
-  return "Express Clean";
+  if (serviceType === "Move In/Out") return "Limpieza Move In/Out (Entrada/Salida)";
+  if (serviceType === "Deep Clean") return "Limpieza Profunda (Deep Clean)";
+  return "Limpieza Express";
 }
 
 function buildTakenSmsBody({
@@ -122,11 +122,11 @@ function buildTakenSmsBody({
 }): string {
   const serviceLabel = getServiceLabel(serviceType);
   const lines = [
-    `🏠 *UPDATE – Pristine Cleaners*`,
+    `🏠 *ACTUALIZACIÓN – Pristine Cleaners*`,
     ``,
-    `The ${serviceLabel} in ${city} for ${serviceDate} (${pay}) is NO LONGER AVAILABLE (it has been assigned).`,
+    `El trabajo de ${serviceLabel} en ${city} para ${serviceDate} (${pay}) YA NO ESTÁ DISPONIBLE (ya fue asignado).`,
     ``,
-    `Thank you for checking! We will notify you when new jobs are available.`,
+    `¡Muchas gracias por estar al pendiente! Te avisaremos en cuanto salgan nuevos trabajos.`,
   ];
   return lines.join("\n");
 }
@@ -150,22 +150,22 @@ function buildReminderSmsBody({
 }): string {
   const serviceLabel = getServiceLabel(serviceType);
   const lines = [
-    `🔔 *REMINDER: JOB STILL AVAILABLE – Pristine Cleaners*`,
+    `🔔 *RECORDATORIO: TRABAJO AÚN DISPONIBLE – Pristine Cleaners*`,
     ``,
-    `📋 Service: ${serviceLabel}`,
-    `🛏 Bedrooms: ${bedrooms}`,
-    `🚿 Bathrooms: ${bathrooms}`,
-    `💵 Pay: ${pay}`,
-    `📅 Date: ${serviceDate}`,
-    `📍 City: ${city}`,
+    `📋 Servicio: ${serviceLabel}`,
+    `🛏 Recámaras: ${bedrooms}`,
+    `🚿 Baños: ${bathrooms}`,
+    `💵 Pago: ${pay}`,
+    `📅 Fecha: ${serviceDate}`,
+    `📍 Ciudad: ${city}`,
   ];
 
   if (details && details.trim()) {
-    lines.push(`📝 Details: ${details.trim()}`);
+    lines.push(`📝 Detalles: ${details.trim()}`);
   }
 
   lines.push(``);
-  lines.push(`✅ Reply to this message if you can take this job.`);
+  lines.push(`✅ Responde a este mensaje si puedes tomar este trabajo.`);
 
   return lines.join("\n");
 }

@@ -88,28 +88,28 @@ function buildSmsBody({
 }: Omit<BroadcastJobPayload, "recipients">): string {
   const serviceLabel =
     serviceType === "Move In/Out"
-      ? "Move In/Out Clean"
+      ? "Limpieza Move In/Out (Entrada/Salida)"
       : serviceType === "Deep Clean"
-      ? "Deep Clean"
-      : "Express Clean";
+      ? "Limpieza Profunda (Deep Clean)"
+      : "Limpieza Express";
 
   const lines = [
-    `🏠 *AVAILABLE JOB – Pristine Cleaners*`,
+    `🏠 *TRABAJO DISPONIBLE – Pristine Cleaners*`,
     ``,
-    `📋 Service: ${serviceLabel}`,
-    `🛏 Bedrooms: ${bedrooms}`,
-    `🚿 Bathrooms: ${bathrooms}`,
-    `💵 Pay: ${pay}`,
-    `📅 Date: ${serviceDate}`,
-    `📍 City: ${city}`,
+    `📋 Servicio: ${serviceLabel}`,
+    `🛏 Recámaras: ${bedrooms}`,
+    `🚿 Baños: ${bathrooms}`,
+    `💵 Pago: ${pay}`,
+    `📅 Fecha: ${serviceDate}`,
+    `📍 Ciudad: ${city}`,
   ];
 
   if (details && details.trim()) {
-    lines.push(`📝 Details: ${details.trim()}`);
+    lines.push(`📝 Detalles: ${details.trim()}`);
   }
 
   lines.push(``);
-  lines.push(`✅ Reply to this message if you can take this job.`);
+  lines.push(`✅ Responde a este mensaje si puedes tomar este trabajo.`);
 
   return lines.join("\n");
 }
