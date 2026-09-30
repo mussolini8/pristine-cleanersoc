@@ -380,7 +380,7 @@ export function BookingKoalaImporterModal({
             notes: `BookingKoala ID: ${item.bookingId}; Imported from BookingKoala - ${item.serviceType} ($${item.cleanerPay} pay @ $18/hr)`,
             manual_entry: true,
             period_start: item.serviceDate.slice(0, 8) + (parseInt(item.serviceDate.slice(8, 10)) <= 15 ? "01" : "16"),
-            period_end: item.serviceDate.slice(0, 8) + (parseInt(item.serviceDate.slice(8, 10)) <= 15 ? "15" : "31"),
+            period_end: item.serviceDate.slice(0, 8) + (parseInt(item.serviceDate.slice(8, 10)) <= 15 ? "15" : String(new Date(parseInt(item.serviceDate.slice(0, 4)), parseInt(item.serviceDate.slice(5, 7)), 0).getDate()).padStart(2, "0")),
             created_at: now,
             updated_at: now,
           };
