@@ -407,16 +407,25 @@ export function JobBroadcastModal({
     setActionFeedbackMsg(null);
 
     try {
-      // Determine which cleaners to notify (everyone except the one who took it, or everyone if not specified)
+      // Determine which cleaners to notify (everyone except the one who took it)
       let recipientsToNotify = actionJob.recipients;
-      if (takenByCleaner.trim()) {
+      if (takenByCleaner.trim() && takenByCleaner !== "Other Cleaner") {
         recipientsToNotify = actionJob.recipients.filter(
           (r) => r.name.toLowerCase().trim() !== takenByCleaner.toLowerCase().trim()
         );
       }
 
+      if (notifyOtherCleaners && recipientsToNotify.length === 0) {
+        // All recipients were filtered out — nothing to send
+        setActionFeedbackMsg(
+          "⚠️ No hay otros cleaners en este broadcast a quienes notificar (solo estaba quien lo tomó)."
+        );
+        setActionLoading(false);
+        return;
+      }
+
       if (notifyOtherCleaners && recipientsToNotify.length > 0) {
-        await fetch("/api/sms/broadcast-update", {
+        const res = await fetch("/api/sms/broadcast-update", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -431,28 +440,68 @@ export function JobBroadcastModal({
             recipients: recipientsToNotify,
           }),
         });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          setActionFeedbackMsg("❌ Error al enviar SMS: " + (data?.error || "Error desconocido"));
+          setActionLoading(false);
+          return;
+        }
+
+        const { sentCount, failCount } = data as { sentCount: number; failCount: number };
+
+        if (failCount > 0 && sentCount === 0) {
+          setActionFeedbackMsg(
+            `❌ No se pudo enviar el SMS a ningún cleaner (${failCount} fallaron). Intenta de nuevo.`
+          );
+          setActionLoading(false);
+          return;
+        }
+
+        // Update record in history
+        const updated = historyJobs.map((j) =>
+          j.id === actionJob.id
+            ? {
+                ...j,
+                status: "taken" as const,
+                takenBy: takenByCleaner.trim() || "Assigned",
+                updatedAt: new Date().toISOString(),
+              }
+            : j
+        );
+        saveHistory(updated);
+
+        const takenName = takenByCleaner.trim() || "Assigned";
+        const failNote = failCount > 0 ? `, ${failCount} fallaron` : "";
+        setActionFeedbackMsg(
+          `✅ Marcado como tomado por ${takenName}. SMS enviado a ${sentCount} cleaner${sentCount !== 1 ? "s" : ""}${failNote}.`
+        );
+      } else {
+        // notifyOtherCleaners is false — just update history silently
+        const updated = historyJobs.map((j) =>
+          j.id === actionJob.id
+            ? {
+                ...j,
+                status: "taken" as const,
+                takenBy: takenByCleaner.trim() || "Assigned",
+                updatedAt: new Date().toISOString(),
+              }
+            : j
+        );
+        saveHistory(updated);
+        setActionFeedbackMsg(
+          `✅ Marcado como tomado por ${takenByCleaner.trim() || "Assigned"}. No se envió SMS.`
+        );
       }
 
-      // Update record in history
-      const updated = historyJobs.map((j) =>
-        j.id === actionJob.id
-          ? {
-              ...j,
-              status: "taken" as const,
-              takenBy: takenByCleaner.trim() || "Assigned",
-              updatedAt: new Date().toISOString(),
-            }
-          : j
-      );
-      saveHistory(updated);
-      setActionFeedbackMsg("✅ Job marked as taken! Cleaners have been notified.");
       setTimeout(() => {
         setActionJob(null);
         setActionType(null);
         setActionFeedbackMsg(null);
-      }, 1500);
+      }, 2500);
     } catch (err: any) {
-      setActionFeedbackMsg("Error: " + (err?.message || "Failed to notify cleaners"));
+      setActionFeedbackMsg("❌ Error: " + (err?.message || "Failed to notify cleaners"));
     } finally {
       setActionLoading(false);
     }
@@ -1224,13 +1273,41 @@ export function JobBroadcastModal({
                     />
                     <div className="text-[11px] leading-snug">
                       <span className="font-semibold text-foreground block">
-                        Send "No Longer Available" SMS to other cleaners
+                        Enviar SMS "Ya No Disponible" a los demás cleaners
                       </span>
                       <span className="text-muted-foreground">
-                        Notifies the other cleaners that the {actionJob.serviceType} in {actionJob.city} has been assigned.
+                        Notifica a los otros cleaners que el {actionJob.serviceType} en {actionJob.city} ya fue asignado.
                       </span>
                     </div>
                   </label>
+
+                  {/* Live preview of who will receive the SMS */}
+                  {notifyOtherCleaners && (() => {
+                    const willReceive =
+                      takenByCleaner.trim() && takenByCleaner !== "Other Cleaner"
+                        ? actionJob.recipients.filter(
+                            (r) =>
+                              r.name.toLowerCase().trim() !==
+                              takenByCleaner.toLowerCase().trim()
+                          )
+                        : actionJob.recipients;
+                    return willReceive.length > 0 ? (
+                      <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-2.5 text-[11px] space-y-1">
+                        <p className="font-semibold text-emerald-700 dark:text-emerald-400">
+                          📲 SMS se enviará a {willReceive.length} cleaner{willReceive.length !== 1 ? "s" : ""}:
+                        </p>
+                        <ul className="space-y-0.5 text-muted-foreground">
+                          {willReceive.map((r) => (
+                            <li key={r.phone}>• {r.name} ({r.phone})</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                        ⚠️ No quedan otros cleaners a quienes notificar en este broadcast.
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
