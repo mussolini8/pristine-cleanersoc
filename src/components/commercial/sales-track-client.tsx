@@ -55,9 +55,10 @@ import {
 } from "@/lib/sales-tracker/calculator";
 import { initialSalesTrackerBookings } from "@/lib/sales-tracker/seed-data";
 import { augustSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-august-2026";
+import { septemberSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-september-2026";
 
 export function SalesTrackClient() {
-  const [selectedPeriod, setSelectedPeriod] = useState<"september_2026" | "august_2026" | "july_2026">("august_2026");
+  const [selectedPeriod, setSelectedPeriod] = useState<"september_2026" | "august_2026" | "july_2026">("september_2026");
   const [currentMonthBookings, setCurrentMonthBookings] = useState<ServiceBookingRow[]>([]);
   const [scopeFilter, setScopeFilter] = useState<"all" | "residential" | "commercial">("all");
   const [activeTab, setActiveTab] = useState<"dash" | "table" | "target" | "comparison" | "ledger">("dash");
@@ -83,7 +84,7 @@ export function SalesTrackClient() {
     actualHours: 3.0,
   });
 
-  // Load from local storage for September 2026; fallback to empty array
+  // Load manual additions from localStorage for September 2026 (on top of seed data)
   useEffect(() => {
     const saved = localStorage.getItem("pristine_sales_tracker_sep_2026");
     if (saved) {
@@ -103,7 +104,10 @@ export function SalesTrackClient() {
   const rawPeriodBookings = useMemo(() => {
     if (selectedPeriod === "july_2026") return initialSalesTrackerBookings;
     if (selectedPeriod === "august_2026") return augustSalesTrackerBookings;
-    return currentMonthBookings;
+    // September: seed data + any manual additions saved in localStorage
+    const manualIds = new Set(currentMonthBookings.map((b) => b.id));
+    const seedFiltered = septemberSalesTrackerBookings.filter((b) => !manualIds.has(b.id));
+    return [...currentMonthBookings, ...seedFiltered];
   }, [selectedPeriod, currentMonthBookings]);
 
   // Split into Residential vs Commercial
