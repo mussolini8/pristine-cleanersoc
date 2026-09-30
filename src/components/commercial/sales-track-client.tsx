@@ -287,8 +287,8 @@ export function SalesTrackClient() {
                   onChange={(e) => setSelectedPeriod(e.target.value as any)}
                   className="bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
                 >
+                  <option value="september_2026">Septiembre 2026 (Consolidado: 51 BK Residenciales + 30 Contratos Comerciales)</option>
                   <option value="august_2026">Agosto 2026 (Cerrado: 55 BK Residenciales + 31 Contratos Comerciales)</option>
-                  <option value="september_2026">Septiembre 2026 (Mes Actual en Vivo)</option>
                   <option value="july_2026">Julio 2026 (Histórico / Plantilla Demo - $34.2k)</option>
                 </select>
               </div>
@@ -297,10 +297,10 @@ export function SalesTrackClient() {
               Income, Labor & Sales Tracker
             </h1>
             <p className="text-sm text-muted-foreground">
-              {selectedPeriod === "august_2026"
+              {selectedPeriod === "september_2026"
+                ? "Septiembre 2026 consolidado: 51 servicios Booking Koala y 30 contratos comerciales (252 visitas) totalmente auditados y sincronizados con CleanGuru y nómina."
+                : selectedPeriod === "august_2026"
                 ? "Agosto 2026 cerrado ($74,266.28): 55 servicios individuales Booking Koala ($24.3k) y 31 contratos comerciales activos ($50.0k) totalmente sincronizados con CleanGuru."
-                : selectedPeriod === "september_2026"
-                ? "Mes actual en curso. Listo para registrar y procesar citas y contratos en tiempo real."
                 : "Mostrando datos históricos de Julio 2026 ($34,252.70)."}
             </p>
           </div>
