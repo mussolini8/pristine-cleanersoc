@@ -449,17 +449,17 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     rate_per_service: 200,
     payment_method: "Check",
     contract_start: "2024-04-01",
-    contract_end: "2026-04-01",
+    contract_end: "2026-09-30",
     last_contact_date: "2026-02-18",
     last_qcc_date: "2026-04-14",
     has_supplies: true,
     has_keys: true,
     supply_delivery_date: null,
     estimated_fill_date: null,
-    supplies_notes: "No alarm, team has keys. Bathrooms, kitchen floor. Rate per service: $200.00 to Juan Romero.",
+    supplies_notes: "No alarm, team has keys. Bathrooms, kitchen floor. Rate per service: $200.00 to Juan Romero. Contrato terminado el 30 de septiembre de 2026 (inactivo para schedule y cuenta comercial a partir del 1 de octubre de 2026).",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 5, paid_hours: 4, assigned_cleaner_name: "Juan Romero", notes: "Friday ($200 per service flat rate)" }
+      { day_of_week: 5, paid_hours: 4, assigned_cleaner_name: "Juan Romero", effective_until: "2026-09-30", effective_end_date: "2026-09-30", notes: "Friday ($200 per service flat rate) — Finaliza el 30 de septiembre de 2026" }
     ]
   },
   {
@@ -475,17 +475,17 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     rate_per_service: 200,
     payment_method: "Check",
     contract_start: "2024-04-01",
-    contract_end: "2026-04-01",
+    contract_end: "2026-09-30",
     last_contact_date: "2026-02-18",
     last_qcc_date: "2026-04-14",
     has_supplies: true,
     has_keys: true,
     supply_delivery_date: null,
     estimated_fill_date: null,
-    supplies_notes: "Friday weekly service. $200 flat rate to Juan Romero.",
+    supplies_notes: "Friday weekly service. $200 flat rate to Juan Romero. Contrato terminado el 30 de septiembre de 2026 (inactivo para schedule y cuenta comercial a partir del 1 de octubre de 2026).",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 5, paid_hours: 4, assigned_cleaner_name: "Juan Romero", notes: "Friday ($200 per service flat rate)" }
+      { day_of_week: 5, paid_hours: 4, assigned_cleaner_name: "Juan Romero", effective_until: "2026-09-30", effective_end_date: "2026-09-30", notes: "Friday ($200 per service flat rate) — Finaliza el 30 de septiembre de 2026" }
     ]
   },
   {
