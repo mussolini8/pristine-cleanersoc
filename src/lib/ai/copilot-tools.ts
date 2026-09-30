@@ -86,6 +86,42 @@ export const COPILOT_TOOLS: CopilotTool[] = [
       },
     },
   },
+  {
+    name: "audit_business_rules",
+    description: "Audits system compliance with critical business rules from AGENTS.md (Steripax manual calculation check, Maria Lopez $22/hr & $1,000 biweekly flat, Emmi Guerra $18.15/hr, Ana Morales 80h biweekly, and inactive accounts like Mama's HB/Los Alamitos and Field AI).",
+    parameters: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          description: "Optional category to check: 'all', 'payroll', 'rates', 'inactive_accounts', 'steripax'. Defaults to 'all'.",
+        },
+      },
+    },
+  },
+  {
+    name: "query_account_access",
+    description: "Get access and entry instructions for a commercial or residential account (lockbox code, alarm code, gate code, suite, parking, key location, entry notes).",
+    parameters: {
+      type: "object",
+      properties: {
+        accountName: { type: "string", description: "Name of the account to look up entry and access codes for." },
+      },
+      required: ["accountName"],
+    },
+  },
+  {
+    name: "query_payroll_discrepancies",
+    description: "Checks commercial payroll hours entered vs scheduled hours, flagging missing shifts, excessive deviations, and accounts requiring manual review.",
+    parameters: {
+      type: "object",
+      properties: {
+        startDate: { type: "string", description: "Start date in ISO format YYYY-MM-DD" },
+        endDate: { type: "string", description: "End date in ISO format YYYY-MM-DD" },
+      },
+      required: ["startDate", "endDate"],
+    },
+  },
 ];
 
 // Convert to Gemini function declarations format
@@ -96,3 +132,4 @@ export function toGeminiFunctionDeclarations() {
     parameters: tool.parameters,
   }));
 }
+

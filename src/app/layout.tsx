@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { LanguageProvider } from "@/components/providers/language-provider";
+import { GlobalCopilotWrapper } from "@/components/ai/global-copilot-wrapper";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -44,7 +45,10 @@ export default function RootLayout({
     <html data-scroll-behavior="smooth" lang="en-US" suppressHydrationWarning>
       <body>
         <ThemeProvider>
-          <LanguageProvider>{children}</LanguageProvider>
+          <LanguageProvider>
+            {children}
+            <GlobalCopilotWrapper />
+          </LanguageProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -104,6 +104,18 @@ const QUICK_PROMPTS_ES = [
     text: "Dame el resumen de desempeño y horas de Ana Morales este mes.",
   },
   {
+    label: "🛡️ Auditar Reglas",
+    text: "Audita el cumplimiento de todas las reglas de negocio críticas (Steripax, salarios de Emmi y Maria Lopez, cuentas canceladas y turnos sin asignar).",
+  },
+  {
+    label: "⚠️ Discrepancias Nómina",
+    text: "Revisa las discrepancias de nómina comercial entre horas programadas y horas completadas de este período.",
+  },
+  {
+    label: "🚪 Códigos de Acceso",
+    text: "¿Cuáles son los códigos de acceso, llaves y alarma para las oficinas comerciales?",
+  },
+  {
     label: "📅 Ingresar Schedule",
     /** Special marker: clicking this will open the file picker automatically */
     text: "__OPEN_FILE_PICKER__",
@@ -364,6 +376,7 @@ export function GlobalAiBubble() {
           images,
           apiKey: effectiveKey,
           messages: conversation.map((m) => ({ role: m.role, content: m.text })),
+          currentPath: typeof window !== "undefined" ? window.location.pathname : "",
         }),
       });
 

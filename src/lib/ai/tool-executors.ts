@@ -159,6 +159,197 @@ export async function executeTool(name: string, args: Record<string, any>): Prom
         };
       }
 
+      case "audit_business_rules": {
+        const findings: { rule: string; status: "OK" | "WARNING" | "VIOLATION"; detail: string }[] = [];
+
+        // 1. Audit Staff Hourly Rates
+        const { data: staffList } = await supabase
+          .from("staff_members")
+          .select("name, hourly_rate, role, active")
+          .eq("active", true)
+          .is("deleted_at", null);
+
+        const emmi = (staffList || []).find((s: any) => s.name?.toLowerCase().includes("emmi"));
+        if (emmi) {
+          const rate = Number(emmi.hourly_rate);
+          if (rate === 18.15) {
+            findings.push({ rule: "Emmi Guerra Salario", status: "OK", detail: "Tarifa correcta a $18.15/hr." });
+          } else {
+            findings.push({
+              rule: "Emmi Guerra Salario",
+              status: "VIOLATION",
+              detail: `Tarifa actual es $${rate}/hr. REGLA: Debe ser $18.15/hr para todas sus cuentas comerciales (ILG Westlake, ILG Valencia).`,
+            });
+          }
+        }
+
+        const maria = (staffList || []).find((s: any) => s.name?.toLowerCase().includes("maria lopez"));
+        if (maria) {
+          const rate = Number(maria.hourly_rate);
+          if (rate === 22.0) {
+            findings.push({ rule: "Maria Lopez Salario", status: "OK", detail: "Tarifa comercial correcta a $22.00/hr." });
+          } else {
+            findings.push({
+              rule: "Maria Lopez Salario",
+              status: "VIOLATION",
+              detail: `Tarifa actual es $${rate}/hr. REGLA: Debe ser $22.00/hr (ILG Irvine Office). Recordar su flat garantizado de $1,000 quincenal.`,
+            });
+          }
+        }
+
+        // 2. Audit Inactive / Cancelled Commercial Accounts
+        const { data: accounts } = await supabase
+          .from("commercial_accounts")
+          .select("id, name, cleaner_name, contract_end")
+          .order("name");
+
+        const mamasHB = (accounts || []).find((a: any) => a.name?.toLowerCase().includes("mama") && a.name?.toLowerCase().includes("huntington"));
+        const mamasLA = (accounts || []).find((a: any) => a.name?.toLowerCase().includes("mama") && a.name?.toLowerCase().includes("los alamitos"));
+        const fieldAi = (accounts || []).find((a: any) => a.name?.toLowerCase().includes("field ai") || a.name?.toLowerCase().includes("field day"));
+
+        if (mamasHB && (!mamasHB.contract_end || mamasHB.contract_end > "2026-09-30")) {
+          findings.push({
+            rule: "Mama's HB Cancelación",
+            status: "VIOLATION",
+            detail: "Mama's Huntington Beach terminó contrato el 2026-09-30. Debe tener contract_end='2026-09-30' y estar inactiva desde octubre 2026.",
+          });
+        } else if (mamasHB) {
+          findings.push({ rule: "Mama's HB Cancelación", status: "OK", detail: "Mama's Huntington Beach correctamente marcada inactiva." });
+        }
+
+        if (mamasLA && (!mamasLA.contract_end || mamasLA.contract_end > "2026-09-30")) {
+          findings.push({
+            rule: "Mama's Los Alamitos Cancelación",
+            status: "VIOLATION",
+            detail: "Mama's Los Alamitos terminó contrato el 2026-09-30. Debe tener contract_end='2026-09-30' y no programarse a partir de octubre 2026.",
+          });
+        } else if (mamasLA) {
+          findings.push({ rule: "Mama's Los Alamitos Cancelación", status: "OK", detail: "Mama's Los Alamitos correctamente marcada inactiva." });
+        }
+
+        if (fieldAi && (!fieldAi.contract_end || fieldAi.contract_end > "2026-08-31")) {
+          findings.push({
+            rule: "Field AI Cancelación",
+            status: "VIOLATION",
+            detail: "Field AI terminó contrato el 2026-08-31. Debe tener contract_end='2026-08-31' y no programarse.",
+          });
+        } else if (fieldAi) {
+          findings.push({ rule: "Field AI Cancelación", status: "OK", detail: "Field AI finalizada al 2026-08-31." });
+        }
+
+        // 3. Audit Steripax Account
+        const steripax = (accounts || []).find((a: any) => a.name?.toLowerCase().includes("steripax"));
+        if (steripax) {
+          findings.push({
+            rule: "Steripax Regla Manual",
+            status: "OK",
+            detail: `Cuenta asignada a ${steripax.cleaner_name || "Lucia Portillo"}. CÁLCULO ESTRICTAMENTE MANUAL según horas reales trabajadas ($3,386.06 o reporte real). NUNCA sobreescribir automáticamente.`,
+          });
+        }
+
+        // 4. Audit Unassigned Accounts
+        const unassigned = (accounts || []).filter((a: any) => !a.cleaner_name && (!a.contract_end || a.contract_end >= "2026-10-01"));
+        if (unassigned.length > 0) {
+          findings.push({
+            rule: "Cuentas Sin Cleaner",
+            status: "WARNING",
+            detail: `${unassigned.length} cuenta(s) activas sin limpiador asignado: ${unassigned.map((a: any) => a.name).join(", ")}.`,
+          });
+        }
+
+        const violations = findings.filter((f) => f.status === "VIOLATION").length;
+        const warnings = findings.filter((f) => f.status === "WARNING").length;
+
+        const summaryText = `Auditoría de Reglas de Negocio: ${violations} violaciones, ${warnings} alertas. ` +
+          findings.map((f) => `[${f.status}] ${f.rule}: ${f.detail}`).join("\n");
+
+        return {
+          success: true,
+          data: findings,
+          summary: summaryText,
+        };
+      }
+
+      case "query_account_access": {
+        const { accountName } = args;
+        const { data: accounts } = await supabase
+          .from("commercial_accounts")
+          .select("id, name, city, supplies_notes, has_keys")
+          .ilike("name", `%${accountName}%`)
+          .limit(3);
+
+        if (accounts && accounts.length > 0) {
+          const acc = accounts[0];
+          return {
+            success: true,
+            data: acc,
+            summary: `Acceso para ${acc.name} (${acc.city || "OC"}): ` +
+              (acc.supplies_notes ? `Instrucciones/Códigos: "${acc.supplies_notes}"` : "Sin códigos o notas de acceso registradas.") +
+              (acc.has_keys ? " | Tiene llaves asignadas." : ""),
+          };
+        }
+
+        // Check residential accounts
+        const { data: resAccounts } = await supabase
+          .from("residential_recurring_cleaning_accounts")
+          .select("account_name, city, assigned_team_name")
+          .ilike("account_name", `%${accountName}%`)
+          .limit(3);
+
+        if (resAccounts && resAccounts.length > 0) {
+          const r = resAccounts[0];
+          return {
+            success: true,
+            data: r,
+            summary: `Cuenta Residencial ${r.account_name} (${r.city || "OC"}), Equipo: ${r.assigned_team_name}.`,
+          };
+        }
+
+        return {
+          success: false,
+          summary: `No se encontraron instrucciones de acceso para '${accountName}'.`,
+        };
+      }
+
+      case "query_payroll_discrepancies": {
+        const { startDate, endDate } = args;
+        const { data: entries } = await supabase
+          .from("commercial_hours_entries")
+          .select("account_name, team_name, scheduled_hours, completed_hours, work_date, status")
+          .gte("work_date", startDate)
+          .lte("work_date", endDate)
+          .is("deleted_at", null);
+
+        const discrepancies: any[] = [];
+        let totalScheduled = 0;
+        let totalCompleted = 0;
+
+        for (const e of (entries || []) as any[]) {
+          const sched = Number(e.scheduled_hours) || 0;
+          const comp = Number(e.completed_hours) || 0;
+          totalScheduled += sched;
+          totalCompleted += comp;
+
+          const diff = Math.abs(comp - sched);
+          if (diff >= 1.5 || (comp === 0 && sched > 0)) {
+            discrepancies.push({
+              account: e.account_name,
+              cleaner: e.team_name,
+              date: e.work_date,
+              scheduled: sched,
+              completed: comp,
+              diff: (comp - sched).toFixed(1),
+            });
+          }
+        }
+
+        return {
+          success: true,
+          data: { totalScheduled, totalCompleted, discrepancies },
+          summary: `Período ${startDate} a ${endDate}: ${totalCompleted.toFixed(1)}h completadas vs ${totalScheduled.toFixed(1)}h programadas. ${discrepancies.length} discrepancias significativas detectadas.`,
+        };
+      }
+
       default:
         return { success: false, summary: `Herramienta desconocida: ${name}` };
     }

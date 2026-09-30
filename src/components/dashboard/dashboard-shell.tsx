@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { canAccessArea, normalizeAppRole, type AccessArea, type AppRole } from "@/lib/access-control";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import { GlobalAiBubble } from "@/components/ai/global-ai-bubble";
 import { BookingKoalaImporterModal } from "@/components/operations/bookingkoala-importer-modal";
 import { JobBroadcastModal } from "@/components/ai/job-broadcast-modal";
 
@@ -251,9 +250,6 @@ export function DashboardShell({
           // optionally refresh page or show feedback
         }}
       />
-
-      {/* Global AI Copilot Floating Bubble */}
-      <GlobalAiBubble />
 
       {/* Job Broadcast Modal (Difusión de Trabajo Residencial) */}
       <JobBroadcastModal
