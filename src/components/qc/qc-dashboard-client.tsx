@@ -23,6 +23,7 @@ import {
 } from "@/components/qc/inspectors-panel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { WorkScheduleModal } from "@/components/operations/work-schedule-modal";
 
 // ─────────────────────────────────────────────
 // Types
@@ -241,6 +242,7 @@ export function QCDashboardClient() {
   const [selectedGeofenceAccount, setSelectedGeofenceAccount] = useState<CommercialAccountRow | null>(null);
   const [selectedAudit, setSelectedAudit] = useState<InspectionRow | null>(null);
   const [schedulingOpen, setSchedulingOpen] = useState(false);
+  const [workScheduleOpen, setWorkScheduleOpen] = useState(false);
 
   // ── Load data ──────────────────────────────────
   useEffect(() => {
@@ -553,7 +555,15 @@ export function QCDashboardClient() {
       {/* Calendar */}
       {activeTab === "calendar" && (
         <div className="flex flex-col gap-4">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setWorkScheduleOpen(true)}
+              className="cursor-pointer gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300"
+            >
+              <FileText className="size-4" /> Work Schedule (PDF)
+            </Button>
             <Button onClick={() => setSchedulingOpen(true)} size="sm" className="cursor-pointer gap-1">
               <Plus className="size-4" /> Schedule Inspection
             </Button>
@@ -621,6 +631,14 @@ export function QCDashboardClient() {
           onSaved={(newSched) => setSchedules((prev) => [...prev, newSched])}
         />
       )}
+
+      <WorkScheduleModal
+        open={workScheduleOpen}
+        onClose={() => setWorkScheduleOpen(false)}
+        initialEmployee="Maria Lopez"
+        initialPeriod="October 2026"
+        initialScope="qc"
+      />
     </div>
   );
 }

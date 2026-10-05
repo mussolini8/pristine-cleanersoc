@@ -49,6 +49,7 @@ import { ResidentialImportsPanel } from "./residential-imports-panel";
 import { getCleanerPhone } from "@/lib/cleaner-contacts";
 
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
+import { WorkScheduleModal } from "./work-schedule-modal";
 import type { SopCopilotResponse } from "@/lib/ai/gemini-client";
 import { resolveCanonicalAccountName } from "@/lib/ai/sop-actions-handler";
 import { canonicalizeStaffName, ANA_MORALES_BIWEEKLY_HOURS, ANA_MORALES_BIWEEKLY_PAY, MARIA_LOPEZ_FLAT_PAY, MARIA_LOPEZ_BIWEEKLY_FLAT_PAY, getAnaMoralesPayForPeriod, getMariaLopezFlatPayForPeriod, isAnaMorales, isMariaLopez } from "@/lib/staff-rules";
@@ -907,6 +908,7 @@ export function SimpleOperationsClient({
   const [scheduleConfirmPending, setScheduleConfirmPending] = useState<boolean>(false);
   const [scheduleActionSubmitting, setScheduleActionSubmitting] = useState<boolean>(false);
   const [scheduleActionFeedback, setScheduleActionFeedback] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [showWorkScheduleModal, setShowWorkScheduleModal] = useState<boolean>(false);
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<OperationTaskRow | null>(null);
@@ -4317,6 +4319,18 @@ export function SimpleOperationsClient({
           });
         }}
       />
+      <WorkScheduleModal
+        open={showWorkScheduleModal}
+        onClose={() => setShowWorkScheduleModal(false)}
+        initialEmployee="Maria Lopez"
+        initialPeriod="October 2026"
+        initialScope={scheduleTab === "qc" ? "qc" : "cleaning"}
+        commercialAccounts={commercialAccounts}
+        commercialScheduleRules={commercialScheduleRules}
+        commercialHoursEntries={commercialHoursEntries}
+        residentialAccounts={accounts}
+        tasks={tasks}
+      />
     </DashboardShell>
   );
 
@@ -4640,27 +4654,38 @@ export function SimpleOperationsClient({
 
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2 border-b border-border/70 pb-3 flex-wrap">
-          <button 
+        <div className="flex items-center justify-between border-b border-border/70 pb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button 
+              type="button"
+              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'commercial' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
+              onClick={() => setScheduleTab("commercial")}
+            >
+              Commercial Schedule
+            </button>
+            <button 
+              type="button"
+              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'residential' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
+              onClick={() => setScheduleTab("residential")}
+            >
+              Residential Schedule
+            </button>
+            <button 
+              type="button"
+              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'qc' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
+              onClick={() => setScheduleTab("qc")}
+            >
+              QC Schedule
+            </button>
+          </div>
+
+          <button
             type="button"
-            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'commercial' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
-            onClick={() => setScheduleTab("commercial")}
+            onClick={() => setShowWorkScheduleModal(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-700 transition cursor-pointer"
           >
-            Commercial Schedule
-          </button>
-          <button 
-            type="button"
-            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'residential' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
-            onClick={() => setScheduleTab("residential")}
-          >
-            Residential Schedule
-          </button>
-          <button 
-            type="button"
-            className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors cursor-pointer ${scheduleTab === 'qc' ? 'bg-primary text-primary-foreground shadow-xs' : 'bg-transparent text-muted-foreground hover:bg-muted'}`}
-            onClick={() => setScheduleTab("qc")}
-          >
-            QC Schedule
+            <FileText className="size-4" />
+            Work Schedule (PDF)
           </button>
         </div>
         
