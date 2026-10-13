@@ -35,12 +35,16 @@ import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal"
 import { getCleanerDefaultHourlyRate, canonicalizeStaffName } from "@/lib/staff-rules";
 import { useLanguage } from "@/components/providers/language-provider";
 
-// ─────────────────────────────────────────────
 type AccountScheduleRule = {
   day_of_week: number;
   paid_hours: number;
   assigned_cleaner_name?: string | null;
   notes?: string | null;
+  frequency_type?: "monthly" | "weekly" | "custom" | "biweekly" | "every_3_weeks" | "every_15_days" | null;
+  frequency_interval?: number | null;
+  anchor_date?: string | null;
+  effective_start_date?: string | null;
+  effective_end_date?: string | null;
 };
 
 type Account = {
@@ -89,7 +93,7 @@ type AccountDraft = Omit<Account, "id">;
 
 type AccountFormMode = "create" | "edit";
 
-type ScheduleFrequencyType = "weekly" | "biweekly" | "monthly" | "custom";
+type ScheduleFrequencyType = "weekly" | "biweekly" | "monthly" | "custom" | "every_3_weeks" | "every_15_days";
 
 type ScheduleRule = {
   id?: string;
@@ -338,11 +342,12 @@ function toAccount(account: ImportedCommercialAccount): Account {
   const isMamas = norm.includes("mama");
   const isGreenLeaf = norm.includes("green leaf");
   const isSteripax = norm.includes("steripax");
+  const isLsg = norm.includes("lsg");
   const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
   const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
   const hours = numericHours(account.hours);
   const visits = getVisitsPerMonth(account.frequency);
-  const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
+  const isExcluded = isMamas || isGreenLeaf || isSteripax || isLsg || isMoxi3CM || isMacArthur;
   const defaultCleanerRate = getCleanerDefaultHourlyRate(account.cleaner_name);
   const cleanerRate = isMamas || isGreenLeaf
     ? null
@@ -357,6 +362,8 @@ function toAccount(account: ImportedCommercialAccount): Account {
     : (account.rate_per_service ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
   const cost = isSteripax
     ? (account.cost ?? 3386.06)
+    : isLsg
+    ? (account.cost ?? 7639.12)
     : isMoxi3CM
     ? 755.64
     : isMacArthur
@@ -445,15 +452,18 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const imported = importedMap.get(key);
     const local = localMap.get(key);
     // Remote DB and imported updates take precedence over stale local cache!
-    const base = { ...local, ...imported, ...remote };
+    // For LSG Sky Chefs, ensure newly imported contract details ($16,109 rev, $7,639.12 cost, 14h, notes) apply over older DB values
+    const isLsgAcc = (remote.name || "").toLowerCase().includes("lsg");
+    const base = isLsgAcc && imported ? { ...local, ...remote, ...imported, id: remote.id || imported.id } : { ...local, ...imported, ...remote };
     const norm = (base.name || "").toLowerCase();
     const isMamas = norm.includes("mama");
     const isGreenLeaf = norm.includes("green leaf");
     const isSteripax = norm.includes("steripax");
+    const isLsg = norm.includes("lsg");
     const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
     const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
     const hours = numericHours(base.hours);
-    const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
+    const isExcluded = isMamas || isGreenLeaf || isSteripax || isLsg || isMoxi3CM || isMacArthur;
     const defaultCleanerRate = getCleanerDefaultHourlyRate(base.cleaner_name);
     const cleanerRate = isMamas || isGreenLeaf
       ? null
@@ -469,6 +479,8 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const visits = getVisitsPerMonth(base.frequency);
     const cost = isSteripax
       ? (base.cost || 3386.06)
+      : isLsg
+      ? (base.cost || 7639.12)
       : isMoxi3CM
       // Moxi3 CM cost is locked: 1st & 3rd Sat = 5h mat clean, 2nd & 4th = 3h
       // Mon+Thu: 3h × 2 × 4.33 × $18 = $467.64 | Sat: 16h × $18 = $288 → $755.64
@@ -924,9 +936,18 @@ function ScheduleRulesEditor({ account, cleanerOptions = CLEANERS }: { account: 
       if (!mounted) return;
       if (error) {
         setRulesMessage(error.message);
-        setRules([]);
+        setRules((account.schedule_rules ?? []).map((r) => ({
+          ...r,
+          selected_days: [Number(r.day_of_week)],
+          frequency_type: r.frequency_type ?? "weekly",
+          frequency_interval: r.frequency_interval ?? (r.frequency_type === "biweekly" ? 2 : 1),
+        })));
       } else {
-        setRules(((data ?? []) as ScheduleRule[]).map((rule) => ({
+        const dbList = ((data ?? []) as ScheduleRule[]);
+        const sourceList = (account.schedule_rules && account.schedule_rules.length > dbList.length)
+          ? account.schedule_rules
+          : (dbList.length > 0 ? dbList : (account.schedule_rules ?? []));
+        setRules(sourceList.map((rule) => ({
           ...rule,
           selected_days: [Number(rule.day_of_week)],
           frequency_type: rule.frequency_type ?? "weekly",

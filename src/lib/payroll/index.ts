@@ -92,15 +92,34 @@ function mergeCommercialAccounts(remoteAccounts: CommercialAccount[]) {
 
   const merged: CommercialAccount[] = [];
 
+  const seenKeys = new Set<string>();
   for (const remote of remoteAccounts) {
     const key = normalizeAccountKey(remote);
+    seenKeys.add(key);
     const imported = importedMap.get(key);
-    merged.push({
-      ...imported,
-      ...remote,
-      schedule_rules: remote.schedule_rules ?? imported?.schedule_rules ?? [],
-      source_sheet: remote.source_sheet ?? imported?.source_sheet ?? "Manual entry",
-    });
+    const isLsg = (remote.name || "").toLowerCase().includes("lsg");
+    if (isLsg && imported) {
+      merged.push({
+        ...remote,
+        ...imported,
+        id: remote.id || imported.id,
+        schedule_rules: (imported.schedule_rules && imported.schedule_rules.length > 0) ? imported.schedule_rules : (remote.schedule_rules ?? []),
+        source_sheet: remote.source_sheet ?? imported.source_sheet ?? "Manual entry",
+      });
+    } else {
+      merged.push({
+        ...imported,
+        ...remote,
+        schedule_rules: remote.schedule_rules ?? imported?.schedule_rules ?? [],
+        source_sheet: remote.source_sheet ?? imported?.source_sheet ?? "Manual entry",
+      });
+    }
+  }
+
+  for (const [key, imported] of importedMap) {
+    if (!seenKeys.has(key)) {
+      merged.push(imported);
+    }
   }
 
   return merged.sort((a, b) => `${a.name} ${a.city ?? ""}`.localeCompare(`${b.name} ${b.city ?? ""}`));
@@ -214,6 +233,9 @@ async function fetchScheduleRules(accounts: CommercialAccount[]) {
 function rulesForAccount(account: CommercialAccount, rules: CommercialScheduleRule[]) {
   const importedRules = account.schedule_rules ?? [];
   const dbRules = isUuid(account.id) ? rules.filter((rule) => rule.commercial_account_id === account.id) : [];
+  if (account.name?.toLowerCase().includes("lsg")) {
+    return importedRules.length > dbRules.length ? importedRules : dbRules;
+  }
   return dbRules.length > 0 ? dbRules : importedRules;
 }
 
