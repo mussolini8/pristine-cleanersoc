@@ -163,9 +163,17 @@ export async function upsertCleanerPaymentSetting(setting: CleanerPaymentSetting
 async function ensureDefaultSettings(accounts: CommercialAccount[]) {
   const existing = await fetchCleanerPaymentSettings();
   const byName = new Set(existing.map((setting) => setting.cleaner_name?.toLowerCase()).filter(Boolean));
-  const names = Array.from(new Set(accounts.map((account) => account.cleaner_name).filter(Boolean))) as string[];
+  const candidateNames = new Set<string>();
+  accounts.forEach((acc) => {
+    if (acc.cleaner_name) candidateNames.add(acc.cleaner_name);
+    (acc.schedule_rules ?? []).forEach((r) => {
+      if (r.assigned_cleaner_name) candidateNames.add(r.assigned_cleaner_name);
+    });
+  });
+  candidateNames.add("José Vazquez");
+  candidateNames.add("Luz Uribe");
 
-  for (const name of names) {
+  for (const name of Array.from(candidateNames)) {
     if (byName.has(name.toLowerCase())) continue;
     try {
       const defaultRate = getCleanerDefaultHourlyRate(name);

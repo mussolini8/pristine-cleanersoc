@@ -1749,7 +1749,7 @@ export default function CommercialPage() {
             "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
             "Mirna Contreras", "Esperanza Youseff", "Esperanza Yoseff", "Ana Morales",
             "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin",
-            "Vanessa Ortega"
+            "Vanessa Ortega", "José Vazquez"
           ];
 
           const staffToInsert: Record<string, unknown>[] = [];

@@ -60,6 +60,7 @@ const KNOWN_CLEANERS = [
   "Susana Bautista",
   "Veronica Ladinos",
   "Vanessa Ortega",
+  "José Vazquez",
 ];
 
 const KNOWN_COMMERCIAL_KEYWORDS = [

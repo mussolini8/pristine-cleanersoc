@@ -1107,7 +1107,8 @@ export function SimpleOperationsClient({
       const seedCleaners = [
         "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
         "Mirna Contreras", "Esperanza Youseff", "Esperanza Yoseff", "Ana Morales",
-        "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin"
+        "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin",
+        "José Vazquez"
       ];
 
       const staffToInsert: Record<string, unknown>[] = [];
