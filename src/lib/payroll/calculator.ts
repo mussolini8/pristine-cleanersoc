@@ -135,6 +135,13 @@ function cleanMoney(value: number) {
 }
 
 function resolvePayRate(account: CommercialAccount, setting: CleanerPaymentSetting | null, hours: number, cleanerName?: string | null) {
+  const targetCleaner = cleanerName || account.cleaner_name;
+
+  // LSG Sky Chefs add-on (4h daily shift)
+  if (account.name?.toLowerCase().includes("lsg") && hours === 4) {
+    return 18;
+  }
+
   const hourlyRate = Number(account.cleaner_hourly_rate ?? 0);
   if (hourlyRate > 0) return hourlyRate;
 
@@ -146,7 +153,6 @@ function resolvePayRate(account: CommercialAccount, setting: CleanerPaymentSetti
   const settingRate = Number(setting?.default_pay_rate ?? 0);
   if (settingRate > 0) return settingRate;
 
-  const targetCleaner = cleanerName || account.cleaner_name;
   if (targetCleaner) {
     return getCleanerDefaultHourlyRate(targetCleaner);
   }

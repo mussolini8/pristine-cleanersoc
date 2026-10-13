@@ -1,3 +1,9 @@
+export type ComplaintStrike = {
+  checked: boolean;
+  date: string | null;
+  note?: string | null;
+};
+
 export type ImportedCommercialAccount = {
   id: string;
   name: string;
@@ -24,6 +30,8 @@ export type ImportedCommercialAccount = {
   supplies_notes: string | null;
   source_sheet: string;
   schedule_rules?: ImportedCommercialScheduleRule[];
+  complaints_notes?: string | null;
+  complaint_strikes?: ComplaintStrike[] | null;
 };
 
 export type ImportedCommercialScheduleRule = {
@@ -379,31 +387,38 @@ export const importedCommercialAccounts: ImportedCommercialAccount[] = [
     name: "LSG Sky Chefs",
     city: "Costa Mesa",
     pricing_model: "Flat Rate",
-    cleaner_name: "Luz and Vanessa",
-    hours: 10,
+    cleaner_name: "Maria Mejia, Luz Uribe & José Vazquez",
+    hours: 14,
     frequency: "7x per week",
-    revenue: 10750,
-    cost: 5472,
-    rate_per_service: 180,
+    revenue: 16109,
+    cost: 7639.12,
+    rate_per_service: null,
     payment_method: "ACH",
     contract_start: "2026-07-09",
-    contract_end: null,
+    contract_end: "2026-12-31",
     last_contact_date: null,
     last_qcc_date: null,
     has_supplies: true,
     has_keys: true,
     supply_delivery_date: null,
     estimated_fill_date: null,
-    supplies_notes: "Maria Mejia (Sun, Mon, Wed, Thu) & Luz Uribe (Tue, Fri, Sat). 10 hrs per service.",
+    supplies_notes: "Base: Maria Mejia (Sun, Mon, Wed, Thu) & Luz Uribe (Tue, Fri, Sat) 10h/day ($18/hr). Add-on ($5,359/mo): 4h/day con duración de un año calendario hasta 31-12-2026 (Luz Uribe: Mon, Wed, Thu, Sun @ $18/hr; José Vazquez: Tue, Fri, Sat @ $18/hr).",
     source_sheet: "Accounts",
     schedule_rules: [
-      { day_of_week: 0, paid_hours: 10, assigned_cleaner_name: "Maria Mejia", notes: "Sunday 10h" },
-      { day_of_week: 1, paid_hours: 10, assigned_cleaner_name: "Maria Mejia", notes: "Monday 10h" },
-      { day_of_week: 2, paid_hours: 10, assigned_cleaner_name: "Luz Uribe", notes: "Tuesday 10h" },
-      { day_of_week: 3, paid_hours: 10, assigned_cleaner_name: "Maria Mejia", notes: "Wednesday 10h" },
-      { day_of_week: 4, paid_hours: 10, assigned_cleaner_name: "Maria Mejia", notes: "Thursday 10h" },
-      { day_of_week: 5, paid_hours: 10, assigned_cleaner_name: "Luz Uribe", notes: "Friday 10h" },
-      { day_of_week: 6, paid_hours: 10, assigned_cleaner_name: "Luz Uribe", notes: "Saturday 10h" },
+      { day_of_week: 0, paid_hours: 10, assigned_cleaner_name: "Maria Mejia", notes: "Sunday Base 10h ($18/hr)" },
+      { day_of_week: 1, paid_hours: 10, assigned_cleaner_name: "Maria Mejia", notes: "Monday Base 10h ($18/hr)" },
+      { day_of_week: 2, paid_hours: 10, assigned_cleaner_name: "Luz Uribe", notes: "Tuesday Base 10h ($18/hr)" },
+      { day_of_week: 3, paid_hours: 10, assigned_cleaner_name: "Maria Mejia", notes: "Wednesday Base 10h ($18/hr)" },
+      { day_of_week: 4, paid_hours: 10, assigned_cleaner_name: "Maria Mejia", notes: "Thursday Base 10h ($18/hr)" },
+      { day_of_week: 5, paid_hours: 10, assigned_cleaner_name: "Luz Uribe", notes: "Friday Base 10h ($18/hr)" },
+      { day_of_week: 6, paid_hours: 10, assigned_cleaner_name: "Luz Uribe", notes: "Saturday Base 10h ($18/hr)" },
+      { day_of_week: 0, paid_hours: 4, assigned_cleaner_name: "Luz Uribe", effective_end_date: "2026-12-31", notes: "Sunday Add-on 4h ($18/hr)" },
+      { day_of_week: 1, paid_hours: 4, assigned_cleaner_name: "Luz Uribe", effective_end_date: "2026-12-31", notes: "Monday Add-on 4h ($18/hr)" },
+      { day_of_week: 2, paid_hours: 4, assigned_cleaner_name: "José Vazquez", effective_end_date: "2026-12-31", notes: "Tuesday Add-on 4h ($18/hr)" },
+      { day_of_week: 3, paid_hours: 4, assigned_cleaner_name: "Luz Uribe", effective_end_date: "2026-12-31", notes: "Wednesday Add-on 4h ($18/hr)" },
+      { day_of_week: 4, paid_hours: 4, assigned_cleaner_name: "Luz Uribe", effective_end_date: "2026-12-31", notes: "Thursday Add-on 4h ($18/hr)" },
+      { day_of_week: 5, paid_hours: 4, assigned_cleaner_name: "José Vazquez", effective_end_date: "2026-12-31", notes: "Friday Add-on 4h ($18/hr)" },
+      { day_of_week: 6, paid_hours: 4, assigned_cleaner_name: "José Vazquez", effective_end_date: "2026-12-31", notes: "Saturday Add-on 4h ($18/hr)" },
     ]
   },
   {

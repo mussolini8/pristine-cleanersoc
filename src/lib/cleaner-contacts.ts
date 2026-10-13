@@ -7,6 +7,7 @@
 export type CleanerContact = {
   name: string;
   phone: string;
+  email?: string;
   status: "Active" | "Inactive";
   type: "Location-Based" | "Staff/Support";
 };
@@ -14,6 +15,7 @@ export type CleanerContact = {
 export const CLEANER_CONTACTS: CleanerContact[] = [
   { name: "Ana Morales", phone: "714-715-9147", status: "Active", type: "Location-Based" },
   { name: "Emmi Guerra", phone: "747-218-8351", status: "Active", type: "Location-Based" },
+  { name: "José Vazquez", phone: "(714) 381-7555", email: "mikyvaz@gmail.com", status: "Active", type: "Location-Based" },
   { name: "Kassandra Valentin", phone: "714-715-9147", status: "Active", type: "Location-Based" },
   { name: "Lesbia Vasquez", phone: "714-312-9183", status: "Active", type: "Location-Based" },
   { name: "Lucia Portillo", phone: "714-660-8440", status: "Active", type: "Location-Based" },
@@ -44,6 +46,9 @@ export const CLEANER_PHONE_DIRECTORY: Record<string, string> = {
   "ana morales": "714-715-9147",
   "emmi guerra": "747-218-8351",
   "emmi garcia": "747-218-8351",
+  "josé vazquez": "(714) 381-7555",
+  "jose vazquez": "(714) 381-7555",
+  "jose vasquez": "(714) 381-7555",
   "kassandra valentin": "714-715-9147",
   "lesbia vasquez": "714-312-9183",
   "lucia portillo": "714-660-8440",
@@ -63,6 +68,12 @@ export const CLEANER_PHONE_DIRECTORY: Record<string, string> = {
   "rosa calderon": "714-659-9949",
   "blanca garcia": "714-615-8757",
   "dovissy calderon": "657-358-2963",
+};
+
+export const CLEANER_EMAIL_DIRECTORY: Record<string, string> = {
+  "josé vazquez": "mikyvaz@gmail.com",
+  "jose vazquez": "mikyvaz@gmail.com",
+  "jose vasquez": "mikyvaz@gmail.com",
 };
 
 export function getCleanerPhone(name: string | null | undefined): string | null {

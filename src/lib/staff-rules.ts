@@ -110,6 +110,7 @@ export function isMariaLopez(cleanerName?: string | null | undefined): boolean {
  * Business rule for commercial cleaner hourly rates:
  * - Emmi Garcia / Emmi Guerra: $18.15 / hr
  * - Maria Lopez: $22.00 / hr
+ * - José Vazquez: $18.00 / hr
  * - All other hourly commercial cleaners: $18.00 / hr default
  */
 export function getCleanerDefaultHourlyRate(cleanerName?: string | null | undefined): number {
@@ -120,6 +121,9 @@ export function getCleanerDefaultHourlyRate(cleanerName?: string | null | undefi
   }
   if (norm.includes("maria") && norm.includes("lopez")) {
     return 22;
+  }
+  if (norm.includes("jose") && (norm.includes("vazquez") || norm.includes("vasquez"))) {
+    return 18;
   }
   return 18;
 }

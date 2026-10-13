@@ -13,7 +13,19 @@ This version has breaking changes — APIs, conventions, and file structure may 
 # Reglas Salariales de Cleaners Comerciales
 - **Emmi Guerra**: Gana **$18.15 por hora** (NO $18 como los demás). Cualquier cuenta comercial asignada a ella (ej. *ILG Westlake*, *ILG Valencia Office*) calcula su tarifa por servicio y costo de nómina en base a **$18.15/hr**. En actualizaciones masivas de tarifas a $18/hr, su tarifa de $18.15 debe preservarse.
 - **Maria Lopez**: Gana **$22.00 por hora** (NO $18). Cualquier cuenta comercial asignada a ella (ej. *ILG Irvine Office*) calcula su tarifa por servicio y costo de nómina en base a **$22.00/hr**. En actualizaciones masivas de tarifas a $18/hr, su tarifa de $22.00 debe preservarse.
+- **José Vazquez**: Limpiador comercial nuevo. Tel: **(714) 381-7555**, Email: **mikyvaz@gmail.com**. Gana **$18.00 por hora**. Realiza los días martes, viernes y sábado el turno adicional de 4 horas diarias en LSG Sky Chefs a $18.00/hr.
 - **Tarifa Base General**: El resto de limpiadoras comerciales por hora tienen una tarifa estándar de **$18.00 por hora** (salvo cuentas de tarifa fija como Mama's a $200 y Green Leaf a $119).
+
+# Reglas de Negocio: LSG Sky Chefs y Add-on
+- **Precio Add-on**: LSG Sky Chefs tiene un add-on de **$5,359 al mes** (Precio total mensual: $16,109.00 / mes, sumando base $10,750 + add-on $5,359).
+- **Tarifa y Horas del Add-on**:
+  - **Luz Uribe**: 4 horas diarias a **$18.00 por hora** ($72.00 por turno) los días Monday, Wednesday, Thursday, Sunday.
+  - **José Vazquez**: 4 horas diarias a **$18.00 por hora** ($72.00 por turno) los días Tuesday, Friday, Saturday.
+- **Duración**: Duración de **un año calendario: hasta 31-12-2026**.
+
+# Reglas de Perfil de Cuentas: Sistema de Complaints y Strikes
+- **Notas de Complaints y 5 Checkmarks**: Cada perfil de cuenta comercial incluye una sección para registrar notas de complaints y hasta 5 checkmarks con fecha para control de SLA y calidad.
+- **Vigencia de Año Calendario**: Duración de un año calendario (vigencia y límite hasta **31-12-2026**). Al llegar el 31-12-2026 se reinicia el período para el nuevo año calendario.
 
 # Reglas de Pagos: Ana y Maria Lopez
 - **Ana Morales**: Tiene asignada una regla de **80 horas cada quincena** ($1,440.00 por quincena a su tarifa de $18.00/hr). **SE MUESTRA ESTRICTAMENTE CADA QUINCENA (para el 15 y el último de mes), NO CADA SEMANA**. No tiene equivalente semanal de 40h ni $720/sem. En períodos semanales, NO se muestra salvo que la semana contenga el corte de quincena (el día 15 o el último día del mes), en cuyo caso se muestra con su pago quincenal completo de 80h ($1,440.00). En períodos quincenales ("Every 15 days"), se muestra siempre en cada quincena con 80 horas ($1,440.00).

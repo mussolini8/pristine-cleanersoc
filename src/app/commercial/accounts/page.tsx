@@ -7,10 +7,12 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import {
   importedCommercialAccounts,
   type ImportedCommercialAccount,
+  type ComplaintStrike,
 } from "@/lib/commercial-accounts-data";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import type { PieLabelRenderProps } from "recharts";
 import {
+  AlertTriangle,
   Building2,
   CalendarCheck,
   ChevronDown,
@@ -71,6 +73,10 @@ type Account = {
   source_sheet?: string | null;
   /** Per-day schedule rules. When hours differ across days, cost is derived from these rules. */
   schedule_rules?: AccountScheduleRule[] | null;
+  /** Quality complaints notes and log */
+  complaints_notes?: string | null;
+  /** 5 checkmarks with dates for complaints tracking within calendar year (until 2026-12-31) */
+  complaint_strikes?: ComplaintStrike[] | null;
 };
 
 type CleanerChartDatum = {
@@ -107,6 +113,7 @@ const CLEANERS = [
   "", "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
   "Susana Bautista", "Mirna Contreras", "Esperanza Youseff", "Ana Morales", "Maria Lopez",
   "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin", "Vanessa Ortega", "Luz and Vanessa",
+  "José Vazquez",
 ];
 
 const PRICING_MODELS = ["Monthly", "Biweekly", "Weekly", "Per Service", "Variable", "One Time"] as const;
@@ -148,6 +155,24 @@ function getVisitsPerMonth(frequency: string | null | undefined): number {
   return 4.33;
 }
 
+function normalizeComplaintStrikes(strikes?: ComplaintStrike[] | null): ComplaintStrike[] {
+  const result: ComplaintStrike[] = [];
+  for (let i = 0; i < 5; i++) {
+    const s = strikes && strikes[i];
+    result.push({
+      checked: Boolean(s?.checked),
+      date: s?.date ? String(s.date).trim() : null,
+      note: s?.note ? String(s.note).trim() : "",
+    });
+  }
+  return result;
+}
+
+function countCheckedStrikes(strikes?: ComplaintStrike[] | null): number {
+  if (!strikes || !Array.isArray(strikes)) return 0;
+  return strikes.filter((s) => s.checked).length;
+}
+
 function emptyAccountDraft(): AccountDraft {
   return {
     name: "",
@@ -175,6 +200,8 @@ function emptyAccountDraft(): AccountDraft {
     has_supplies: false,
     has_keys: false,
     supplies_notes: "",
+    complaints_notes: "",
+    complaint_strikes: normalizeComplaintStrikes(null),
   };
 }
 
@@ -206,6 +233,8 @@ function accountToDraft(account: Account): AccountDraft {
     has_keys: Boolean(account.has_keys),
     supplies_notes: account.supplies_notes ?? "",
     source_sheet: account.source_sheet,
+    complaints_notes: account.complaints_notes ?? "",
+    complaint_strikes: normalizeComplaintStrikes(account.complaint_strikes),
   };
 }
 
@@ -253,6 +282,10 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
   if (norm.includes("steripax")) {
     // Regla Steripax: Las horas trabajadas se calculan MANUALMENTE y en base a eso se calcula el costo total
     return account.cost ?? 3386.06;
+  }
+  if (norm.includes("lsg")) {
+    // LSG Sky Chefs: Base 10h/day @ $18/hr ($1,260/wk) + Add-on 4h/day @ $18/hr ($504/wk) -> $1,764/wk * 4.33 = $7,639.12
+    return 7639.12;
   }
   if (norm.includes("moxi3") && norm.includes("costa mesa")) {
     // Moxi3 Costa Mesa: Saturday varies by calendar week — 1st & 3rd Saturday = 5h (pilates mat steam clean),
@@ -344,6 +377,8 @@ function toAccount(account: ImportedCommercialAccount): Account {
     cleaner_flat_rate: isMamas ? 200 : isGreenLeaf ? 119 : (ratePerService ?? null),
     monthly_gross_profit: autoGrossProfit,
     net_price_per_booking: autoNetPrice,
+    complaints_notes: account.complaints_notes ?? null,
+    complaint_strikes: normalizeComplaintStrikes(account.complaint_strikes),
   };
 }
 
@@ -462,6 +497,8 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       net_price_per_booking: base.net_price_per_booking ?? null,
       monthly_gross_profit: autoGrossProfit ?? base.monthly_gross_profit ?? null,
       qc_monthly_cost: base.qc_monthly_cost ?? null,
+      complaints_notes: base.complaints_notes ?? null,
+      complaint_strikes: normalizeComplaintStrikes(base.complaint_strikes),
     });
   }
 
@@ -581,6 +618,53 @@ function Pill({ yes }: { yes: boolean }) {
 }
 
 // ─────────────────────────────────────────────
+function ComplaintStrikesBadge({ strikes, onClick }: { strikes?: ComplaintStrike[] | null; onClick?: () => void }) {
+  const normalized = normalizeComplaintStrikes(strikes);
+  const count = normalized.filter((s) => s.checked).length;
+  const checkedSummary = normalized
+    .map((s, idx) => s.checked ? `Strike #${idx + 1}: ${displayDate(s.date) || "Sin fecha"}${s.note ? ` - ${s.note}` : ""}` : null)
+    .filter(Boolean);
+
+  const title = count === 0
+    ? "0 / 5 Complaints (Sin quejas - Vigencia hasta 31-12-2026)"
+    : `${count}/5 Complaints registradas (Año hasta 31-12-2026):\n${checkedSummary.join("\n")}`;
+
+  const badgeClass = count === 0
+    ? "strike-badge zero"
+    : count <= 2
+    ? "strike-badge low"
+    : count <= 4
+    ? "strike-badge med"
+    : "strike-badge high";
+
+  return (
+    <button
+      type="button"
+      className={badgeClass}
+      title={title}
+      onClick={(e) => {
+        if (onClick) {
+          e.stopPropagation();
+          onClick();
+        }
+      }}
+    >
+      <span className="strike-dots">
+        {normalized.map((s, i) => (
+          <span
+            key={i}
+            className={`strike-dot ${s.checked ? "active" : ""}`}
+          />
+        ))}
+      </span>
+      <span className="strike-text">
+        {count === 0 ? "0/5" : `${count}/5`}
+      </span>
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────
 function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account: Account) => void; onDelete: (account: Account) => void }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -682,6 +766,11 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
           <span className="date-text">{displayDate(acc.last_qcc_date)}</span>
         </td>
 
+        {/* Complaints (5 Strikes) */}
+        <td className="acc-cell" style={{ textAlign: "center" }}>
+          <ComplaintStrikesBadge strikes={acc.complaint_strikes} onClick={() => onEdit(acc)} />
+        </td>
+
         {/* Notes */}
         <td className="acc-cell" style={{ maxWidth: 160 }}>
           <div style={{ fontSize: "0.74rem", color: "hsl(var(--muted-foreground))", fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={acc.supplies_notes ?? ""}>{acc.supplies_notes ?? ""}</div>
@@ -702,7 +791,7 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
 
       {expanded && (
         <tr style={{ background: "hsl(var(--muted)/.3)", borderBottom: "2px solid hsl(var(--primary)/.3)" }}>
-          <td colSpan={11}>
+          <td colSpan={12}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14, padding: "14px 20px" }}>
               {[
                 ["Pricing Model", acc.pricing_model],
@@ -722,6 +811,58 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
                   <span style={{ fontSize: "0.78rem", fontWeight: 600 }}>{val ?? "—"}</span>
                 </div>
               ))}
+            </div>
+
+            {/* Quality Complaints & Strikes SLA Log Panel */}
+            <div className="account-complaints-card">
+              <div className="complaints-card-header">
+                <div className="complaints-card-title">
+                  <AlertTriangle size={15} style={{ color: countCheckedStrikes(acc.complaint_strikes) > 0 ? "hsl(38 92% 50%)" : "hsl(var(--muted-foreground))" }} />
+                  <strong>Quality Complaints & 5-Strike SLA Tracker</strong>
+                  <span className="complaints-card-tag">Año Calendario: Hasta 31-12-2026</span>
+                </div>
+                <div className="complaints-card-actions">
+                  <span className={`complaints-pill ${countCheckedStrikes(acc.complaint_strikes) === 0 ? "good" : countCheckedStrikes(acc.complaint_strikes) < 3 ? "warn" : "critical"}`}>
+                    {countCheckedStrikes(acc.complaint_strikes)} / 5 Strikes
+                  </span>
+                  <button
+                    type="button"
+                    className="complaints-edit-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(acc);
+                    }}
+                  >
+                    <Edit2 size={11} /> Editar Quejas
+                  </button>
+                </div>
+              </div>
+
+              {/* 5 strike slots */}
+              <div className="complaints-slots-row">
+                {normalizeComplaintStrikes(acc.complaint_strikes).map((strike, idx) => (
+                  <div key={idx} className={`complaint-slot-pill ${strike.checked ? "active" : "inactive"}`}>
+                    <div className="slot-pill-top">
+                      <span className="slot-num">Strike #{idx + 1}</span>
+                      <span className="slot-status">{strike.checked ? "✓ Registrado" : "○ Libre"}</span>
+                    </div>
+                    <div className="slot-date">
+                      {strike.checked ? (displayDate(strike.date) || "Sin fecha") : "—"}
+                    </div>
+                    {strike.note ? <div className="slot-note" title={strike.note}>{strike.note}</div> : null}
+                  </div>
+                ))}
+              </div>
+
+              {/* General Complaints Notes */}
+              <div className="complaints-notes-preview">
+                <strong>Notas de Complaints:</strong>
+                <p>
+                  {acc.complaints_notes?.trim()
+                    ? acc.complaints_notes
+                    : "No complaints registered. Cuenta con historial limpio en el año calendario (hasta 31-12-2026)."}
+                </p>
+              </div>
             </div>
           </td>
         </tr>
@@ -1380,6 +1521,98 @@ function AccountStudio({
             <textarea value={draft.supplies_notes ?? ""} onChange={(e) => onChange({ ...draft, supplies_notes: e.target.value })} placeholder="Lockbox code, alarm code, gate code, key location, parking & entry instructions..." />
           </label>
 
+          {/* Section 6: Quality Complaints & Strikes Log (Max 5 / Calendar Year) */}
+          <div className="studio-section-title"><AlertTriangle size={15} /> 6. Quality Complaints & Strikes Log (Max 5 / Año Calendario)</div>
+
+          <div className="complaints-studio-banner">
+            <div className="complaints-banner-text">
+              <strong>Vigencia de Año Calendario: hasta 31-12-2026</strong>
+              <span>Registro de notas de complaints y hasta 5 checkmarks con fecha para control de SLA y calidad.</span>
+            </div>
+            <div className="complaints-banner-status">
+              <span className={`complaints-status-badge ${countCheckedStrikes(draft.complaint_strikes) === 0 ? "good" : countCheckedStrikes(draft.complaint_strikes) < 3 ? "warn" : "critical"}`}>
+                {countCheckedStrikes(draft.complaint_strikes)} de 5 Strikes Utilizados
+              </span>
+            </div>
+          </div>
+
+          <label className="studio-field">
+            <span>Notas Generales de Complaints & Feedback</span>
+            <textarea
+              value={draft.complaints_notes ?? ""}
+              onChange={(e) => onChange({ ...draft, complaints_notes: e.target.value })}
+              placeholder="Detalla quejas del cliente, seguimiento, llamadas de calidad, acuerdos correctivos..."
+              style={{ minHeight: 70 }}
+            />
+          </label>
+
+          <div className="complaints-studio-slots-grid">
+            {normalizeComplaintStrikes(draft.complaint_strikes).map((strike, idx) => {
+              const strikeNumber = idx + 1;
+              const strikesList = normalizeComplaintStrikes(draft.complaint_strikes);
+              return (
+                <div key={idx} className={`studio-strike-card ${strike.checked ? "checked" : ""}`}>
+                  <div className="studio-strike-header">
+                    <label className="studio-strike-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={strike.checked}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          const updated = [...strikesList];
+                          const todayStr = new Date().toISOString().split("T")[0];
+                          updated[idx] = {
+                            ...updated[idx],
+                            checked: isChecked,
+                            date: isChecked ? (updated[idx].date || todayStr) : updated[idx].date,
+                          };
+                          onChange({ ...draft, complaint_strikes: updated });
+                        }}
+                      />
+                      <span className="studio-strike-title">Strike #{strikeNumber}</span>
+                    </label>
+                    <span className={`studio-strike-tag ${strike.checked ? "active" : "inactive"}`}>
+                      {strike.checked ? "✓ Registrado" : "○ Libre"}
+                    </span>
+                  </div>
+
+                  <div className="studio-strike-body">
+                    <label className="studio-strike-field">
+                      <span>Fecha (hasta 31-12-2026)</span>
+                      <input
+                        type="date"
+                        lang="en-US"
+                        max="2026-12-31"
+                        disabled={!strike.checked}
+                        value={strike.date ?? ""}
+                        onChange={(e) => {
+                          const updated = [...strikesList];
+                          updated[idx] = { ...updated[idx], date: e.target.value || null };
+                          onChange({ ...draft, complaint_strikes: updated });
+                        }}
+                      />
+                    </label>
+
+                    <label className="studio-strike-field">
+                      <span>Motivo / Detalle</span>
+                      <input
+                        type="text"
+                        disabled={!strike.checked}
+                        placeholder={strike.checked ? "Ej. Baños, polvo, basura, retraso..." : "Activar checkbox para ingresar"}
+                        value={strike.note ?? ""}
+                        onChange={(e) => {
+                          const updated = [...strikesList];
+                          updated[idx] = { ...updated[idx], note: e.target.value };
+                          onChange({ ...draft, complaint_strikes: updated });
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
           {isEdit ? (
             <div className="payroll-impact-block">
               <strong>Payroll-safe account update</strong>
@@ -1416,6 +1649,7 @@ function AccountStudio({
           <div className="preview-line"><span>Monthly Labor</span><strong>${cost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
           <div className="preview-line"><span>Insurance (22.66%)</span><strong>${insuranceCost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div>
           {qcCost > 0 && <div className="preview-line"><span>QC Cost</span><strong>${qcCost.toFixed(2)}</strong></div>}
+          <div className="preview-line"><span>Complaints (Strikes)</span><strong style={{ color: countCheckedStrikes(draft.complaint_strikes) > 0 ? "hsl(38 92% 40%)" : undefined }}>{countCheckedStrikes(draft.complaint_strikes)}/5 (hasta 31-12-2026)</strong></div>
           <div className="preview-line"><span>Last QC Check</span><strong>{displayDate(draft.last_qcc_date)}</strong></div>
           <div className="preview-line"><span>Last Contact</span><strong>{displayDate(draft.last_contact_date)}</strong></div>
           <div className="preview-meter"><span style={{ width: `${readiness}%` }} /></div>
@@ -1777,6 +2011,8 @@ export default function CommercialPage() {
       estimated_fill_date: textOrNull(draft.estimated_fill_date ?? null),
       supplies_notes: textOrNull(draft.supplies_notes),
       source_sheet: accountFormMode === "create" ? "Manual entry" : editingAccount?.source_sheet ?? "Manual entry",
+      complaints_notes: textOrNull(draft.complaints_notes ?? null),
+      complaint_strikes: normalizeComplaintStrikes(draft.complaint_strikes),
     };
   }
 
@@ -1803,8 +2039,17 @@ export default function CommercialPage() {
       supply_delivery_date: account.supply_delivery_date ?? null,
       estimated_fill_date: account.estimated_fill_date ?? null,
       supplies_notes: account.supplies_notes,
+      complaints_notes: account.complaints_notes ?? null,
+      complaint_strikes: account.complaint_strikes ? JSON.stringify(account.complaint_strikes) : null,
       updated_at: new Date().toISOString(),
     };
+  }
+
+  function toDbPayloadSafe(account: Account) {
+    const payload: Record<string, unknown> = { ...toDbPayload(account) };
+    delete payload.complaints_notes;
+    delete payload.complaint_strikes;
+    return payload;
   }
 
   async function handleAccountSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1853,7 +2098,15 @@ export default function CommercialPage() {
             .eq("id", editingAccount.id);
 
           if (error) {
-            console.warn("Supabase update error:", error.message);
+            // If remote column doesn't exist yet, retry with safe payload without failing
+            if (error.message?.includes("column") || error.message?.includes("complaint")) {
+              await supabase
+                .from("commercial_accounts")
+                .update(toDbPayloadSafe(localPayload))
+                .eq("id", editingAccount.id);
+            } else {
+              console.warn("Supabase update error:", error.message);
+            }
           }
         } else {
           // Account was imported: check if already in Supabase by name & city
@@ -1864,19 +2117,35 @@ export default function CommercialPage() {
             .maybeSingle();
 
           if (existingRemote?.id) {
-            await supabase
+            const { error: updErr } = await supabase
               .from("commercial_accounts")
               .update(toDbPayload(localPayload))
               .eq("id", existingRemote.id);
+            if (updErr && (updErr.message?.includes("column") || updErr.message?.includes("complaint"))) {
+              await supabase
+                .from("commercial_accounts")
+                .update(toDbPayloadSafe(localPayload))
+                .eq("id", existingRemote.id);
+            }
           } else {
-            const dbPayload: Record<string, unknown> = { ...toDbPayload(localPayload) };
+            let dbPayload: Record<string, unknown> = { ...toDbPayload(localPayload) };
             delete dbPayload.updated_at;
-            const { data: inserted, error: insErr } = await supabase
+            let { data: inserted, error: insErr } = await supabase
               .from("commercial_accounts")
               .insert(dbPayload)
               .select("id")
               .maybeSingle();
-            if (!insErr && inserted?.id) {
+            if (insErr && (insErr.message?.includes("column") || insErr.message?.includes("complaint"))) {
+              dbPayload = { ...toDbPayloadSafe(localPayload) };
+              delete dbPayload.updated_at;
+              const retryRes = await supabase
+                .from("commercial_accounts")
+                .insert(dbPayload)
+                .select("id")
+                .maybeSingle();
+              inserted = retryRes.data;
+            }
+            if (inserted?.id) {
               localPayload.id = inserted.id;
               setAccounts((curr) => curr.map((a) => (a.id === targetId ? { ...a, id: inserted.id } : a)));
             }
@@ -1892,7 +2161,7 @@ export default function CommercialPage() {
               : "Account saved. No open future commercial payroll periods needed recalculation.",
           );
         } else {
-          await supabase.from("payroll_audit_log").insert({ entity_type: "commercial_account", entity_id: editingAccount.id, action: "account_settings_saved_only", new_value: JSON.stringify(toDbPayload(localPayload)), changed_by: null });
+          await supabase.from("payroll_audit_log").insert({ entity_type: "commercial_account", entity_id: editingAccount.id, action: "account_settings_saved_only", new_value: JSON.stringify(toDbPayloadSafe(localPayload)), changed_by: null });
           setFormNotice("Account settings saved.");
         }
       } catch (err) {
@@ -1906,7 +2175,7 @@ export default function CommercialPage() {
     }
 
     try {
-      const dbPayload: Record<string, unknown> = { id: localPayload.id, ...toDbPayload(localPayload) };
+      let dbPayload: Record<string, unknown> = { id: localPayload.id, ...toDbPayload(localPayload) };
       delete dbPayload.updated_at;
 
       const { error } = await supabase
@@ -1914,7 +2183,13 @@ export default function CommercialPage() {
         .insert(dbPayload);
 
       if (error) {
-        console.warn("Supabase insert warning:", error.message);
+        if (error.message?.includes("column") || error.message?.includes("complaint")) {
+          dbPayload = { id: localPayload.id, ...toDbPayloadSafe(localPayload) };
+          delete dbPayload.updated_at;
+          await supabase.from("commercial_accounts").insert(dbPayload);
+        } else {
+          console.warn("Supabase insert warning:", error.message);
+        }
       }
     } catch (err) {
       console.warn("Supabase insert exception:", err);
@@ -2149,22 +2424,103 @@ export default function CommercialPage() {
         .view-tab.active { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
         .table-wrap { overflow-x:auto; scrollbar-gutter:stable; }
 
-        table.main-table { width:100%; min-width:1080px; border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:0.78rem; }
-        table.main-table th:nth-child(1), table.main-table td:nth-child(1) { width:300px; }
-        table.main-table th:nth-child(2), table.main-table td:nth-child(2) { width:170px; }
-        table.main-table th:nth-child(3), table.main-table td:nth-child(3) { width:90px; }
+        table.main-table { width:100%; min-width:1180px; border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:0.78rem; }
+        table.main-table th:nth-child(1), table.main-table td:nth-child(1) { width:280px; }
+        table.main-table th:nth-child(2), table.main-table td:nth-child(2) { width:160px; }
+        table.main-table th:nth-child(3), table.main-table td:nth-child(3) { width:85px; }
         table.main-table th:nth-child(4), table.main-table td:nth-child(4),
         table.main-table th:nth-child(5), table.main-table td:nth-child(5),
-        table.main-table th:nth-child(7), table.main-table td:nth-child(7) { width:108px; }
-        table.main-table th:nth-child(6), table.main-table td:nth-child(6) { width:76px; }
-        table.main-table th:nth-child(8), table.main-table td:nth-child(8) { width:140px; }
-        table.main-table th:nth-child(9), table.main-table td:nth-child(9),
+        table.main-table th:nth-child(7), table.main-table td:nth-child(7) { width:105px; }
+        table.main-table th:nth-child(6), table.main-table td:nth-child(6) { width:74px; }
+        table.main-table th:nth-child(8), table.main-table td:nth-child(8) { width:112px; }
+        table.main-table th:nth-child(9), table.main-table td:nth-child(9) { width:130px; }
         table.main-table th:nth-child(10), table.main-table td:nth-child(10),
-        table.main-table th:nth-child(11), table.main-table td:nth-child(11) { width:88px; }
+        table.main-table th:nth-child(11), table.main-table td:nth-child(11),
+        table.main-table th:nth-child(12), table.main-table td:nth-child(12) { width:88px; }
         table.main-table thead th { padding:10px 12px; text-align:left; font-size:0.68rem;
           font-weight:700; text-transform:uppercase; letter-spacing:.05em;
           color:hsl(var(--muted-foreground)); background:hsl(var(--muted)/.48);
           border-bottom:1px solid hsl(var(--border)); white-space:nowrap; }
+
+        /* Complaints Strikes Badges & Dots */
+        .strike-badge { display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border-radius:99px;
+          border:1px solid transparent; font-size:0.72rem; font-weight:800; cursor:pointer; background:transparent;
+          transition:all .15s ease; }
+        .strike-badge:hover { transform:scale(1.04); }
+        .strike-badge.zero { background:hsl(142 76% 36%/.12); color:hsl(142 76% 28%); border-color:hsl(142 76% 36%/.25); }
+        .strike-badge.low { background:hsl(38 92% 50%/.15); color:hsl(38 92% 32%); border-color:hsl(38 92% 50%/.3); }
+        .strike-badge.med { background:hsl(24 94% 50%/.16); color:hsl(24 94% 36%); border-color:hsl(24 94% 50%/.35); }
+        .strike-badge.high { background:hsl(0 84% 60%/.16); color:hsl(0 84% 45%); border-color:hsl(0 84% 60%/.35); animation:pulse 2s infinite; }
+        .strike-dots { display:inline-flex; align-items:center; gap:2.5px; }
+        .strike-dot { width:5px; height:5px; border-radius:50%; background:currentColor; opacity:.28; }
+        .strike-dot.active { opacity:1; transform:scale(1.2); }
+        .strike-text { font-variant-numeric:tabular-nums; }
+
+        /* Expanded Row Complaints Panel */
+        .account-complaints-card { margin-top:14px; border:1px solid hsl(var(--border)); border-radius:10px;
+          background:hsl(var(--card)); padding:12px 16px; display:flex; flex-direction:column; gap:10px;
+          box-shadow:0 4px 16px -12px rgba(0,0,0,0.1); }
+        .complaints-card-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+        .complaints-card-title { display:flex; align-items:center; gap:7px; font-size:0.8rem; }
+        .complaints-card-title strong { color:hsl(var(--foreground)); font-weight:800; }
+        .complaints-card-tag { font-size:0.68rem; font-weight:700; color:hsl(var(--muted-foreground));
+          padding:2px 7px; border-radius:99px; background:hsl(var(--muted)); border:1px solid hsl(var(--border)/.6); }
+        .complaints-card-actions { display:flex; align-items:center; gap:8px; }
+        .complaints-pill { padding:3px 9px; border-radius:99px; font-size:0.72rem; font-weight:800; }
+        .complaints-pill.good { background:hsl(142 76% 36%/.12); color:hsl(142 76% 28%); }
+        .complaints-pill.warn { background:hsl(38 92% 50%/.15); color:hsl(38 92% 32%); }
+        .complaints-pill.critical { background:hsl(0 84% 60%/.15); color:hsl(0 84% 45%); font-weight:900; }
+        .complaints-edit-btn { display:inline-flex; align-items:center; gap:5px; padding:4px 9px; border-radius:6px;
+          border:1px solid hsl(var(--border)); background:hsl(var(--background)); color:hsl(var(--foreground));
+          font-size:0.72rem; font-weight:800; cursor:pointer; }
+        .complaints-edit-btn:hover { background:hsl(var(--primary)/.1); color:hsl(var(--primary)); border-color:hsl(var(--primary)/.3); }
+
+        .complaints-slots-row { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:8px; }
+        @media (max-width:768px) { .complaints-slots-row { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+        .complaint-slot-pill { border:1px solid hsl(var(--border)); border-radius:8px; padding:8px 10px;
+          background:hsl(var(--background)); display:flex; flex-direction:column; gap:3px; }
+        .complaint-slot-pill.active { border-color:hsl(38 92% 50%/.5); background:hsl(38 92% 50%/.06); }
+        .slot-pill-top { display:flex; align-items:center; justify-content:space-between; gap:4px; font-size:0.68rem; font-weight:800; }
+        .slot-num { color:hsl(var(--muted-foreground)); }
+        .slot-status { color:hsl(var(--muted-foreground)); }
+        .complaint-slot-pill.active .slot-status { color:hsl(38 92% 36%); font-weight:900; }
+        .slot-date { font-size:0.74rem; font-weight:700; color:hsl(var(--foreground)); }
+        .slot-note { font-size:0.68rem; color:hsl(var(--muted-foreground)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+        .complaints-notes-preview { border-top:1px solid hsl(var(--border)/.6); padding-top:8px; font-size:0.75rem; display:flex; flex-direction:column; gap:3px; }
+        .complaints-notes-preview strong { color:hsl(var(--foreground)); font-size:0.72rem; text-transform:uppercase; letter-spacing:.04em; }
+        .complaints-notes-preview p { margin:0; color:hsl(var(--muted-foreground)); font-style:italic; line-height:1.35; }
+
+        /* Studio Complaints Form */
+        .complaints-studio-banner { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+          padding:10px 14px; border-radius:8px; border:1px solid hsl(var(--primary)/.25); background:hsl(var(--primary)/.05); }
+        .complaints-banner-text { display:flex; flex-direction:column; gap:2px; }
+        .complaints-banner-text strong { font-size:0.78rem; font-weight:800; color:hsl(var(--foreground)); }
+        .complaints-banner-text span { font-size:0.7rem; color:hsl(var(--muted-foreground)); font-weight:600; }
+        .complaints-status-badge { padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:800; }
+        .complaints-status-badge.good { background:hsl(142 76% 36%/.12); color:hsl(142 76% 28%); }
+        .complaints-status-badge.warn { background:hsl(38 92% 50%/.15); color:hsl(38 92% 32%); }
+        .complaints-status-badge.critical { background:hsl(0 84% 60%/.15); color:hsl(0 84% 45%); font-weight:900; }
+
+        .complaints-studio-slots-grid { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:10px; }
+        @media (max-width:900px) { .complaints-studio-slots-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+        @media (max-width:560px) { .complaints-studio-slots-grid { grid-template-columns:1fr; } }
+        .studio-strike-card { border:1px solid hsl(var(--border)); border-radius:8px; padding:10px; background:hsl(var(--background));
+          display:flex; flex-direction:column; gap:8px; transition:border-color .15s ease; }
+        .studio-strike-card.checked { border-color:hsl(38 92% 50%/.5); background:hsl(38 92% 50%/.04); }
+        .studio-strike-header { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+        .studio-strike-checkbox-label { display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.76rem; font-weight:800; }
+        .studio-strike-checkbox-label input { width:15px; height:15px; cursor:pointer; accent-color:hsl(var(--primary)); }
+        .studio-strike-title { color:hsl(var(--foreground)); }
+        .studio-strike-tag { font-size:0.66rem; font-weight:800; padding:1px 6px; border-radius:99px; }
+        .studio-strike-tag.active { background:hsl(38 92% 50%/.2); color:hsl(38 92% 32%); }
+        .studio-strike-tag.inactive { background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); }
+        .studio-strike-body { display:flex; flex-direction:column; gap:6px; }
+        .studio-strike-field { display:flex; flex-direction:column; gap:2px; }
+        .studio-strike-field span { font-size:0.64rem; font-weight:700; color:hsl(var(--muted-foreground)); text-transform:uppercase; letter-spacing:.04em; }
+        .studio-strike-field input { width:100%; height:32px; border:1px solid hsl(var(--border)); border-radius:6px; padding:4px 7px;
+          font-size:0.75rem; background:hsl(var(--background)); color:hsl(var(--foreground)); box-sizing:border-box; }
+        .studio-strike-field input:disabled { opacity:.5; cursor:not-allowed; }
         .acc-row { transition:background .12s, box-shadow .12s; }
         .acc-row:hover { background:hsl(var(--accent)/.36); box-shadow:inset 3px 0 0 hsl(var(--primary)); }
         .acc-cell { padding:10px 12px; border-bottom:1px solid hsl(var(--border)/.55); vertical-align:middle;
@@ -2405,6 +2761,7 @@ export default function CommercialPage() {
                     <th>Delivery Date</th><th>Est. Fill Date</th>
                     <th style={{ textAlign: "center" }}>Keys</th>
                     <th>Last QC Check</th>
+                    <th style={{ textAlign: "center" }}>Complaints (5 Max)</th>
                     <th>Notes</th>
                     <th style={{ textAlign: "right" }}>Revenue</th>
                     <th style={{ textAlign: "right" }}>Cost</th>
