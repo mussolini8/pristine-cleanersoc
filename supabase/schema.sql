@@ -1149,3 +1149,8 @@ create policy "Operation task templates are editable by owners"
   on public.operation_task_templates for all
   using (auth.uid() is not null and (user_id is null or auth.uid() = user_id))
   with check (auth.uid() is not null and (user_id is null or auth.uid() = user_id));
+
+-- Complaints notes and 5-strike quality SLA tracker
+alter table public.commercial_accounts
+  add column if not exists complaints_notes text,
+  add column if not exists complaint_strikes jsonb;

@@ -14,6 +14,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Emmi Guerra**: Gana **$18.15 por hora** (NO $18 como los demás). Cualquier cuenta comercial asignada a ella (ej. *ILG Westlake*, *ILG Valencia Office*) calcula su tarifa por servicio y costo de nómina en base a **$18.15/hr**. En actualizaciones masivas de tarifas a $18/hr, su tarifa de $18.15 debe preservarse.
 - **Maria Lopez**: Gana **$22.00 por hora** (NO $18). Cualquier cuenta comercial asignada a ella (ej. *ILG Irvine Office*) calcula su tarifa por servicio y costo de nómina en base a **$22.00/hr**. En actualizaciones masivas de tarifas a $18/hr, su tarifa de $22.00 debe preservarse.
 - **José Vazquez**: Limpiador comercial nuevo. Tel: **(714) 381-7555**, Email: **mikyvaz@gmail.com**. Gana **$18.00 por hora**. Realiza los días martes, viernes y sábado el turno adicional de 4 horas diarias en LSG Sky Chefs a $18.00/hr.
+- **Ivanda Mejia**: Limpiadora comercial nueva. Tel: **(760) 847-1052**, Email: **Ivandamejia4.1@gmail.com**. Gana **$18.00 por hora**.
 - **Tarifa Base General**: El resto de limpiadoras comerciales por hora tienen una tarifa estándar de **$18.00 por hora** (salvo cuentas de tarifa fija como Mama's a $200 y Green Leaf a $119).
 
 # Reglas de Negocio: LSG Sky Chefs y Add-on

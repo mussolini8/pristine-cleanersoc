@@ -111,6 +111,7 @@ export function isMariaLopez(cleanerName?: string | null | undefined): boolean {
  * - Emmi Garcia / Emmi Guerra: $18.15 / hr
  * - Maria Lopez: $22.00 / hr
  * - José Vazquez: $18.00 / hr
+ * - Ivanda Mejia: $18.00 / hr
  * - All other hourly commercial cleaners: $18.00 / hr default
  */
 export function getCleanerDefaultHourlyRate(cleanerName?: string | null | undefined): number {

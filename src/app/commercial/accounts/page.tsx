@@ -113,7 +113,7 @@ const CLEANERS = [
   "", "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
   "Susana Bautista", "Mirna Contreras", "Esperanza Youseff", "Ana Morales", "Maria Lopez",
   "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin", "Vanessa Ortega", "Luz and Vanessa",
-  "José Vazquez",
+  "José Vazquez", "Ivanda Mejia",
 ];
 
 const PRICING_MODELS = ["Monthly", "Biweekly", "Weekly", "Per Service", "Variable", "One Time"] as const;
@@ -1749,7 +1749,7 @@ export default function CommercialPage() {
             "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
             "Mirna Contreras", "Esperanza Youseff", "Esperanza Yoseff", "Ana Morales",
             "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin",
-            "Vanessa Ortega", "José Vazquez"
+            "Vanessa Ortega", "José Vazquez", "Ivanda Mejia"
           ];
 
           const staffToInsert: Record<string, unknown>[] = [];
