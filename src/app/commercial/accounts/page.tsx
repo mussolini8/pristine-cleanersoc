@@ -117,7 +117,7 @@ const CLEANERS = [
   "", "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
   "Susana Bautista", "Mirna Contreras", "Esperanza Youseff", "Ana Morales", "Maria Lopez",
   "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin", "Vanessa Ortega", "Luz and Vanessa",
-  "José Vazquez", "Ivanda Mejia",
+  "José Vazquez", "Ivanda Mejia", "Martha Garcia",
 ];
 
 const PRICING_MODELS = ["Monthly", "Biweekly", "Weekly", "Per Service", "Variable", "One Time"] as const;
@@ -302,6 +302,10 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
     // Weekly labor: (1.5*3 + 3*1) = 7.5h * $18 = $135/wk * 4.33 = $584.55
     return 584.55;
   }
+  if (norm.includes("rancho bernardo") || norm.includes("corporate headquarters") || norm.includes("ilg corporate")) {
+    // ILG Corporate Headquarters (formerly ILG Rancho Bernardo): Mon: 4h, Wed: 4h, Fri: 8h (16h/wk @ $18/hr = $288/wk)
+    return account.cost ?? 826;
+  }
   // General rule: accounts with schedule_rules that have non-uniform paid_hours per day
   // (e.g. 1.5h Mon-Wed, 3h Thu). Weekly labor is summed from rules × 4.33 instead of
   // rate_per_service × total-visits, which would ignore the day-level variation.
@@ -345,9 +349,10 @@ function toAccount(account: ImportedCommercialAccount): Account {
   const isLsg = norm.includes("lsg");
   const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
   const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
+  const isRanchoBernardo = norm.includes("rancho bernardo") || norm.includes("corporate headquarters") || norm.includes("ilg corporate");
   const hours = numericHours(account.hours);
   const visits = getVisitsPerMonth(account.frequency);
-  const isExcluded = isMamas || isGreenLeaf || isSteripax || isLsg || isMoxi3CM || isMacArthur;
+  const isExcluded = isMamas || isGreenLeaf || isSteripax || isLsg || isMoxi3CM || isMacArthur || isRanchoBernardo;
   const defaultCleanerRate = getCleanerDefaultHourlyRate(account.cleaner_name);
   const cleanerRate = isMamas || isGreenLeaf
     ? null
@@ -359,6 +364,8 @@ function toAccount(account: ImportedCommercialAccount): Account {
     ? 119
     : isMoxi3CM || isMacArthur
     ? null
+    : isRanchoBernardo
+    ? 95.94
     : (account.rate_per_service ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
   const cost = isSteripax
     ? (account.cost ?? 3386.06)
@@ -368,6 +375,8 @@ function toAccount(account: ImportedCommercialAccount): Account {
     ? 755.64
     : isMacArthur
     ? 584.55
+    : isRanchoBernardo
+    ? 1247.22
     : (account.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
   const revenue = account.revenue ?? null;
   const qcCost = (account as any).qc_monthly_cost ?? 0;
@@ -462,8 +471,9 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
     const isLsg = norm.includes("lsg");
     const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
     const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
+    const isRanchoBernardo = norm.includes("rancho bernardo") || norm.includes("corporate headquarters") || norm.includes("ilg corporate");
     const hours = numericHours(base.hours);
-    const isExcluded = isMamas || isGreenLeaf || isSteripax || isLsg || isMoxi3CM || isMacArthur;
+    const isExcluded = isMamas || isGreenLeaf || isSteripax || isLsg || isMoxi3CM || isMacArthur || isRanchoBernardo;
     const defaultCleanerRate = getCleanerDefaultHourlyRate(base.cleaner_name);
     const cleanerRate = isMamas || isGreenLeaf
       ? null
@@ -475,6 +485,8 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       ? 119
       : (isMoxi3CM || isMacArthur)
       ? null
+      : isRanchoBernardo
+      ? 95.94
       : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
     const visits = getVisitsPerMonth(base.frequency);
     const cost = isSteripax
@@ -488,6 +500,8 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       : isMacArthur
       // MacArthur Dental: Mon-Wed 1.5h, Thu 3h (floor mopping) -> (1.5*3 + 3) = 7.5h/wk * $18 * 4.33 = $584.55
       ? 584.55
+      : isRanchoBernardo
+      ? (base.cost || 826)
       : (base.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
     const revenue = base.revenue ?? null;
     const qcCost = base.qc_monthly_cost ?? 0;
@@ -539,8 +553,9 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       const isSteripax = norm.includes("steripax");
       const isMoxi3CM = norm.includes("moxi3") && norm.includes("costa mesa");
       const isMacArthur = norm.includes("macarthur") || norm.includes("mac arthur");
+      const isRanchoBernardo = norm.includes("rancho bernardo") || norm.includes("corporate headquarters") || norm.includes("ilg corporate");
       const hours = numericHours(base.hours);
-      const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur;
+      const isExcluded = isMamas || isGreenLeaf || isSteripax || isMoxi3CM || isMacArthur || isRanchoBernardo;
       const defaultCleanerRate = getCleanerDefaultHourlyRate(base.cleaner_name);
       const cleanerRate = isMamas || isGreenLeaf
         ? null
@@ -552,6 +567,8 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
         ? 119
         : (isMoxi3CM || isMacArthur)
         ? null
+        : isRanchoBernardo
+        ? 95.94
         : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
       const visits = getVisitsPerMonth(base.frequency);
       const cost = isSteripax
@@ -560,6 +577,8 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
         ? 755.64
         : isMacArthur
         ? 584.55
+        : isRanchoBernardo
+        ? (base.cost || 826)
         : (base.cost ?? (ratePerService ? Number((ratePerService * visits).toFixed(2)) : null));
       const revenue = base.revenue ?? null;
       const qcCost = base.qc_monthly_cost ?? 0;
@@ -1770,7 +1789,7 @@ export default function CommercialPage() {
             "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
             "Mirna Contreras", "Esperanza Youseff", "Esperanza Yoseff", "Ana Morales",
             "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin",
-            "Vanessa Ortega", "José Vazquez", "Ivanda Mejia"
+            "Vanessa Ortega", "José Vazquez", "Ivanda Mejia", "Martha Garcia"
           ];
 
           const staffToInsert: Record<string, unknown>[] = [];

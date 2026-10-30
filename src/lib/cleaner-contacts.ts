@@ -23,6 +23,7 @@ export const CLEANER_CONTACTS: CleanerContact[] = [
   { name: "Luz Uribe", phone: "951-622-4922", status: "Active", type: "Location-Based" },
   { name: "Maria Lopez", phone: "714-499-0339", status: "Active", type: "Staff/Support" },
   { name: "Maria Mejia", phone: "951-407-2157", status: "Active", type: "Location-Based" },
+  { name: "Martha Garcia", phone: "(619) 289-1728", email: "m.garciasantiago2332@gmail.com", status: "Active", type: "Location-Based" },
   { name: "Mirna Contreras", phone: "657-397-3158", status: "Active", type: "Location-Based" },
   { name: "Rossy Legorreta", phone: "714-757-5641", status: "Active", type: "Location-Based" },
   { name: "Sandra Hernandez", phone: "714-483-5971", status: "Active", type: "Location-Based" },
@@ -58,6 +59,7 @@ export const CLEANER_PHONE_DIRECTORY: Record<string, string> = {
   "maria lopez": "714-499-0339",
   "maria mejia": "951-407-2157",
   "maria mejias": "951-407-2157",
+  "martha garcia": "(619) 289-1728",
   "mirna contreras": "657-397-3158",
   "rossy legorreta": "714-757-5641",
   "sandra hernandez": "714-483-5971",
@@ -77,6 +79,7 @@ export const CLEANER_EMAIL_DIRECTORY: Record<string, string> = {
   "josé vazquez": "mikyvaz@gmail.com",
   "jose vazquez": "mikyvaz@gmail.com",
   "jose vasquez": "mikyvaz@gmail.com",
+  "martha garcia": "m.garciasantiago2332@gmail.com",
 };
 
 export function getCleanerPhone(name: string | null | undefined): string | null {

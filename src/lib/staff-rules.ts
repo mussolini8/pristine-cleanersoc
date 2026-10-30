@@ -112,6 +112,7 @@ export function isMariaLopez(cleanerName?: string | null | undefined): boolean {
  * - Maria Lopez: $22.00 / hr
  * - José Vazquez: $18.00 / hr
  * - Ivanda Mejia: $18.00 / hr
+ * - Martha Garcia: $18.00 / hr
  * - All other hourly commercial cleaners: $18.00 / hr default
  */
 export function getCleanerDefaultHourlyRate(cleanerName?: string | null | undefined): number {
@@ -124,6 +125,12 @@ export function getCleanerDefaultHourlyRate(cleanerName?: string | null | undefi
     return 22;
   }
   if (norm.includes("jose") && (norm.includes("vazquez") || norm.includes("vasquez"))) {
+    return 18;
+  }
+  if (norm.includes("ivanda")) {
+    return 18;
+  }
+  if (norm.includes("martha") && norm.includes("garcia")) {
     return 18;
   }
   return 18;

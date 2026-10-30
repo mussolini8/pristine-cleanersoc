@@ -1108,7 +1108,7 @@ export function SimpleOperationsClient({
         "Juan Romero", "Sandra Hernandez", "Lorena Benitez", "Luz Uribe",
         "Mirna Contreras", "Esperanza Youseff", "Esperanza Yoseff", "Ana Morales",
         "Maria Lopez", "Emmi Guerra", "Lucia Portillo", "Kassandra Valentin",
-        "José Vazquez", "Ivanda Mejia"
+        "José Vazquez", "Ivanda Mejia", "Martha Garcia"
       ];
 
       const staffToInsert: Record<string, unknown>[] = [];

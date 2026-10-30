@@ -191,6 +191,7 @@ async function ensureDefaultSettings(accounts: CommercialAccount[]) {
   });
   candidateNames.add("José Vazquez");
   candidateNames.add("Ivanda Mejia");
+  candidateNames.add("Martha Garcia");
   candidateNames.add("Luz Uribe");
 
   for (const name of Array.from(candidateNames)) {

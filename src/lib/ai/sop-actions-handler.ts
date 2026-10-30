@@ -39,6 +39,7 @@ export function resolveCanonicalAccountName(name: string): string {
   if (norm.includes("ilg corona")) return "ILG Corona Office";
   if (norm.includes("ilg westlake")) return "ILG Westlake";
   if (norm.includes("ilg valencia")) return "ILG Valencia Office";
+  if (norm.includes("ilg rancho bernardo") || norm.includes("rancho bernardo") || norm.includes("ilg corporate") || norm.includes("corporate headquarters") || (norm.includes("ilg") && norm.includes("headquarters"))) return "ILG Corporate Headquarters";
   if (norm.includes("elevate aerial") || norm.includes("elevate hb")) return "Elevate Aerial HB";
   if (norm.includes("vntr")) return "VNTR Fitness";
   if (norm.includes("miwa")) return "MIWA Office";

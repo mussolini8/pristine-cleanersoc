@@ -13,8 +13,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 # Reglas Salariales de Cleaners Comerciales
 - **Emmi Guerra**: Gana **$18.15 por hora** (NO $18 como los demás). Cualquier cuenta comercial asignada a ella (ej. *ILG Westlake*, *ILG Valencia Office*) calcula su tarifa por servicio y costo de nómina en base a **$18.15/hr**. En actualizaciones masivas de tarifas a $18/hr, su tarifa de $18.15 debe preservarse.
 - **Maria Lopez**: Gana **$22.00 por hora** (NO $18). Cualquier cuenta comercial asignada a ella (ej. *ILG Irvine Office*) calcula su tarifa por servicio y costo de nómina en base a **$22.00/hr**. En actualizaciones masivas de tarifas a $18/hr, su tarifa de $22.00 debe preservarse.
-- **José Vazquez**: Limpiador comercial nuevo. Tel: **(714) 381-7555**, Email: **mikyvaz@gmail.com**. Gana **$18.00 por hora**. Realiza los días martes, viernes y sábado el turno adicional de 4 horas diarias en LSG Sky Chefs a $18.00/hr.
-- **Ivanda Mejia**: Limpiadora comercial nueva. Tel: **(760) 847-1052**, Email: **Ivandamejia4.1@gmail.com**. Gana **$18.00 por hora**.
+- **José Vazquez**: Limpiador comercial nuevo. Tel: **(714) 381-7555**, Email: **mikyvaz@gmail.com**. Gana **$18.00 por hora**. Realiza los días martes, viernes y sábado el turno adicional de 4 horas diarias en LSG Sky Chefs a $18.00/hr. Inició a trabajar el sábado 10 de octubre de 2026.
+- **Ivanda Mejia**: Limpiadora comercial. Tel: **(760) 847-1052**, Email: **Ivandamejia4.1@gmail.com**. Gana **$18.00 por hora**. Trabajó en **ILG Corporate Headquarters** (antes conocida como *ILG Rancho Bernardo*) ÚNICAMENTE 3 días: viernes 16 de octubre (8h), lunes 19 de octubre (4h) y miércoles 21 de octubre (4h) a $18.00/hr (total 16 horas = $288.00). No tiene más turnos programados.
+- **Martha Garcia**: Limpiadora comercial nueva. Tel: **(619) 289-1728**, Email: **m.garciasantiago2332@gmail.com**. Gana **$18.00 por hora**. Asignada a **ILG Corporate Headquarters** (San Diego / Rancho Bernardo, $2,420 rev / $826 costo). Tomó la cuenta desde el 25 de octubre de 2026. Turnos de octubre: domingo 25 (8h), lunes 26 (4h), miércoles 28 (4h) y viernes 30 (8h) (total 24 horas = $432.00). Horario regular sucesivo en nómina y próximos meses: Lunes (4h), Miércoles (4h), Viernes (8h) a **$18.00/hr**.
 - **Tarifa Base General**: El resto de limpiadoras comerciales por hora tienen una tarifa estándar de **$18.00 por hora** (salvo cuentas de tarifa fija como Mama's a $200 y Green Leaf a $119).
 
 # Reglas de Negocio: LSG Sky Chefs y Add-on
@@ -22,6 +23,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Tarifa y Horas del Add-on**:
   - **Luz Uribe**: 4 horas diarias a **$18.00 por hora** ($72.00 por turno) los días Monday, Wednesday, Thursday, Sunday.
   - **José Vazquez**: 4 horas diarias a **$18.00 por hora** ($72.00 por turno) los días Tuesday, Friday, Saturday.
+  - **María Mejía (Excepción SOLO semana 19 al 25 de octubre de 2026)**: Acompañó a José en el add-on de 4 horas los días martes 20, viernes 23 y sábado 24 de octubre a $18.00/hr ($72/turno, 12 horas en total = $216.00). Aplicado estrictamente SOLO esa semana pasada en nómina.
 - **Duración**: Duración de **un año calendario: hasta 31-12-2026**.
 
 # Reglas de Perfil de Cuentas: Sistema de Complaints y Strikes
