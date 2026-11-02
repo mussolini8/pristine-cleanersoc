@@ -1449,7 +1449,11 @@ export function SalesTrackClient() {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar por cliente, cleaner, servicio o ciudad..."
+                  placeholder={
+                    isEn
+                      ? "Search by client, cleaner, service, or city..."
+                      : "Buscar por cliente, cleaner, servicio o ciudad..."
+                  }
                   className="w-full rounded-lg border border-border bg-background py-1.5 pl-9 pr-3 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </div>
@@ -1461,13 +1465,13 @@ export function SalesTrackClient() {
                   onChange={(e) => setCategoryFilter(e.target.value)}
                   className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
-                  <option value="all">Todas las frecuencias/servicios</option>
-                  <option value="commercial">Comercial</option>
-                  <option value="weekly">Semanal (Weekly)</option>
-                  <option value="biweekly">Quincenal (Biweekly)</option>
-                  <option value="monthly">Mensual (Monthly)</option>
-                  <option value="deep">Deep Clean</option>
-                  <option value="move">Move In/Out</option>
+                  <option value="all">{isEn ? "All frequencies / services" : "Todas las frecuencias/servicios"}</option>
+                  <option value="commercial">{isEn ? "Commercial" : "Comercial"}</option>
+                  <option value="weekly">{isEn ? "Weekly" : "Semanal"}</option>
+                  <option value="biweekly">{isEn ? "Biweekly" : "Quincenal"}</option>
+                  <option value="monthly">{isEn ? "Monthly" : "Mensual"}</option>
+                  <option value="deep">{isEn ? "Deep Clean" : "Limpieza Profunda"}</option>
+                  <option value="move">{isEn ? "Move In/Out" : "Mudanza (Move In/Out)"}</option>
                 </select>
 
                 <Button
@@ -1475,7 +1479,7 @@ export function SalesTrackClient() {
                   onClick={() => setShowAddModal(true)}
                   className="h-8 text-xs gap-1.5"
                 >
-                  <Plus className="size-3.5" /> Registrar Cita
+                  <Plus className="size-3.5" /> {isEn ? "Add Booking" : "Registrar Cita"}
                 </Button>
               </div>
             </div>
@@ -1486,20 +1490,20 @@ export function SalesTrackClient() {
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-border/80 bg-muted/60 text-muted-foreground font-semibold">
                     <tr>
-                      <th className="px-3 py-2.5">Tipo</th>
-                      <th className="px-3 py-2.5">Fecha</th>
-                      <th className="px-4 py-2.5">Cliente</th>
-                      <th className="px-3 py-2.5">Servicio</th>
-                      <th className="px-3 py-2.5">Frecuencia</th>
-                      <th className="px-3 py-2.5">Cleaner / Equipo</th>
-                      <th className="px-3 py-2.5">Ciudad</th>
-                      <th className="px-3 py-2.5 text-right">Subtotal</th>
-                      <th className="px-3 py-2.5 text-right">Pago Cleaner</th>
-                      <th className="px-3 py-2.5 text-right">Labour %</th>
-                      <th className="px-3 py-2.5 text-right">PC Profit</th>
-                      <th className="px-3 py-2.5 text-right">Profit %</th>
-                      <th className="px-3 py-2.5 text-center">Horas</th>
-                      <th className="px-3 py-2.5 text-center">Acciones</th>
+                      <th className="px-3 py-2.5">{isEn ? "Type" : "Tipo"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "Date" : "Fecha"}</th>
+                      <th className="px-4 py-2.5">{isEn ? "Client" : "Cliente"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "Service" : "Servicio"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "Frequency" : "Frecuencia"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "Cleaner / Team" : "Cleaner / Equipo"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "City" : "Ciudad"}</th>
+                      <th className="px-3 py-2.5 text-right">{isEn ? "Subtotal" : "Subtotal"}</th>
+                      <th className="px-3 py-2.5 text-right">{isEn ? "Cleaner Pay" : "Pago Cleaner"}</th>
+                      <th className="px-3 py-2.5 text-right">{isEn ? "Labor %" : "Mano de Obra %"}</th>
+                      <th className="px-3 py-2.5 text-right">{isEn ? "PC Profit" : "Ganancia PC"}</th>
+                      <th className="px-3 py-2.5 text-right">{isEn ? "Profit %" : "Margen %"}</th>
+                      <th className="px-3 py-2.5 text-center">{isEn ? "Hours" : "Horas"}</th>
+                      <th className="px-3 py-2.5 text-center">{isEn ? "Actions" : "Acciones"}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -1517,18 +1521,18 @@ export function SalesTrackClient() {
                           <td className="px-3 py-2.5">
                             {isComm ? (
                               <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                                <Building2 className="size-3" /> Comercial
+                                <Building2 className="size-3" /> {isEn ? "Commercial" : "Comercial"}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-400">
-                                <Home className="size-3" /> Residencial
+                                <Home className="size-3" /> {isEn ? "Residential" : "Residencial"}
                               </span>
                             )}
                           </td>
                           <td className="px-3 py-2.5 text-muted-foreground font-mono">{b.date}</td>
                           <td className="px-4 py-2.5 font-bold text-foreground">{b.clientName}</td>
-                          <td className="px-3 py-2.5 text-foreground">{b.service}</td>
-                          <td className="px-3 py-2.5 text-muted-foreground">{b.frequency}</td>
+                          <td className="px-3 py-2.5 text-foreground">{translateCategoryName(b.service)}</td>
+                          <td className="px-3 py-2.5 text-muted-foreground">{translateCategoryName(b.frequency)}</td>
                           <td className="px-3 py-2.5 font-medium text-foreground">
                             {isEditing ? (
                               <select
@@ -1538,12 +1542,12 @@ export function SalesTrackClient() {
                               >
                                 {cleanerOpts.map((c) => (
                                   <option key={c} value={c}>
-                                    {c}
+                                    {translateCategoryName(c)}
                                   </option>
                                 ))}
                               </select>
                             ) : (
-                              b.cleanerTeam
+                              translateCategoryName(b.cleanerTeam)
                             )}
                           </td>
                           <td className="px-3 py-2.5 text-muted-foreground">{b.city}</td>
@@ -1594,9 +1598,13 @@ export function SalesTrackClient() {
                                           });
                                           setDynamicMonthBookings(res.bookings);
                                           setSyncFeedback(
-                                            `Actualizado ${b.clientName}: ${editDraft.cleanerTeam} ($${(
-                                              parseFloat(editDraft.pay) || 0
-                                            ).toFixed(2)})`
+                                            isEn
+                                              ? `Updated ${b.clientName}: ${editDraft.cleanerTeam} ($${(
+                                                  parseFloat(editDraft.pay) || 0
+                                                ).toFixed(2)})`
+                                              : `Actualizado ${b.clientName}: ${editDraft.cleanerTeam} ($${(
+                                                  parseFloat(editDraft.pay) || 0
+                                                ).toFixed(2)})`
                                           );
                                           setTimeout(() => setSyncFeedback(null), 4000);
                                         }
@@ -1606,14 +1614,14 @@ export function SalesTrackClient() {
                                       }
                                     }}
                                     className="size-6 rounded bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25 transition-colors inline-flex items-center justify-center"
-                                    title="Guardar cambios"
+                                    title={isEn ? "Save changes" : "Guardar cambios"}
                                   >
                                     <Check className="size-3.5" />
                                   </button>
                                   <button
                                     onClick={() => setEditingRowId(null)}
                                     className="size-6 rounded text-muted-foreground hover:bg-muted transition-colors inline-flex items-center justify-center"
-                                    title="Cancelar"
+                                    title={isEn ? "Cancel" : "Cancelar"}
                                   >
                                     <X className="size-3.5" />
                                   </button>
@@ -1631,7 +1639,7 @@ export function SalesTrackClient() {
                                         });
                                       }}
                                       className="size-6 rounded text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors inline-flex items-center justify-center"
-                                      title="Editar cleaner / pago"
+                                      title={isEn ? "Edit cleaner / pay" : "Editar cleaner / pago"}
                                     >
                                       <Pencil className="size-3" />
                                     </button>
@@ -1639,7 +1647,7 @@ export function SalesTrackClient() {
                                   <button
                                     onClick={() => handleDeleteBooking(b.id)}
                                     className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
-                                    title="Eliminar registro"
+                                    title={isEn ? "Delete record" : "Eliminar registro"}
                                   >
                                     <Trash2 className="size-3" />
                                   </button>
@@ -1658,7 +1666,15 @@ export function SalesTrackClient() {
               {totalLedgerPages > 1 && (
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-border/80 bg-muted/20">
                   <span className="text-xs text-muted-foreground">
-                    Mostrando {((ledgerPage - 1) * LEDGER_PAGE_SIZE) + 1} - {Math.min(ledgerPage * LEDGER_PAGE_SIZE, filteredBookings.length)} de {filteredBookings.length} registros
+                    {isEn
+                      ? `Showing ${(ledgerPage - 1) * LEDGER_PAGE_SIZE + 1} - ${Math.min(
+                          ledgerPage * LEDGER_PAGE_SIZE,
+                          filteredBookings.length
+                        )} of ${filteredBookings.length} records`
+                      : `Mostrando ${(ledgerPage - 1) * LEDGER_PAGE_SIZE + 1} - ${Math.min(
+                          ledgerPage * LEDGER_PAGE_SIZE,
+                          filteredBookings.length
+                        )} de ${filteredBookings.length} registros`}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <Button
@@ -1668,7 +1684,7 @@ export function SalesTrackClient() {
                       onClick={() => setLedgerPage((p) => Math.max(p - 1, 1))}
                       className="h-7 text-xs px-2.5 cursor-pointer tap-active"
                     >
-                      Anterior
+                      {isEn ? "Previous" : "Anterior"}
                     </Button>
                     <span className="text-xs font-bold text-foreground px-2">
                       {ledgerPage} / {totalLedgerPages}
@@ -1680,7 +1696,7 @@ export function SalesTrackClient() {
                       onClick={() => setLedgerPage((p) => Math.min(p + 1, totalLedgerPages))}
                       className="h-7 text-xs px-2.5 cursor-pointer tap-active"
                     >
-                      Siguiente
+                      {isEn ? "Next" : "Siguiente"}
                     </Button>
                   </div>
                 </div>
@@ -1694,7 +1710,9 @@ export function SalesTrackClient() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
             <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4">
               <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="font-bold text-base text-foreground">Registrar Nuevo Servicio / Cita</h3>
+                <h3 className="font-bold text-base text-foreground">
+                  {isEn ? "Register New Service / Booking" : "Registrar Nuevo Servicio / Cita"}
+                </h3>
                 <button onClick={() => setShowAddModal(false)} className="text-muted-foreground hover:text-foreground">
                   ✕
                 </button>
@@ -1702,18 +1720,18 @@ export function SalesTrackClient() {
               <form onSubmit={handleAddManualBooking} className="space-y-3 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <label className="space-y-1">
-                    <span className="font-semibold text-muted-foreground">Cliente *</span>
+                    <span className="font-semibold text-muted-foreground">{isEn ? "Client *" : "Cliente *"}</span>
                     <input
                       required
                       type="text"
                       value={newBookingDraft.clientName || ""}
                       onChange={(e) => setNewBookingDraft({ ...newBookingDraft, clientName: e.target.value })}
-                      placeholder="Nombre del Cliente"
+                      placeholder={isEn ? "Client Name" : "Nombre del Cliente"}
                       className="w-full rounded-lg border border-border bg-background px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                   </label>
                   <label className="space-y-1">
-                    <span className="font-semibold text-muted-foreground">Ciudad</span>
+                    <span className="font-semibold text-muted-foreground">{isEn ? "City" : "Ciudad"}</span>
                     <input
                       type="text"
                       value={newBookingDraft.city || ""}
@@ -1726,40 +1744,40 @@ export function SalesTrackClient() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <label className="space-y-1">
-                    <span className="font-semibold text-muted-foreground">Servicio</span>
+                    <span className="font-semibold text-muted-foreground">{isEn ? "Service" : "Servicio"}</span>
                     <select
                       value={newBookingDraft.service || "Commercial Cleaning"}
                       onChange={(e) => setNewBookingDraft({ ...newBookingDraft, service: e.target.value })}
                       className="w-full rounded-lg border border-border bg-background px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                     >
-                      <option value="Commercial Cleaning">Commercial Cleaning</option>
-                      <option value="Express Cleaning/Bathroom">Express Cleaning / Standard</option>
-                      <option value="Deep Clean">Deep Clean</option>
-                      <option value="Move In/Out Clean">Move In/Out Clean</option>
-                      <option value="Airbnb Clean">Airbnb Clean</option>
+                      <option value="Commercial Cleaning">{isEn ? "Commercial Cleaning" : "Limpieza Comercial"}</option>
+                      <option value="Express Cleaning/Bathroom">{isEn ? "Express Cleaning / Standard" : "Limpieza Express / Estándar"}</option>
+                      <option value="Deep Clean">{isEn ? "Deep Clean" : "Limpieza Profunda"}</option>
+                      <option value="Move In/Out Clean">{isEn ? "Move In/Out Clean" : "Mudanza (Move In/Out)"}</option>
+                      <option value="Airbnb Clean">{isEn ? "Airbnb Clean" : "Limpieza Airbnb"}</option>
                     </select>
                   </label>
                   <label className="space-y-1">
-                    <span className="font-semibold text-muted-foreground">Frecuencia</span>
+                    <span className="font-semibold text-muted-foreground">{isEn ? "Frequency" : "Frecuencia"}</span>
                     <select
                       value={newBookingDraft.frequency || "Weekly"}
                       onChange={(e) => setNewBookingDraft({ ...newBookingDraft, frequency: e.target.value })}
                       className="w-full rounded-lg border border-border bg-background px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
                     >
-                      <option value="Weekly">Weekly (Semanal)</option>
-                      <option value="Every 2 weeks">Every 2 weeks (Quincenal)</option>
-                      <option value="Tri Weekly">Tri Weekly</option>
-                      <option value="Monthly">Monthly</option>
-                      <option value="5 days a week">5 days a week</option>
-                      <option value="3 times per week">3 times per week</option>
-                      <option value="One Time">One Time (Eventual)</option>
+                      <option value="Weekly">{isEn ? "Weekly" : "Semanal"}</option>
+                      <option value="Every 2 weeks">{isEn ? "Every 2 weeks" : "Cada 2 semanas (Quincenal)"}</option>
+                      <option value="Tri Weekly">{isEn ? "Every 3 weeks" : "Cada 3 semanas"}</option>
+                      <option value="Monthly">{isEn ? "Monthly" : "Mensual"}</option>
+                      <option value="5 days a week">{isEn ? "5 days a week" : "5 días por semana"}</option>
+                      <option value="3 times per week">{isEn ? "3 times per week" : "3 veces por semana"}</option>
+                      <option value="One Time">{isEn ? "One Time" : "Una vez (Eventual)"}</option>
                     </select>
                   </label>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
                   <label className="space-y-1">
-                    <span className="font-semibold text-muted-foreground">Subtotal ($)</span>
+                    <span className="font-semibold text-muted-foreground">{isEn ? "Subtotal ($)" : "Subtotal ($)"}</span>
                     <input
                       type="number"
                       step="0.01"
@@ -1769,7 +1787,7 @@ export function SalesTrackClient() {
                     />
                   </label>
                   <label className="space-y-1">
-                    <span className="font-semibold text-muted-foreground">Pago Cleaner ($)</span>
+                    <span className="font-semibold text-muted-foreground">{isEn ? "Cleaner Pay ($)" : "Pago Cleaner ($)"}</span>
                     <input
                       type="number"
                       step="0.01"
@@ -1779,7 +1797,7 @@ export function SalesTrackClient() {
                     />
                   </label>
                   <label className="space-y-1">
-                    <span className="font-semibold text-muted-foreground">Horas</span>
+                    <span className="font-semibold text-muted-foreground">{isEn ? "Hours" : "Horas"}</span>
                     <input
                       type="number"
                       step="0.1"
@@ -1792,10 +1810,10 @@ export function SalesTrackClient() {
 
                 <div className="flex justify-end gap-2 pt-3 border-t border-border">
                   <Button type="button" variant="outline" size="sm" onClick={() => setShowAddModal(false)}>
-                    Cancelar
+                    {isEn ? "Cancel" : "Cancelar"}
                   </Button>
                   <Button type="submit" size="sm">
-                    Guardar Registro
+                    {isEn ? "Save Record" : "Guardar Registro"}
                   </Button>
                 </div>
               </form>

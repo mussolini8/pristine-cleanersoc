@@ -192,7 +192,7 @@ function entryStatus(exceptions: PayrollExceptionCode[]) {
 
 function reviewNoteFor(exceptions: PayrollExceptionCode[], setting: CleanerPaymentSetting | null) {
   if (setting?.manual_review_reason) return setting.manual_review_reason;
-  if (exceptions.includes("manual_review")) return "Steripax: Horas calculadas manualmente; confirmar horas trabajadas y costo antes de aprobar";
+  if (exceptions.includes("manual_review")) return "Steripax: Hours calculated manually; confirm worked hours and cost before approving";
   if (exceptions.includes("missing_account_pay_settings")) return "Missing account pay settings";
   if (exceptions.includes("missing_pay_rate")) return "Missing rate";
   if (exceptions.includes("missing_cleaner")) return "Missing cleaner";

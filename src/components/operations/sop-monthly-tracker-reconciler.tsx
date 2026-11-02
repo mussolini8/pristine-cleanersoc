@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/components/providers/language-provider";
 import {
   ALL_TRACKER_CLEANERS,
   addSopManualBooking,
@@ -132,6 +133,7 @@ export function SopMonthlyTrackerReconciler({
   onCompleteTaskWithSummary: (summaryNote: string) => Promise<void>;
   onNotify?: (tone: "success" | "error", text: string) => void;
 }) {
+  const { isEn } = useLanguage();
   const [monthKey, setMonthKey] = useState<string>(() => getSmartDefaultMonthKey(taskDueDate));
   const [bookings, setBookings] = useState<ServiceBookingRow[]>(() =>
     getInitialDynamicMonthBookings(getSmartDefaultMonthKey(taskDueDate))
@@ -163,14 +165,17 @@ export function SopMonthlyTrackerReconciler({
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const monthInfo = useMemo(() => getMonthInfo(monthKey), [monthKey]);
+  const monthInfo = useMemo(() => getMonthInfo(monthKey, isEn ? "en" : "es"), [monthKey, isEn]);
 
-  const monthOptions = [
-    { key: "2026-10", label: "Octubre 2026" },
-    { key: "2026-11", label: "Noviembre 2026" },
-    { key: "2026-12", label: "Diciembre 2026" },
-    { key: "2027-01", label: "Enero 2027" },
-  ];
+  const monthOptions = useMemo(
+    () => [
+      { key: "2026-10", label: isEn ? "October 2026" : "Octubre 2026" },
+      { key: "2026-11", label: isEn ? "November 2026" : "Noviembre 2026" },
+      { key: "2026-12", label: isEn ? "December 2026" : "Diciembre 2026" },
+      { key: "2027-01", label: isEn ? "January 2027" : "Enero 2027" },
+    ],
+    [isEn]
+  );
 
   const loadMonth = async (targetMonth: string) => {
     setLoading(true);
@@ -281,10 +286,12 @@ export function SopMonthlyTrackerReconciler({
       setTimeout(() => setSavedRowId((curr) => (curr === row.id ? null : curr)), 2500);
       onNotify?.(
         "success",
-        `Actualizado ${row.clientName}: ${draft.cleanerTeam} ($${(parseFloat(draft.pay) || 0).toFixed(2)})`
+        isEn
+          ? `Updated ${row.clientName}: ${draft.cleanerTeam} ($${(parseFloat(draft.pay) || 0).toFixed(2)})`
+          : `Actualizado ${row.clientName}: ${draft.cleanerTeam} ($${(parseFloat(draft.pay) || 0).toFixed(2)})`
       );
     } catch (err: any) {
-      onNotify?.("error", `Error al guardar cambio: ${err.message}`);
+      onNotify?.("error", isEn ? `Error saving change: ${err.message}` : `Error al guardar cambio: ${err.message}`);
     } finally {
       setSavingRowId(null);
     }
@@ -317,9 +324,14 @@ export function SopMonthlyTrackerReconciler({
         pay: "",
         hours: "3.0",
       });
-      onNotify?.("success", `Servicio adicional de ${newDraft.clientName} añadido a ${monthInfo.label}.`);
+      onNotify?.(
+        "success",
+        isEn
+          ? `Additional booking for ${newDraft.clientName} added to ${monthInfo.label}.`
+          : `Servicio adicional de ${newDraft.clientName} añadido a ${monthInfo.label}.`
+      );
     } catch (err: any) {
-      onNotify?.("error", `Error al añadir servicio: ${err.message}`);
+      onNotify?.("error", isEn ? `Error adding booking: ${err.message}` : `Error al añadir servicio: ${err.message}`);
     } finally {
       setAddingManual(false);
     }
@@ -337,7 +349,7 @@ export function SopMonthlyTrackerReconciler({
       const gridRows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as any[][];
 
       if (!gridRows || gridRows.length < 2) {
-        onNotify?.("error", "El archivo CSV no contiene filas válidas.");
+        onNotify?.("error", isEn ? "CSV file contains no valid rows." : "El archivo CSV no contiene filas válidas.");
         setUploadingCsv(false);
         return;
       }
@@ -501,14 +513,20 @@ export function SopMonthlyTrackerReconciler({
 
       onNotify?.(
         "success",
-        `CSV procesado (${parsedResidential.length} servicios residenciales en ${res.monthInfo.label}). ${
-          pendingAfter.length > 0
-            ? `Hay ${pendingAfter.length} sin cleaner/pago: asígnalos abajo.`
-            : "Todos los servicios tienen cleaner y pago asignado."
-        }`
+        isEn
+          ? `CSV processed (${parsedResidential.length} residential bookings in ${res.monthInfo.label}). ${
+              pendingAfter.length > 0
+                ? `There are ${pendingAfter.length} unassigned/unpaid: assign them below.`
+                : "All bookings have cleaner and payment assigned."
+            }`
+          : `CSV procesado (${parsedResidential.length} servicios residenciales en ${res.monthInfo.label}). ${
+              pendingAfter.length > 0
+                ? `Hay ${pendingAfter.length} sin cleaner/pago: asígnalos abajo.`
+                : "Todos los servicios tienen cleaner y pago asignado."
+            }`
       );
     } catch (err: any) {
-      onNotify?.("error", `Error al procesar CSV: ${err.message}`);
+      onNotify?.("error", isEn ? `Error processing CSV: ${err.message}` : `Error al procesar CSV: ${err.message}`);
     } finally {
       setUploadingCsv(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -520,10 +538,12 @@ export function SopMonthlyTrackerReconciler({
     try {
       const res = await reconcileMonthlyTracker(supabase, monthKey);
       setBookings(res.bookings);
-      const summaryNote = `Conciliación SOP completada para ${res.monthInfo.label}: Total Revenue: $${res.stats.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Costo Laboral: $${res.stats.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${res.stats.laborPct.toFixed(1)}%) | Ganancia Neta: $${res.stats.totalProfit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | ${res.stats.residentialCount} servicios BookingKoala + ${res.stats.commercialCount} visitas comerciales activas.`;
+      const summaryNote = isEn
+        ? `SOP reconciliation completed for ${res.monthInfo.label}: Total Revenue: $${res.stats.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Labor Cost: $${res.stats.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${res.stats.laborPct.toFixed(1)}%) | Net Profit: $${res.stats.totalProfit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | ${res.stats.residentialCount} BookingKoala bookings + ${res.stats.commercialCount} active commercial visits.`
+        : `Conciliación SOP completada para ${res.monthInfo.label}: Total Revenue: $${res.stats.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Costo Laboral: $${res.stats.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${res.stats.laborPct.toFixed(1)}%) | Ganancia Neta: $${res.stats.totalProfit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | ${res.stats.residentialCount} servicios BookingKoala + ${res.stats.commercialCount} visitas comerciales activas.`;
       await onCompleteTaskWithSummary(summaryNote);
     } catch (err: any) {
-      onNotify?.("error", `Error al conciliar tracker: ${err.message}`);
+      onNotify?.("error", isEn ? `Error reconciling tracker: ${err.message}` : `Error al conciliar tracker: ${err.message}`);
     } finally {
       setReconcilingAndCompleting(false);
     }
@@ -538,9 +558,13 @@ export function SopMonthlyTrackerReconciler({
             <TrendingUp className="size-4.5" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-foreground">Conciliador Mensual Integrado en SOP</h4>
+            <h4 className="text-sm font-bold text-foreground">
+              {isEn ? "Monthly Reconciler Integrated in SOP" : "Conciliador Mensual Integrado en SOP"}
+            </h4>
             <p className="text-xs text-muted-foreground">
-              Sube CSV BookingKoala, asigna cleaners/pagos pendientes y concilia contratos comerciales aquí mismo
+              {isEn
+                ? "Upload BookingKoala CSV, assign pending cleaners/pay and reconcile commercial accounts right here"
+                : "Sube CSV BookingKoala, asigna cleaners/pagos pendientes y concilia contratos comerciales aquí mismo"}
             </p>
           </div>
         </div>
@@ -580,7 +604,9 @@ export function SopMonthlyTrackerReconciler({
             className="h-8 gap-1.5 rounded-xl text-xs border-primary/30 text-primary hover:bg-primary/10"
           >
             <Upload className="size-3.5" />
-            {uploadingCsv ? "Importando CSV..." : "Subir CSV BookingKoala"}
+            {uploadingCsv
+              ? (isEn ? "Importing CSV..." : "Importando CSV...")
+              : (isEn ? "Upload BookingKoala CSV" : "Subir CSV BookingKoala")}
           </Button>
         </div>
       </div>
@@ -589,45 +615,49 @@ export function SopMonthlyTrackerReconciler({
       <div className="grid grid-cols-2 gap-2 rounded-xl border border-emerald-500/25 bg-card p-3 text-xs sm:grid-cols-4">
         <div>
           <span className="text-[10px] font-bold uppercase text-muted-foreground">
-            Residencial ({residentialBookings.length} BK)
+            {isEn ? "Residential" : "Residencial"} ({residentialBookings.length} BK)
           </span>
           <p className="text-sm font-black text-blue-600 dark:text-blue-400">
             ${resKpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <span className="text-[10px] text-muted-foreground">
-            Labor: ${resKpis.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {isEn ? "Labor:" : "Labor:"} ${resKpis.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
 
         <div>
           <span className="text-[10px] font-bold uppercase text-muted-foreground">
-            Comercial ({commercialBookings.length} vis.)
+            {isEn ? "Commercial" : "Comercial"} ({commercialBookings.length} {isEn ? "vis." : "vis."})
           </span>
           <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">
             ${commKpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <span className="text-[10px] text-muted-foreground">
-            Labor: ${commKpis.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {isEn ? "Labor:" : "Labor:"} ${commKpis.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
 
         <div>
-          <span className="text-[10px] font-bold uppercase text-muted-foreground">Revenue Consolidado</span>
+          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+            {isEn ? "Consolidated Revenue" : "Revenue Consolidado"}
+          </span>
           <p className="text-sm font-black text-foreground">
             ${kpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <span className="text-[10px] text-muted-foreground">
-            Labor Total: ${kpis.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({laborPct.toFixed(1)}%)
+            {isEn ? "Total Labor:" : "Labor Total:"} ${kpis.totalGrossCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({laborPct.toFixed(1)}%)
           </span>
         </div>
 
         <div>
-          <span className="text-[10px] font-bold uppercase text-muted-foreground">Ganancia Neta</span>
+          <span className="text-[10px] font-bold uppercase text-muted-foreground">
+            {isEn ? "Net Profit" : "Ganancia Neta"}
+          </span>
           <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">
             ${kpis.totalGrossProfit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <span className="text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/90">
-            {kpis.totalGrossProfitPct.toFixed(1)}% margen neto
+            {kpis.totalGrossProfitPct.toFixed(1)}% {isEn ? "net margin" : "margen neto"}
           </span>
         </div>
       </div>
@@ -639,14 +669,18 @@ export function SopMonthlyTrackerReconciler({
             <>
               <AlertTriangle className="size-4 text-amber-500 shrink-0" />
               <span className="font-bold text-amber-700 dark:text-amber-400">
-                {unassignedOrZeroBookings.length} servicio(s) sin cleaner o con pago $0 en {monthInfo.label}
+                {isEn
+                  ? `${unassignedOrZeroBookings.length} booking(s) without cleaner or $0 pay in ${monthInfo.label}`
+                  : `${unassignedOrZeroBookings.length} servicio(s) sin cleaner o con pago $0 en ${monthInfo.label}`}
               </span>
             </>
           ) : (
             <>
               <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
               <span className="font-semibold text-foreground">
-                {residentialBookings.length} servicios BookingKoala con cleaner y pago asignados
+                {isEn
+                  ? `${residentialBookings.length} BookingKoala bookings with cleaner and pay assigned`
+                  : `${residentialBookings.length} servicios BookingKoala con cleaner y pago asignados`}
               </span>
             </>
           )}
@@ -668,7 +702,9 @@ export function SopMonthlyTrackerReconciler({
             className="h-7 gap-1 rounded-lg px-2.5 text-xs font-semibold"
           >
             <UserCheck className="size-3.5 text-primary" />
-            {showEditor ? "Ocultar Editor" : `Asignar / Editar Cleaners y Pagos (${residentialBookings.length})`}
+            {showEditor
+              ? (isEn ? "Hide Editor" : "Ocultar Editor")
+              : (isEn ? `Assign / Edit Cleaners & Pay (${residentialBookings.length})` : `Asignar / Editar Cleaners y Pagos (${residentialBookings.length})`)}
             {showEditor ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
           </Button>
 
@@ -683,7 +719,7 @@ export function SopMonthlyTrackerReconciler({
             className="h-7 gap-1 rounded-lg px-2.5 text-xs font-semibold border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
           >
             <Plus className="size-3.5" />
-            Añadir Booking
+            {isEn ? "Add Booking" : "Añadir Booking"}
           </Button>
         </div>
       </div>
@@ -695,7 +731,9 @@ export function SopMonthlyTrackerReconciler({
           className="space-y-2.5 rounded-xl border border-primary/30 bg-card p-3 text-xs shadow-xs"
         >
           <div className="flex items-center justify-between">
-            <span className="font-bold text-foreground">Añadir Servicio Adicional a {monthInfo.label}</span>
+            <span className="font-bold text-foreground">
+              {isEn ? `Add Additional Booking to ${monthInfo.label}` : `Añadir Servicio Adicional a ${monthInfo.label}`}
+            </span>
             <button
               type="button"
               onClick={() => setShowAddForm(false)}
@@ -715,7 +753,7 @@ export function SopMonthlyTrackerReconciler({
             <input
               type="text"
               required
-              placeholder="Nombre del cliente *"
+              placeholder={isEn ? "Customer name *" : "Nombre del cliente *"}
               value={newDraft.clientName}
               onChange={(e) => setNewDraft({ ...newDraft, clientName: e.target.value })}
               className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs"
@@ -732,7 +770,7 @@ export function SopMonthlyTrackerReconciler({
             </select>
             <input
               type="text"
-              placeholder="Ciudad (ej. Irvine)"
+              placeholder={isEn ? "City (e.g. Irvine)" : "Ciudad (ej. Irvine)"}
               value={newDraft.city}
               onChange={(e) => setNewDraft({ ...newDraft, city: e.target.value })}
               className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs"
@@ -754,7 +792,7 @@ export function SopMonthlyTrackerReconciler({
               type="number"
               step="0.01"
               required
-              placeholder="Cobro Cliente ($)"
+              placeholder={isEn ? "Client Fee ($)" : "Cobro Cliente ($)"}
               value={newDraft.subTotal}
               onChange={(e) => setNewDraft({ ...newDraft, subTotal: e.target.value })}
               className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs"
@@ -763,13 +801,13 @@ export function SopMonthlyTrackerReconciler({
               type="number"
               step="0.01"
               required
-              placeholder="Pago Cleaner ($)"
+              placeholder={isEn ? "Cleaner Pay ($)" : "Pago Cleaner ($)"}
               value={newDraft.pay}
               onChange={(e) => setNewDraft({ ...newDraft, pay: e.target.value })}
               className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs"
             />
             <Button type="submit" size="sm" disabled={addingManual} className="h-8 rounded-lg text-xs font-bold">
-              {addingManual ? "Guardando..." : "Guardar Servicio"}
+              {addingManual ? (isEn ? "Saving..." : "Guardando...") : (isEn ? "Save Booking" : "Guardar Servicio")}
             </Button>
           </div>
         </form>
@@ -789,7 +827,7 @@ export function SopMonthlyTrackerReconciler({
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Todos ({residentialBookings.length})
+                {isEn ? `All (${residentialBookings.length})` : `Todos (${residentialBookings.length})`}
               </button>
               <button
                 type="button"
@@ -800,7 +838,7 @@ export function SopMonthlyTrackerReconciler({
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Sin Asignar / $0 ({unassignedOrZeroBookings.length})
+                {isEn ? `Unassigned / $0 (${unassignedOrZeroBookings.length})` : `Sin Asignar / $0 (${unassignedOrZeroBookings.length})`}
               </button>
             </div>
 
@@ -810,7 +848,7 @@ export function SopMonthlyTrackerReconciler({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar cliente, cleaner o ID (ej. Yuri, Carlos)..."
+                placeholder={isEn ? "Search client, cleaner or ID (e.g. Yuri, Carlos)..." : "Buscar cliente, cleaner o ID (ej. Yuri, Carlos)..."}
                 className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -820,12 +858,12 @@ export function SopMonthlyTrackerReconciler({
             <table className="w-full text-left text-xs border-collapse">
               <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur-xs text-[10px] font-bold uppercase text-muted-foreground border-b border-border/70">
                 <tr>
-                  <th className="px-2.5 py-2">Fecha</th>
-                  <th className="px-2.5 py-2">Cliente / Booking</th>
-                  <th className="px-2.5 py-2 text-right">Cobro ($)</th>
-                  <th className="px-2.5 py-2">Cleaner Asignada</th>
-                  <th className="px-2.5 py-2 text-right">Pago Cleaner ($)</th>
-                  <th className="px-2.5 py-2 text-right">Acción</th>
+                  <th className="px-2.5 py-2">{isEn ? "Date" : "Fecha"}</th>
+                  <th className="px-2.5 py-2">{isEn ? "Client / Booking" : "Cliente / Booking"}</th>
+                  <th className="px-2.5 py-2 text-right">{isEn ? "Fee ($)" : "Cobro ($)"}</th>
+                  <th className="px-2.5 py-2">{isEn ? "Assigned Cleaner" : "Cleaner Asignada"}</th>
+                  <th className="px-2.5 py-2 text-right">{isEn ? "Cleaner Pay ($)" : "Pago Cleaner ($)"}</th>
+                  <th className="px-2.5 py-2 text-right">{isEn ? "Action" : "Acción"}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
@@ -833,8 +871,8 @@ export function SopMonthlyTrackerReconciler({
                   <tr>
                     <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
                       {editorFilter === "pending"
-                        ? "¡Excelente! No hay servicios pendientes de asignar cleaner o pago."
-                        : "No se encontraron servicios con ese filtro."}
+                        ? (isEn ? "Great! No bookings pending cleaner or payment assignment." : "¡Excelente! No hay servicios pendientes de asignar cleaner o pago.")
+                        : (isEn ? "No bookings found matching filter." : "No se encontraron servicios con ese filtro.")}
                     </td>
                   </tr>
                 ) : (
@@ -913,7 +951,7 @@ export function SopMonthlyTrackerReconciler({
                         <td className="px-2.5 py-2 text-right whitespace-nowrap">
                           {savedRowId === row.id ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600">
-                              <Check className="size-3.5" /> Guardado
+                              <Check className="size-3.5" /> {isEn ? "Saved" : "Guardado"}
                             </span>
                           ) : (
                             <Button
@@ -924,7 +962,7 @@ export function SopMonthlyTrackerReconciler({
                               onClick={() => handleSaveRow(row)}
                               className="h-7 px-2.5 text-[11px] font-bold"
                             >
-                              {savingRowId === row.id ? "..." : "Guardar"}
+                              {savingRowId === row.id ? "..." : (isEn ? "Save" : "Guardar")}
                             </Button>
                           )}
                         </td>
@@ -949,8 +987,8 @@ export function SopMonthlyTrackerReconciler({
           >
             <Sparkles className="size-4" />
             {reconcilingAndCompleting
-              ? "Conciliando..."
-              : `⚡ Conciliar ${monthInfo.label} & Completar SOP`}
+              ? (isEn ? "Reconciling..." : "Conciliando...")
+              : `⚡ ${isEn ? `Reconcile ${monthInfo.label} & Complete SOP` : `Conciliar ${monthInfo.label} & Completar SOP`}`}
           </Button>
 
           <Button
@@ -962,7 +1000,7 @@ export function SopMonthlyTrackerReconciler({
             className="h-9 gap-1.5 rounded-xl text-xs"
           >
             <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-            Recargar
+            {isEn ? "Reload" : "Recargar"}
           </Button>
         </div>
 
@@ -971,7 +1009,7 @@ export function SopMonthlyTrackerReconciler({
           className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-muted transition-colors"
         >
           <ExternalLink className="size-3.5 text-muted-foreground" />
-          Abrir Sales Tracker ({monthInfo.shortLabel})
+          {isEn ? `Open Sales Tracker (${monthInfo.shortLabel})` : `Abrir Sales Tracker (${monthInfo.shortLabel})`}
         </Link>
       </div>
     </section>

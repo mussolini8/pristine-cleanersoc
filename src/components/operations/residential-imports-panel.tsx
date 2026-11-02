@@ -1,14 +1,25 @@
-import React from 'react';
+"use client";
+
+import React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import importedAccounts from "@/data/residential-accounts.json";
+import { useLanguage } from "@/components/providers/language-provider";
 
 export function ResidentialImportsPanel() {
+  const { isEn } = useLanguage();
+
   return (
     <Card className="overflow-hidden rounded-2xl border border-border/65 bg-card shadow-[0_18px_58px_-50px_hsl(215_40%_20%)] mt-8">
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border/60 bg-card px-5 py-4">
         <div>
-          <CardTitle className="text-xl font-semibold tracking-normal">Imported Residential Accounts</CardTitle>
-          <p className="mt-1 text-sm font-medium text-muted-foreground">{importedAccounts.length} accounts imported</p>
+          <CardTitle className="text-xl font-semibold tracking-normal">
+            {isEn ? "Imported Residential Accounts" : "Cuentas Residenciales Importadas"}
+          </CardTitle>
+          <p className="mt-1 text-sm font-medium text-muted-foreground">
+            {isEn
+              ? `${importedAccounts.length} accounts imported`
+              : `${importedAccounts.length} cuentas importadas`}
+          </p>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -16,13 +27,13 @@ export function ResidentialImportsPanel() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/70 bg-muted/25 text-left text-xs font-semibold text-muted-foreground">
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Time</th>
-                <th className="px-4 py-3">Client</th>
-                <th className="px-4 py-3">Address</th>
-                <th className="px-4 py-3">Service</th>
-                <th className="px-4 py-3">Frequency</th>
-                <th className="px-4 py-3">Provider</th>
+                <th className="px-4 py-3">{isEn ? "Date" : "Fecha"}</th>
+                <th className="px-4 py-3">{isEn ? "Time" : "Hora"}</th>
+                <th className="px-4 py-3">{isEn ? "Client" : "Cliente"}</th>
+                <th className="px-4 py-3">{isEn ? "Address" : "Ciudad / Dirección"}</th>
+                <th className="px-4 py-3">{isEn ? "Service" : "Servicio"}</th>
+                <th className="px-4 py-3">{isEn ? "Frequency" : "Frecuencia"}</th>
+                <th className="px-4 py-3">{isEn ? "Provider" : "Equipo / Cleaner"}</th>
               </tr>
             </thead>
             <tbody>

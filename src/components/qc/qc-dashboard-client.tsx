@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useLanguage } from "@/components/providers/language-provider";
 import { cn } from "@/lib/utils";
 import { QCCalendar, type QCInspector, type QCSchedule } from "@/components/qc/qc-calendar";
 import {
@@ -62,15 +63,71 @@ type InspectionRow = {
 };
 
 // ─────────────────────────────────────────────
+// Bilingual helpers
+// ─────────────────────────────────────────────
+
+const QC_TEXT_ES: Record<string, string> = {
+  // Areas
+  "Entrance & Lobby": "Entrada y Recepción",
+  "Restrooms": "Baños",
+  "Office / Work Areas": "Oficinas / Áreas de Trabajo",
+  "Break Room / Kitchen": "Comedor / Cocina",
+  "General / Wrap-up": "General / Cierre",
+  // Items
+  "Floors swept & mopped": "Pisos barridos y trapeados",
+  "Mats clean & positioned": "Tapetes limpios y en su lugar",
+  "Glass doors streak-free": "Puertas de vidrio sin marcas",
+  "Light switches & outlets wiped": "Interruptores y tomacorrientes limpios",
+  "Trash emptied & liner replaced": "Basura vaciada y bolsa reemplazada",
+  "Toilets & urinals sanitized": "Inodoros y urinarios desinfectados",
+  "Sinks & counters cleaned": "Lavamanos y mostradores limpios",
+  "Mirrors streak-free": "Espejos sin marcas",
+  "Floors mopped & dry": "Pisos trapeados y secos",
+  "Supplies restocked (soap, paper)": "Suministros repuestos (jabón, papel)",
+  "Trash emptied": "Basura vaciada",
+  "Odor-free": "Sin malos olores",
+  "Desks & surfaces dusted": "Escritorios y superficies desempolvados",
+  "Floors vacuumed or swept": "Pisos aspirados o barridos",
+  "Trash emptied & liners replaced": "Basura vaciada y bolsas reemplazadas",
+  "Common areas tidied": "Áreas comunes ordenadas",
+  "Electronics dusted (exteriors)": "Equipos electrónicos desempolvados (exterior)",
+  "Counters & surfaces sanitized": "Mostradores y superficies desinfectados",
+  "Sink cleaned": "Fregadero limpio",
+  "Microwave cleaned inside & out": "Microondas limpio por dentro y por fuera",
+  "Appliance exteriors wiped": "Exterior de electrodomésticos limpio",
+  "All lights off in unoccupied rooms": "Luces apagadas en áreas desocupadas",
+  "Supplies restocked in cart": "Suministros repuestos en el carrito",
+  "No equipment left behind": "Ningún equipo olvidado",
+  "Client sign-off obtained": "Conformidad del cliente obtenida",
+};
+
+function translateQcText(text: string, isEn: boolean): string {
+  if (isEn) return text;
+  return QC_TEXT_ES[text] ?? text;
+}
+
+function translateFrequency(freq: string | null | undefined, isEn: boolean): string {
+  const ft = (freq ?? "").toLowerCase();
+  if (ft === "daily") return isEn ? "Daily" : "Diario";
+  if (ft === "weekly") return isEn ? "Weekly" : "Semanal";
+  if (ft === "biweekly" || ft === "bi-weekly") return isEn ? "Bi-weekly" : "Quincenal";
+  if (ft === "monthly") return isEn ? "Monthly" : "Mensual";
+  if (ft === "one_off" || ft === "one-off" || ft === "specific_date") {
+    return isEn ? "One-off Date" : "Fecha única";
+  }
+  return freq ?? "";
+}
+
+// ─────────────────────────────────────────────
 // Tab switcher
 // ─────────────────────────────────────────────
 
-const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: "overview", label: "Overview", icon: ClipboardList },
-  { id: "calendar", label: "Calendar", icon: CalendarDays },
-  { id: "inspectors", label: "Inspectors", icon: Users },
-  { id: "accounts", label: "Accounts", icon: MapPin },
-  { id: "audits", label: "Audits", icon: CheckCircle2 },
+const TABS: { id: Tab; labelEn: string; labelEs: string; icon: React.ElementType }[] = [
+  { id: "overview", labelEn: "Overview", labelEs: "Resumen", icon: ClipboardList },
+  { id: "calendar", labelEn: "Calendar", labelEs: "Calendario", icon: CalendarDays },
+  { id: "inspectors", labelEn: "Inspectors", labelEs: "Inspectores", icon: Users },
+  { id: "accounts", labelEn: "Accounts", labelEs: "Cuentas", icon: MapPin },
+  { id: "audits", labelEn: "Audits", labelEs: "Auditorías", icon: CheckCircle2 },
 ];
 
 // ─────────────────────────────────────────────
@@ -142,6 +199,7 @@ function AccountsTab({
   loading: boolean;
   onConfigureGeofence: (account: CommercialAccountRow) => void;
 }) {
+  const { isEn } = useLanguage();
   const geofenceAccountIds = useMemo(
     () => new Set(geofences.map((g) => g.commercial_account_id)),
     [geofences],
@@ -158,9 +216,11 @@ function AccountsTab({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-foreground">Accounts</h2>
+        <h2 className="text-lg font-bold text-foreground">
+          {isEn ? "Accounts" : "Cuentas"}
+        </h2>
         <span className="text-xs font-semibold text-muted-foreground">
-          {geofences.length} / {allAccounts.length} with geofence
+          {geofences.length} / {allAccounts.length} {isEn ? "with geofence" : "con geocerca"}
         </span>
       </div>
 
@@ -168,10 +228,10 @@ function AccountsTab({
         <table className="sop-table w-full text-sm">
           <thead>
             <tr>
-              <th className="px-4 text-left">Account</th>
-              <th className="px-4 text-left">City</th>
-              <th className="px-4 text-left">Geofence</th>
-              <th className="px-4 text-right">Actions</th>
+              <th className="px-4 text-left">{isEn ? "Account" : "Cuenta"}</th>
+              <th className="px-4 text-left">{isEn ? "City" : "Ciudad"}</th>
+              <th className="px-4 text-left">{isEn ? "Geofence" : "Geocerca"}</th>
+              <th className="px-4 text-right">{isEn ? "Actions" : "Acciones"}</th>
             </tr>
           </thead>
           <tbody>
@@ -200,7 +260,13 @@ function AccountsTab({
                           hasGeo ? "bg-primary" : "bg-muted-foreground/40",
                         )}
                       />
-                      {hasGeo ? "Configured" : "Not configured"}
+                      {hasGeo
+                        ? isEn
+                          ? "Configured"
+                          : "Configurada"
+                        : isEn
+                          ? "Not configured"
+                          : "Sin configurar"}
                     </span>
                   </td>
                   <td className="px-4 text-right">
@@ -209,7 +275,7 @@ function AccountsTab({
                       onClick={() => onConfigureGeofence(acct)}
                       className="inline-flex items-center gap-1 rounded-lg border border-border/80 bg-card px-2.5 py-1 text-xs font-semibold text-muted-foreground hover:border-border hover:text-foreground transition-all cursor-pointer animate-none"
                     >
-                      Configure
+                      {isEn ? "Configure" : "Configurar"}
                     </button>
                   </td>
                 </tr>
@@ -227,6 +293,7 @@ function AccountsTab({
 // ─────────────────────────────────────────────
 
 export function QCDashboardClient() {
+  const { isEn } = useLanguage();
   const supabase = useMemo(() => createClient(), []);
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");
@@ -425,7 +492,7 @@ export function QCDashboardClient() {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="size-8 animate-spin text-primary" />
           <p className="text-sm font-semibold text-muted-foreground">
-            Loading QC data…
+            {isEn ? "Loading QC data…" : "Cargando datos de QC…"}
           </p>
         </div>
       </div>
@@ -436,7 +503,7 @@ export function QCDashboardClient() {
     return (
       <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-6 text-center">
         <p className="text-sm font-semibold text-destructive">
-          Error: {error}
+          {isEn ? "Error:" : "Error:"} {error}
         </p>
       </div>
     );
@@ -447,10 +514,10 @@ export function QCDashboardClient() {
       {/* Page title */}
       <div>
         <p className="text-xs font-bold uppercase tracking-wider text-primary">
-          Quality Control
+          {isEn ? "Quality Control" : "Control de Calidad"}
         </p>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          QC Manager Dashboard
+          {isEn ? "QC Manager Dashboard" : "Panel de Control de Calidad (QC)"}
         </h1>
       </div>
 
@@ -468,7 +535,9 @@ export function QCDashboardClient() {
             )}
           >
             <tab.icon className="size-4 shrink-0" />
-            <span className="hidden sm:inline">{tab.label}</span>
+            <span className="hidden sm:inline">
+              {isEn ? tab.labelEn : tab.labelEs}
+            </span>
           </button>
         ))}
       </div>
@@ -480,39 +549,49 @@ export function QCDashboardClient() {
         <div className="flex flex-col gap-6">
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <MetricCard
-              label="Inspections This Month"
+              label={isEn ? "Inspections This Month" : "Inspecciones Este Mes"}
               value={inspectionsThisMonth}
               icon={CalendarDays}
               accent
             />
             <MetricCard
-              label="Open Action Items"
+              label={isEn ? "Open Action Items" : "Acciones Pendientes"}
               value={0}
               icon={CheckCircle2}
-              sub="No open items"
+              sub={isEn ? "No open items" : "Sin acciones pendientes"}
             />
             <MetricCard
-              label="Average Score"
+              label={isEn ? "Average Score" : "Puntaje Promedio"}
               value="—"
               icon={Star}
-              sub="No scored inspections yet"
+              sub={
+                isEn
+                  ? "No scored inspections yet"
+                  : "Aún sin inspecciones calificadas"
+              }
             />
             <MetricCard
-              label="Active Inspectors"
+              label={isEn ? "Active Inspectors" : "Inspectores Activos"}
               value={activeInspectors}
               icon={Users}
-              sub={`${inspectors.length} total`}
+              sub={
+                isEn
+                  ? `${inspectors.length} total`
+                  : `${inspectors.length} en total`
+              }
             />
           </div>
 
           {/* Quick schedule summary */}
           <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
             <p className="mb-4 text-xs font-bold uppercase tracking-wider text-primary">
-              Schedule Summary
+              {isEn ? "Schedule Summary" : "Resumen de Horarios"}
             </p>
             {schedules.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No active inspection schedules.
+                {isEn
+                  ? "No active inspection schedules."
+                  : "No hay horarios de inspección activos."}
               </p>
             ) : (
               <div className="flex flex-col divide-y divide-border/50">
@@ -533,17 +612,18 @@ export function QCDashboardClient() {
                         {s.account_name}
                       </p>
                       <p className="shrink-0 text-xs text-muted-foreground">
-                        {inspector?.name ?? "Unassigned"}
+                        {inspector?.name ?? (isEn ? "Unassigned" : "Sin asignar")}
                       </p>
                       <p className="hidden shrink-0 text-xs font-semibold capitalize text-muted-foreground sm:block">
-                        {s.frequency_type}
+                        {translateFrequency(s.frequency_type, isEn)}
                       </p>
                     </div>
                   );
                 })}
                 {schedules.length > 8 && (
                   <p className="pt-2 text-xs text-muted-foreground">
-                    +{schedules.length - 8} more schedules
+                    +{schedules.length - 8}{" "}
+                    {isEn ? "more schedules" : "horarios más"}
                   </p>
                 )}
               </div>
@@ -562,10 +642,12 @@ export function QCDashboardClient() {
               onClick={() => setWorkScheduleOpen(true)}
               className="cursor-pointer gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300"
             >
-              <FileText className="size-4" /> Work Schedule (PDF)
+              <FileText className="size-4" />{" "}
+              {isEn ? "Work Schedule (PDF)" : "Horario de Trabajo (PDF)"}
             </Button>
             <Button onClick={() => setSchedulingOpen(true)} size="sm" className="cursor-pointer gap-1">
-              <Plus className="size-4" /> Schedule Inspection
+              <Plus className="size-4" />{" "}
+              {isEn ? "Schedule Inspection" : "Programar Inspección"}
             </Button>
           </div>
           <QCCalendar
@@ -678,6 +760,7 @@ function GeofenceModal({
   onClose: () => void;
   onSave: (lat: number, lng: number, radius: number, address: string | null) => Promise<void>;
 }) {
+  const { isEn } = useLanguage();
   const [mapsUrl, setMapsUrl] = useState("");
   const [lat, setLat] = useState(existingGeofence?.latitude?.toString() ?? "");
   const [lng, setLng] = useState(existingGeofence?.longitude?.toString() ?? "");
@@ -712,10 +795,19 @@ function GeofenceModal({
         setLng(data.lng.toString());
       } else {
         const data = await res.json();
-        setError(data.error ?? "Failed to geocode address automatically. Enter coordinates manually.");
+        setError(
+          data.error ??
+            (isEn
+              ? "Failed to geocode address automatically. Enter coordinates manually."
+              : "No se pudo geocodificar la dirección automáticamente. Ingresa las coordenadas manualmente."),
+        );
       }
     } catch (e: any) {
-      setError("Error calling geocoder. Please enter coordinates manually.");
+      setError(
+        isEn
+          ? "Error calling geocoder. Please enter coordinates manually."
+          : "Error al consultar el geocodificador. Por favor ingresa las coordenadas manualmente.",
+      );
     } finally {
       setGeocoding(false);
     }
@@ -767,14 +859,22 @@ function GeofenceModal({
         // Fall back to manual input without raising an error
       }
       setResolving(false);
-      setError("Could not auto-extract coordinates from this link. Please enter Latitude and Longitude manually below.");
+      setError(
+        isEn
+          ? "Could not auto-extract coordinates from this link. Please enter Latitude and Longitude manually below."
+          : "No se pudieron extraer las coordenadas de este enlace. Ingresa la Latitud y Longitud manualmente abajo.",
+      );
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!lat || !lng || !radius) {
-      setError("Please specify Latitude, Longitude, and Radius.");
+      setError(
+        isEn
+          ? "Please specify Latitude, Longitude, and Radius."
+          : "Por favor especifica Latitud, Longitud y Radio.",
+      );
       return;
     }
 
@@ -784,7 +884,10 @@ function GeofenceModal({
       await onSave(Number(lat), Number(lng), Number(radius), address || null);
       onClose();
     } catch (err: any) {
-      setError(err?.message ?? "Error saving geofence");
+      setError(
+        err?.message ??
+          (isEn ? "Error saving geofence" : "Error al guardar la geocerca"),
+      );
     } finally {
       setSaving(false);
     }
@@ -795,14 +898,21 @@ function GeofenceModal({
       <Card className="w-full max-w-md border-border/60 shadow-xl">
         <form onSubmit={handleSubmit}>
           <div className="flex items-center justify-between border-b border-border/50 px-5 py-4">
-            <h3 className="text-base font-bold text-foreground">Configure Geofence</h3>
-            <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer">
+            <h3 className="text-base font-bold text-foreground">
+              {isEn ? "Configure Geofence" : "Configurar Geocerca"}
+            </h3>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={isEn ? "Close" : "Cerrar"}
+              className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+            >
               <X className="size-4" />
             </button>
           </div>
           <CardContent className="p-5 space-y-4">
             <div className="bg-primary/[0.04] border border-primary/10 rounded-xl p-3 text-xs text-primary font-semibold">
-              Property: {account.name}
+              {isEn ? "Property:" : "Propiedad:"} {account.name}
             </div>
 
             {error && (
@@ -812,11 +922,15 @@ function GeofenceModal({
             )}
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Google Maps Link</label>
+              <label className="text-xs font-bold text-muted-foreground uppercase">
+                {isEn ? "Google Maps Link" : "Enlace de Google Maps"}
+              </label>
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Paste Google Maps URL"
+                  placeholder={
+                    isEn ? "Paste Google Maps URL" : "Pegar URL de Google Maps"
+                  }
                   className="w-full rounded-xl border border-input bg-background pl-3 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   value={mapsUrl}
                   onChange={(e) => handleLinkChange(e.target.value)}
@@ -828,30 +942,36 @@ function GeofenceModal({
                 )}
               </div>
               <p className="text-[10px] text-muted-foreground">
-                Paste the URL copied from Google Maps, and coordinates will be auto-filled below.
+                {isEn
+                  ? "Paste the URL copied from Google Maps, and coordinates will be auto-filled below."
+                  : "Pega la URL copiada de Google Maps y las coordenadas se completarán automáticamente abajo."}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Latitude *</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase">
+                  {isEn ? "Latitude *" : "Latitud *"}
+                </label>
                 <input
                   type="number"
                   step="any"
                   required
-                  placeholder="e.g. 33.6846"
+                  placeholder={isEn ? "e.g. 33.6846" : "ej. 33.6846"}
                   className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   value={lat}
                   onChange={(e) => setLat(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Longitude *</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase">
+                  {isEn ? "Longitude *" : "Longitud *"}
+                </label>
                 <input
                   type="number"
                   step="any"
                   required
-                  placeholder="e.g. -117.8265"
+                  placeholder={isEn ? "e.g. -117.8265" : "ej. -117.8265"}
                   className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   value={lng}
                   onChange={(e) => setLng(e.target.value)}
@@ -860,11 +980,13 @@ function GeofenceModal({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Radius (meters) *</label>
+              <label className="text-xs font-bold text-muted-foreground uppercase">
+                {isEn ? "Radius (meters) *" : "Radio (metros) *"}
+              </label>
               <input
                 type="number"
                 required
-                placeholder="Default: 75"
+                placeholder={isEn ? "Default: 75" : "Predeterminado: 75"}
                 className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                 value={radius}
                 onChange={(e) => setRadius(e.target.value)}
@@ -872,9 +994,15 @@ function GeofenceModal({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Address</label>
+              <label className="text-xs font-bold text-muted-foreground uppercase">
+                {isEn ? "Address" : "Dirección"}
+              </label>
               <textarea
-                placeholder="Optional property address"
+                placeholder={
+                  isEn
+                    ? "Optional property address"
+                    : "Dirección opcional de la propiedad"
+                }
                 className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                 rows={2}
                 value={address}
@@ -889,10 +1017,13 @@ function GeofenceModal({
                 >
                   {geocoding ? (
                     <>
-                      <Loader2 className="size-3 animate-spin" /> Locating address...
+                      <Loader2 className="size-3 animate-spin" />{" "}
+                      {isEn ? "Locating address..." : "Localizando dirección..."}
                     </>
-                  ) : (
+                  ) : isEn ? (
                     "📍 Auto-locate Coordinates from Address"
+                  ) : (
+                    "📍 Autolocalizar Coordenadas desde Dirección"
                   )}
                 </button>
               )}
@@ -900,10 +1031,16 @@ function GeofenceModal({
           </CardContent>
           <div className="flex gap-2 border-t border-border/50 px-5 py-4 justify-end">
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
-              Cancel
+              {isEn ? "Cancel" : "Cancelar"}
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save Geofence"}
+              {saving
+                ? isEn
+                  ? "Saving..."
+                  : "Guardando..."
+                : isEn
+                  ? "Save Geofence"
+                  : "Guardar Geocerca"}
             </Button>
           </div>
         </form>
@@ -923,29 +1060,35 @@ function AuditsTab({
   inspectors: InspPanelInspector[];
   onViewAudit: (audit: InspectionRow) => void;
 }) {
+  const { isEn } = useLanguage();
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-foreground">Audit History</h2>
+        <h2 className="text-lg font-bold text-foreground">
+          {isEn ? "Audit History" : "Historial de Auditorías"}
+        </h2>
         <span className="text-xs font-semibold text-muted-foreground">
-          {inspections.length} audit{inspections.length !== 1 ? "s" : ""} completed
+          {isEn
+            ? `${inspections.length} audit${inspections.length !== 1 ? "s" : ""} completed`
+            : `${inspections.length} ${inspections.length === 1 ? "auditoría completada" : "auditorías completadas"}`}
         </span>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
         {inspections.length === 0 ? (
           <div className="py-12 text-center text-sm text-muted-foreground">
-            No audits submitted yet.
+            {isEn ? "No audits submitted yet." : "Aún no se han enviado auditorías."}
           </div>
         ) : (
           <table className="sop-table w-full text-sm">
             <thead>
               <tr>
-                <th className="px-4 text-left">Date</th>
-                <th className="px-4 text-left">Account</th>
-                <th className="px-4 text-left">Inspector</th>
-                <th className="px-4 text-left">Score</th>
-                <th className="px-4 text-right">Actions</th>
+                <th className="px-4 text-left">{isEn ? "Date" : "Fecha"}</th>
+                <th className="px-4 text-left">{isEn ? "Account" : "Cuenta"}</th>
+                <th className="px-4 text-left">{isEn ? "Inspector" : "Inspector"}</th>
+                <th className="px-4 text-left">{isEn ? "Score" : "Puntaje"}</th>
+                <th className="px-4 text-right">{isEn ? "Actions" : "Acciones"}</th>
               </tr>
             </thead>
             <tbody>
@@ -953,22 +1096,25 @@ function AuditsTab({
                 const acct = allAccounts.find((a) => a.id === audit.account_id);
                 const insp = inspectors.find((i) => i.id === audit.inspector_id);
                 const dateStr = audit.check_out_at
-                  ? new Date(audit.check_out_at).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })
+                  ? new Date(audit.check_out_at).toLocaleDateString(
+                      isEn ? "en-US" : "es-US",
+                      {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      },
+                    )
                   : "—";
 
                 return (
                   <tr key={audit.id}>
                     <td className="px-4 text-muted-foreground">{dateStr}</td>
                     <td className="px-4 font-semibold text-foreground">
-                      {acct?.name ?? "Unknown Account"}
+                      {acct?.name ?? (isEn ? "Unknown Account" : "Cuenta Desconocida")}
                     </td>
                     <td className="px-4 text-foreground flex items-center gap-2">
                       <span className="size-2 rounded-full" style={{ backgroundColor: insp?.color ?? "#9ca3af" }} />
-                      {insp?.name ?? "Unknown Inspector"}
+                      {insp?.name ?? (isEn ? "Unknown Inspector" : "Inspector Desconocido")}
                     </td>
                     <td className="px-4">
                       <span className={cn(
@@ -988,7 +1134,8 @@ function AuditsTab({
                         onClick={() => onViewAudit(audit)}
                         className="inline-flex items-center gap-1 rounded-lg border border-border/80 bg-card px-2.5 py-1 text-xs font-semibold text-muted-foreground hover:border-border hover:text-foreground transition-all cursor-pointer"
                       >
-                        <FileText className="size-3.5" /> View Report
+                        <FileText className="size-3.5" />{" "}
+                        {isEn ? "View Report" : "Ver Reporte"}
                       </button>
                     </td>
                   </tr>
@@ -1025,6 +1172,7 @@ function AuditReportModal({
   inspector: InspPanelInspector | null;
   onClose: () => void;
 }) {
+  const { isEn } = useLanguage();
   const areas = useMemo<InspectionArea[]>(() => {
     try {
       return audit.inspection_data ? (JSON.parse(audit.inspection_data) as InspectionArea[]) : [];
@@ -1034,7 +1182,7 @@ function AuditReportModal({
   }, [audit.inspection_data]);
 
   const dateStr = audit.check_out_at
-    ? new Date(audit.check_out_at).toLocaleString("en-US", {
+    ? new Date(audit.check_out_at).toLocaleString(isEn ? "en-US" : "es-US", {
         month: "long",
         day: "numeric",
         year: "numeric",
@@ -1049,10 +1197,17 @@ function AuditReportModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border/50 px-5 py-4 shrink-0">
           <div>
-            <h3 className="text-base font-bold text-foreground">Inspection Report</h3>
+            <h3 className="text-base font-bold text-foreground">
+              {isEn ? "Inspection Report" : "Reporte de Inspección"}
+            </h3>
             <p className="text-xs text-muted-foreground mt-0.5">{dateStr}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={isEn ? "Close" : "Cerrar"}
+            className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+          >
             <X className="size-4" />
           </button>
         </div>
@@ -1062,18 +1217,26 @@ function AuditReportModal({
           {/* Metadata Grid */}
           <div className="grid grid-cols-3 gap-4 border border-border/60 rounded-xl p-4 bg-muted/30">
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Account</p>
-              <p className="text-sm font-semibold text-foreground mt-0.5">{account?.name ?? "Unknown"}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Inspector</p>
-              <p className="text-sm font-semibold text-foreground mt-0.5 flex items-center gap-1.5">
-                <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: inspector?.color ?? "#9ca3af" }} />
-                {inspector?.name ?? "Unknown"}
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                {isEn ? "Account" : "Cuenta"}
+              </p>
+              <p className="text-sm font-semibold text-foreground mt-0.5">
+                {account?.name ?? (isEn ? "Unknown" : "Desconocido")}
               </p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Pristine Score</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                {isEn ? "Inspector" : "Inspector"}
+              </p>
+              <p className="text-sm font-semibold text-foreground mt-0.5 flex items-center gap-1.5">
+                <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: inspector?.color ?? "#9ca3af" }} />
+                {inspector?.name ?? (isEn ? "Unknown" : "Desconocido")}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                {isEn ? "Pristine Score" : "Puntaje Pristine"}
+              </p>
               <p className="text-sm font-bold text-primary mt-0.5">
                 {audit.score_percentage}% ({audit.grade})
               </p>
@@ -1082,21 +1245,27 @@ function AuditReportModal({
 
           {/* Checklist Details */}
           <div className="space-y-4">
-            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest border-b pb-1">Checklist Areas</h4>
+            <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest border-b pb-1">
+              {isEn ? "Checklist Areas" : "Áreas Evaluadas"}
+            </h4>
             {areas.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No items audited.</p>
+              <p className="text-sm text-muted-foreground">
+                {isEn ? "No items audited." : "No se auditaron elementos."}
+              </p>
             ) : (
               <div className="space-y-6">
                 {areas.map((area, aIdx) => (
                   <div key={aIdx} className="space-y-2">
                     <h5 className="text-sm font-bold text-foreground bg-primary/[0.04] px-3 py-1 rounded-lg border border-primary/10">
-                      {area.name}
+                      {translateQcText(area.name, isEn)}
                     </h5>
                     <div className="divide-y divide-border/50 pl-2">
                       {area.items.map((item, iIdx) => (
                         <div key={iIdx} className="py-2.5 space-y-1.5">
                           <div className="flex items-start justify-between gap-3 text-sm">
-                            <span className="font-medium text-foreground">{item.label}</span>
+                            <span className="font-medium text-foreground">
+                              {translateQcText(item.label, isEn)}
+                            </span>
                             <span className={cn(
                               "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0",
                               item.rating === "pass"
@@ -1107,7 +1276,19 @@ function AuditReportModal({
                                 ? "bg-destructive/10 text-destructive"
                                 : "bg-muted text-muted-foreground"
                             )}>
-                              {item.rating}
+                              {item.rating === "pass"
+                                ? isEn
+                                  ? "pass"
+                                  : "aprobado"
+                                : item.rating === "attention"
+                                  ? isEn
+                                    ? "attention"
+                                    : "atención"
+                                  : item.rating === "fail"
+                                    ? isEn
+                                      ? "fail"
+                                      : "falla"
+                                    : "N/A"}
                             </span>
                           </div>
                           {(item.notes || item.photoUrl) && (
@@ -1116,7 +1297,7 @@ function AuditReportModal({
                               {item.photoUrl && (
                                 <img
                                   src={item.photoUrl}
-                                  alt="Audit Photo"
+                                  alt={isEn ? "Audit Photo" : "Foto de Auditoría"}
                                   className="max-h-40 w-auto rounded-lg border object-cover shadow-sm"
                                 />
                               )}
@@ -1134,15 +1315,18 @@ function AuditReportModal({
           {/* Signature */}
           {audit.inspector_signature && (
             <div className="border-t pt-4 space-y-2">
-              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Inspector Signature</h4>
+              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                {isEn ? "Inspector Signature" : "Firma del Inspector"}
+              </h4>
               <div className="flex flex-col items-start bg-muted/30 border rounded-xl p-4 max-w-sm">
                 <img
                   src={audit.inspector_signature}
-                  alt="Signature"
+                  alt={isEn ? "Signature" : "Firma"}
                   className="max-h-24 w-auto object-contain dark:invert"
                 />
                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-2">
-                  Signed: {inspector?.name ?? "Inspector"}
+                  {isEn ? "Signed:" : "Firmado por:"}{" "}
+                  {inspector?.name ?? (isEn ? "Inspector" : "Inspector")}
                 </span>
               </div>
             </div>
@@ -1152,7 +1336,7 @@ function AuditReportModal({
         {/* Footer */}
         <div className="flex gap-2 border-t border-border/50 px-5 py-4 justify-end shrink-0">
           <Button variant="outline" onClick={onClose}>
-            Close
+            {isEn ? "Close" : "Cerrar"}
           </Button>
         </div>
       </Card>
@@ -1173,6 +1357,7 @@ function ScheduleInspectionModal({
   inspectors: InspPanelInspector[];
   onSaved: (schedule: QCSchedule) => void;
 }) {
+  const { isEn } = useLanguage();
   const supabase = createClient();
   const [acctId, setAcctId] = useState("");
   const [inspId, setInspId] = useState("");
@@ -1184,7 +1369,9 @@ function ScheduleInspectionModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const daysOfWeek = isEn
+    ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    : ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
   function handleDayToggle(idx: number) {
     setDays((prev) =>
@@ -1195,15 +1382,27 @@ function ScheduleInspectionModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!acctId || !inspId) {
-      setError("Please select an Account and an Inspector.");
+      setError(
+        isEn
+          ? "Please select an Account and an Inspector."
+          : "Por favor selecciona una Cuenta y un Inspector.",
+      );
       return;
     }
     if ((frequency === "weekly" || frequency === "biweekly") && days.length === 0) {
-      setError("Please select at least one day of the week.");
+      setError(
+        isEn
+          ? "Please select at least one day of the week."
+          : "Por favor selecciona al menos un día de la semana.",
+      );
       return;
     }
     if (frequency === "one_off" && !date) {
-      setError("Please select a specific date.");
+      setError(
+        isEn
+          ? "Please select a specific date."
+          : "Por favor selecciona una fecha específica.",
+      );
       return;
     }
 
@@ -1253,7 +1452,10 @@ function ScheduleInspectionModal({
       setDays([]);
       setNotes("");
     } catch (err: any) {
-      setError(err?.message ?? "Failed to save schedule.");
+      setError(
+        err?.message ??
+          (isEn ? "Failed to save schedule." : "No se pudo guardar el horario."),
+      );
     } finally {
       setSaving(false);
     }
@@ -1266,8 +1468,15 @@ function ScheduleInspectionModal({
       <Card className="w-full max-w-md border-border/60 shadow-xl">
         <form onSubmit={handleSubmit}>
           <div className="flex items-center justify-between border-b border-border/50 px-5 py-4">
-            <h3 className="text-base font-bold text-foreground">Schedule Inspection</h3>
-            <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer">
+            <h3 className="text-base font-bold text-foreground">
+              {isEn ? "Schedule Inspection" : "Programar Inspección"}
+            </h3>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={isEn ? "Close" : "Cerrar"}
+              className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+            >
               <X className="size-4" />
             </button>
           </div>
@@ -1279,31 +1488,39 @@ function ScheduleInspectionModal({
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Property / Account *</label>
+              <label className="text-xs font-bold text-muted-foreground uppercase">
+                {isEn ? "Property / Account *" : "Propiedad / Cuenta *"}
+              </label>
               <select
                 required
                 className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                 value={acctId}
                 onChange={(e) => setAcctId(e.target.value)}
               >
-                <option value="">Select account...</option>
+                <option value="">
+                  {isEn ? "Select account..." : "Seleccionar cuenta..."}
+                </option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.name} ({a.city ?? "No City"})
+                    {a.name} ({a.city ?? (isEn ? "No City" : "Sin Ciudad")})
                   </option>
                 ))}
               </select>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Assigned Inspector *</label>
+              <label className="text-xs font-bold text-muted-foreground uppercase">
+                {isEn ? "Assigned Inspector *" : "Inspector Asignado *"}
+              </label>
               <select
                 required
                 className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                 value={inspId}
                 onChange={(e) => setInspId(e.target.value)}
               >
-                <option value="">Select inspector...</option>
+                <option value="">
+                  {isEn ? "Select inspector..." : "Seleccionar inspector..."}
+                </option>
                 {inspectors.map((i) => (
                   <option key={i.id} value={i.id}>
                     {i.name}
@@ -1314,23 +1531,27 @@ function ScheduleInspectionModal({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Frequency *</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase">
+                  {isEn ? "Frequency *" : "Frecuencia *"}
+                </label>
                 <select
                   required
                   className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   value={frequency}
                   onChange={(e) => setFrequency(e.target.value)}
                 >
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="biweekly">Bi-weekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="one_off">One-off Date</option>
+                  <option value="daily">{isEn ? "Daily" : "Diario"}</option>
+                  <option value="weekly">{isEn ? "Weekly" : "Semanal"}</option>
+                  <option value="biweekly">{isEn ? "Bi-weekly" : "Quincenal"}</option>
+                  <option value="monthly">{isEn ? "Monthly" : "Mensual"}</option>
+                  <option value="one_off">{isEn ? "One-off Date" : "Fecha única"}</option>
                 </select>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Time *</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase">
+                  {isEn ? "Time *" : "Hora *"}
+                </label>
                 <input
                   type="time"
                   required
@@ -1343,10 +1564,12 @@ function ScheduleInspectionModal({
 
             {frequency === "one_off" ? (
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Specific Date *</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase">
+                  {isEn ? "Specific Date *" : "Fecha Específica *"}
+                </label>
                 <input
                   type="date"
-                  lang="en-US"
+                  lang={isEn ? "en-US" : "es-US"}
                   required
                   className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   value={date}
@@ -1355,9 +1578,11 @@ function ScheduleInspectionModal({
               </div>
             ) : (frequency === "weekly" || frequency === "biweekly") ? (
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Days of Week *</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase">
+                  {isEn ? "Days of Week *" : "Días de la Semana *"}
+                </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {DAYS_OF_WEEK.map((label, idx) => {
+                  {daysOfWeek.map((label, idx) => {
                     const selected = days.includes(idx);
                     return (
                       <button
@@ -1380,9 +1605,15 @@ function ScheduleInspectionModal({
             ) : null}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Notes</label>
+              <label className="text-xs font-bold text-muted-foreground uppercase">
+                {isEn ? "Notes" : "Notas"}
+              </label>
               <textarea
-                placeholder="Instructions or schedule notes..."
+                placeholder={
+                  isEn
+                    ? "Instructions or schedule notes..."
+                    : "Instrucciones o notas del horario..."
+                }
                 className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                 rows={2}
                 value={notes}
@@ -1392,10 +1623,16 @@ function ScheduleInspectionModal({
           </CardContent>
           <div className="flex gap-2 border-t border-border/50 px-5 py-4 justify-end">
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
-              Cancel
+              {isEn ? "Cancel" : "Cancelar"}
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Scheduling..." : "Schedule"}
+              {saving
+                ? isEn
+                  ? "Scheduling..."
+                  : "Programando..."
+                : isEn
+                  ? "Schedule"
+                  : "Programar"}
             </Button>
           </div>
         </form>

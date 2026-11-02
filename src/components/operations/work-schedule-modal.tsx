@@ -21,6 +21,7 @@ import {
   SEED_OCTOBER_2026_MARIA_LOPEZ_QC,
 } from "@/lib/export/work-schedule-export";
 import { createClient } from "@/lib/supabase/client";
+import { useLanguage } from "@/components/providers/language-provider";
 
 interface WorkScheduleModalProps {
   open: boolean;
@@ -57,6 +58,7 @@ export function WorkScheduleModal({
   residentialAccounts = [],
   tasks = [],
 }: WorkScheduleModalProps) {
+  const { isEn } = useLanguage();
   const [employee, setEmployee] = useState(initialEmployee);
   const [period, setPeriod] = useState(initialPeriod);
   const [scope, setScope] = useState<"all" | "qc" | "cleaning">(initialScope);
@@ -330,6 +332,42 @@ export function WorkScheduleModal({
 
   if (!open) return null;
 
+  const translateRole = (r: string) => {
+    if (isEn) return r;
+    const map: Record<string, string> = {
+      "Field Inspector / Quality Control": "Inspectora de Campo / Control de Calidad",
+      "Quality Control & Operations": "Control de Calidad y Operaciones",
+      "Commercial Cleaner": "Cleaner Comercial",
+      "Operations Manager / Cleaner": "Gerente de Operaciones / Cleaner",
+      "Commercial & Residential Cleaner": "Cleaner Comercial y Residencial",
+    };
+    return map[r] || r;
+  };
+
+  const translatePeriod = (p: string) => {
+    if (isEn) return p;
+    const map: Record<string, string> = {
+      "October 2026": "Octubre 2026",
+      "September 2026": "Septiembre 2026",
+      "November 2026": "Noviembre 2026",
+      "December 2026": "Diciembre 2026",
+      "August 2026": "Agosto 2026",
+    };
+    return map[p] || p;
+  };
+
+  const translateMetricLabel = (lbl: string) => {
+    if (isEn) return lbl;
+    const map: Record<string, string> = {
+      "TOTAL ASSIGNMENTS": "TOTAL ASIGNACIONES",
+      "QC INSPECTIONS": "INSPECCIONES QC",
+      "CLEANING SHIFTS": "TURNOS DE LIMPIEZA",
+      "UNIQUE LOCATIONS": "UBICACIONES ÚNICAS",
+      "ACTIVE DAYS": "DÍAS ACTIVOS",
+    };
+    return map[lbl] || lbl;
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
       <div className="relative w-full max-w-5xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden my-auto">
@@ -341,13 +379,15 @@ export function WorkScheduleModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                Work Schedule Generator
+                {isEn ? "Work Schedule Generator" : "Generador de Horario de Trabajo"}
                 <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-xs font-semibold">
-                  PDF & Print Ready
+                  {isEn ? "PDF & Print Ready" : "Listo para PDF e Imprimir"}
                 </span>
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Horario de trabajo profesional para personal de limpiezas y controles de calidad (QC).
+                {isEn
+                  ? "Professional work schedule for cleaning staff and quality control (QC) inspectors."
+                  : "Horario de trabajo profesional para personal de limpiezas y controles de calidad (QC)."}
               </p>
             </div>
           </div>
@@ -359,7 +399,7 @@ export function WorkScheduleModal({
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
             >
               <Printer className="size-3.5" />
-              Imprimir
+              {isEn ? "Print" : "Imprimir"}
             </button>
             <button
               type="button"
@@ -368,7 +408,13 @@ export function WorkScheduleModal({
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 transition cursor-pointer"
             >
               <Download className="size-3.5" />
-              {isExporting ? "Generando..." : "Descargar PDF"}
+              {isExporting
+                ? isEn
+                  ? "Generating..."
+                  : "Generando..."
+                : isEn
+                ? "Download PDF"
+                : "Descargar PDF"}
             </button>
             <button
               type="button"
@@ -385,7 +431,7 @@ export function WorkScheduleModal({
           {/* Employee Selector */}
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
-              <User className="size-3" /> Empleado / Inspector
+              <User className="size-3" /> {isEn ? "Employee / Inspector" : "Empleado / Inspector"}
             </label>
             <select
               value={employee}
@@ -394,7 +440,7 @@ export function WorkScheduleModal({
             >
               {DEFAULT_EMPLOYEES.map((emp) => (
                 <option key={emp.name} value={emp.name}>
-                  {emp.name} ({emp.role})
+                  {emp.name} ({translateRole(emp.role)})
                 </option>
               ))}
             </select>
@@ -403,25 +449,25 @@ export function WorkScheduleModal({
           {/* Period Selector */}
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
-              <Calendar className="size-3" /> Período
+              <Calendar className="size-3" /> {isEn ? "Period" : "Período"}
             </label>
             <select
               value={period}
               onChange={(e) => setPeriod(e.target.value)}
               className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
             >
-              <option value="October 2026">October 2026 (Actual)</option>
-              <option value="September 2026">September 2026</option>
-              <option value="November 2026">November 2026</option>
-              <option value="December 2026">December 2026</option>
-              <option value="August 2026">August 2026</option>
+              <option value="October 2026">{isEn ? "October 2026 (Current)" : "Octubre 2026 (Actual)"}</option>
+              <option value="September 2026">{isEn ? "September 2026" : "Septiembre 2026"}</option>
+              <option value="November 2026">{isEn ? "November 2026" : "Noviembre 2026"}</option>
+              <option value="December 2026">{isEn ? "December 2026" : "Diciembre 2026"}</option>
+              <option value="August 2026">{isEn ? "August 2026" : "Agosto 2026"}</option>
             </select>
           </div>
 
           {/* Scope / Category */}
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
-              <Layers className="size-3" /> Tipo de Tareas
+              <Layers className="size-3" /> {isEn ? "Task Type" : "Tipo de Tareas"}
             </label>
             <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
               <button
@@ -433,7 +479,7 @@ export function WorkScheduleModal({
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 }`}
               >
-                QC Checks
+                {isEn ? "QC Checks" : "Controles QC"}
               </button>
               <button
                 type="button"
@@ -444,7 +490,7 @@ export function WorkScheduleModal({
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 }`}
               >
-                Limpiezas
+                {isEn ? "Cleanings" : "Limpiezas"}
               </button>
               <button
                 type="button"
@@ -455,7 +501,7 @@ export function WorkScheduleModal({
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 }`}
               >
-                Ambos (All)
+                {isEn ? "Both (All)" : "Ambos"}
               </button>
             </div>
           </div>
@@ -474,10 +520,11 @@ export function WorkScheduleModal({
                 <div className="w-1.5 self-stretch rounded-full bg-blue-600 min-h-[50px]" />
                 <div>
                   <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 leading-tight">
-                    Work Schedule
+                    {isEn ? "Work Schedule" : "Horario de Trabajo"}
                   </h1>
                   <p className="text-sm font-medium text-slate-500 mt-1">
-                    Employee: <span className="text-slate-700 font-semibold">{report.employeeName}</span>
+                    {isEn ? "Employee:" : "Empleado:"}{" "}
+                    <span className="text-slate-700 font-semibold">{report.employeeName}</span>
                   </p>
                 </div>
               </div>
@@ -491,13 +538,17 @@ export function WorkScheduleModal({
                 />
                 <div className="space-y-0.5 mt-0.5">
                   <p className="text-xs font-medium text-slate-500">
-                    Period: <span className="font-semibold text-slate-700">{report.period}</span>
+                    {isEn ? "Period:" : "Período:"}{" "}
+                    <span className="font-semibold text-slate-700">{translatePeriod(report.period)}</span>
                   </p>
                   <p className="text-xs font-medium text-slate-500">
-                    Role: <span className="font-semibold text-slate-700">{report.role}</span>
+                    {isEn ? "Role:" : "Rol:"}{" "}
+                    <span className="font-semibold text-slate-700">{translateRole(report.role)}</span>
                   </p>
                   <p className="text-xs font-bold text-slate-900 mt-0.5">
-                    Total Tasks: {report.totalTasks} Assignments
+                    {isEn
+                      ? `Total Tasks: ${report.totalTasks} Assignments`
+                      : `Total Tareas: ${report.totalTasks} Asignaciones`}
                   </p>
                 </div>
               </div>
@@ -511,7 +562,7 @@ export function WorkScheduleModal({
                     {m.value}
                   </span>
                   <span className="block text-[9.5px] font-bold uppercase tracking-wider text-slate-500 mt-1">
-                    {m.label}
+                    {translateMetricLabel(m.label)}
                   </span>
                 </div>
               ))}
@@ -520,17 +571,19 @@ export function WorkScheduleModal({
             {/* Table */}
             {report.items.length === 0 ? (
               <div className="py-12 text-center rounded-xl border border-dashed border-slate-200 text-slate-400 text-sm">
-                No hay asignaciones encontradas para {report.employeeName} en {report.period}.
+                {isEn
+                  ? `No assignments found for ${report.employeeName} in ${report.period}.`
+                  : `No hay asignaciones encontradas para ${report.employeeName} en ${translatePeriod(report.period)}.`}
               </div>
             ) : (
               <div className="rounded-lg overflow-hidden border border-slate-200">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider">
-                      <th className="py-2.5 px-3.5 w-[22%]">Date</th>
-                      <th className="py-2.5 px-3.5 w-[18%]">Time</th>
-                      <th className="py-2.5 px-3.5 w-[42%]">Company / Location</th>
-                      <th className="py-2.5 px-3.5 w-[18%]">Service Type</th>
+                      <th className="py-2.5 px-3.5 w-[22%]">{isEn ? "Date" : "Fecha"}</th>
+                      <th className="py-2.5 px-3.5 w-[18%]">{isEn ? "Time" : "Horario"}</th>
+                      <th className="py-2.5 px-3.5 w-[42%]">{isEn ? "Company / Location" : "Empresa / Ubicación"}</th>
+                      <th className="py-2.5 px-3.5 w-[18%]">{isEn ? "Service Type" : "Tipo de Servicio"}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
@@ -545,7 +598,16 @@ export function WorkScheduleModal({
                         >
                           {/* Date */}
                           <td className="py-2.5 px-3.5 font-semibold text-slate-800 whitespace-nowrap">
-                            {item.dateFormatted || formatScheduleDate(item.date)}
+                            {isEn
+                              ? item.dateFormatted || formatScheduleDate(item.date)
+                              : item.date
+                              ? new Date(`${item.date}T12:00:00Z`).toLocaleDateString("es-US", {
+                                  weekday: "short",
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })
+                              : item.dateFormatted}
                           </td>
 
                           {/* Time */}
@@ -556,7 +618,7 @@ export function WorkScheduleModal({
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 whitespace-nowrap">
-                                Standard Hours
+                                {isEn ? "Standard Hours" : "Horario Estándar"}
                               </span>
                             )}
                           </td>
@@ -570,19 +632,25 @@ export function WorkScheduleModal({
                           <td className="py-2.5 px-3.5">
                             {upperType.includes("FULL") || upperType.includes("SITE") ? (
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wide bg-rose-100 text-rose-800 whitespace-nowrap">
-                                {upperType.includes("FULL") ? "FULL INSPECTION" : "SITE INSPECTION"}
+                                {upperType.includes("FULL")
+                                  ? isEn
+                                    ? "FULL INSPECTION"
+                                    : "INSPECCIÓN COMPLETA"
+                                  : isEn
+                                  ? "SITE INSPECTION"
+                                  : "INSPECCIÓN EN SITIO"}
                               </span>
                             ) : upperType.includes("QC") ? (
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wide bg-amber-100 text-amber-800 whitespace-nowrap">
-                                QC INSPECTION
+                                {isEn ? "QC INSPECTION" : "INSPECCIÓN QC"}
                               </span>
                             ) : upperType.includes("COMMERCIAL") ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide bg-emerald-100 text-emerald-800 whitespace-nowrap">
-                                COMMERCIAL CLEANING
+                                {isEn ? "COMMERCIAL CLEANING" : "LIMPIEZA COMERCIAL"}
                               </span>
                             ) : upperType.includes("RESIDENTIAL") ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide bg-sky-100 text-sky-800 whitespace-nowrap">
-                                RESIDENTIAL CLEANING
+                                {isEn ? "RESIDENTIAL CLEANING" : "LIMPIEZA RESIDENCIAL"}
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 whitespace-nowrap">
@@ -600,8 +668,16 @@ export function WorkScheduleModal({
 
             {/* Document Footer */}
             <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-              <span>Pristine Janitorial · Operations & Quality Control</span>
-              <span>Generated for {report.employeeName} · {report.period}</span>
+              <span>
+                {isEn
+                  ? "Pristine Janitorial · Operations & Quality Control"
+                  : "Pristine Janitorial · Operaciones y Control de Calidad"}
+              </span>
+              <span>
+                {isEn
+                  ? `Generated for ${report.employeeName} · ${report.period}`
+                  : `Generado para ${report.employeeName} · ${translatePeriod(report.period)}`}
+              </span>
             </div>
           </div>
         </div>

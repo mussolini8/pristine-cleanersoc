@@ -2820,11 +2820,16 @@ export function SimpleOperationsClient({
 
     if (!summary.rows.length) {
       if (isMariaLopez(summary.teamName)) {
-        const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end);
+        const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end, isEn ? "en" : "es");
         const flatAmount = getMariaLopezFlatPayForPeriod(periodMode, quincenaInfo.isQuincena);
         if (flatAmount === 0) {
           openPaymentModal(summary, "residential");
-          setMessage({ tone: "info", text: "En semanas regulares sin corte de quincena, agrega las casas de Maria Lopez con + Row." });
+          setMessage({
+            tone: "info",
+            text: isEn
+              ? "On regular weeks without a pay-period cutoff, add Maria Lopez's houses using + Row."
+              : "En semanas regulares sin corte de quincena, agrega las casas de Maria Lopez con + Row.",
+          });
           return;
         }
         setSavingPaymentKey(summary.key);
@@ -2862,7 +2867,12 @@ export function SimpleOperationsClient({
           }
           return next;
         });
-        setMessage({ tone: "success", text: `Maria Lopez base flat payment de ${formatMoney(flatAmount)} marcado como ${status}.` });
+        setMessage({
+          tone: "success",
+          text: isEn
+            ? `Maria Lopez base flat payment of ${formatMoney(flatAmount)} marked as ${status}.`
+            : `Maria Lopez base flat payment de ${formatMoney(flatAmount)} marcado como ${status}.`,
+        });
         try {
           await supabase.from("residential_weekly_payment_rows").insert(baseRow);
         } catch (err) {
@@ -2892,7 +2902,9 @@ export function SimpleOperationsClient({
           week_start: weekRange.start,
           week_end: weekRange.end,
           status,
-          notes: `Ana Morales pago quincenal 80h (${formatMoney(anaPay)})`,
+          notes: isEn
+            ? `Ana Morales biweekly payment 80h (${formatMoney(anaPay)})`
+            : `Ana Morales pago quincenal 80h (${formatMoney(anaPay)})`,
           created_at: now,
           updated_at: now,
           deleted_at: null,
@@ -2909,7 +2921,12 @@ export function SimpleOperationsClient({
           }
           return next;
         });
-        setMessage({ tone: "success", text: `Ana Morales pago quincenal de ${formatMoney(anaPay)} marcado ${status}.` });
+        setMessage({
+          tone: "success",
+          text: isEn
+            ? `Ana Morales biweekly payment of ${formatMoney(anaPay)} marked ${status}.`
+            : `Ana Morales pago quincenal de ${formatMoney(anaPay)} marcado ${status}.`,
+        });
         try {
           await supabase.from("residential_weekly_payment_rows").insert(baseRow);
         } catch (err) {
@@ -3088,11 +3105,19 @@ export function SimpleOperationsClient({
   async function saveBulkHours() {
     if (!userId || bulkHoursSaving) return;
     if (!bulkHoursCleaner || !bulkHoursAccount) {
-      setMessage({ tone: "error", text: "Limpiadora y Cuenta son requeridas." });
+      setMessage({
+        tone: "error",
+        text: isEn ? "Cleaner and Account are required." : "Limpiadora y Cuenta son requeridas.",
+      });
       return;
     }
     if (parsedBulkRows.length === 0) {
-      setMessage({ tone: "error", text: "No se encontraron horas válidas en el texto. Verifica el formato." });
+      setMessage({
+        tone: "error",
+        text: isEn
+          ? "No valid hours found in text. Check the format."
+          : "No se encontraron horas válidas en el texto. Verifica el formato.",
+      });
       return;
     }
 
@@ -3100,7 +3125,10 @@ export function SimpleOperationsClient({
     const team = staff.find((item) => item.name.toLowerCase() === bulkHoursCleaner.toLowerCase());
     
     if (!account) {
-      setMessage({ tone: "error", text: "Cuenta no encontrada." });
+      setMessage({
+        tone: "error",
+        text: isEn ? "Account not found." : "Cuenta no encontrada.",
+      });
       return;
     }
 
@@ -3173,11 +3201,19 @@ export function SimpleOperationsClient({
         });
       }
 
-      setMessage({ tone: "success", text: `Se guardaron ${upsertRows.length} días de horas para ${bulkHoursCleaner}.` });
+      setMessage({
+        tone: "success",
+        text: isEn
+          ? `Saved ${upsertRows.length} days of hours for ${bulkHoursCleaner}.`
+          : `Se guardaron ${upsertRows.length} días de horas para ${bulkHoursCleaner}.`,
+      });
       setPaymentModalMode(null);
       await loadData();
     } catch (err: any) {
-      setMessage({ tone: "error", text: `Error al guardar: ${err.message || err}` });
+      setMessage({
+        tone: "error",
+        text: isEn ? `Error saving: ${err.message || err}` : `Error al guardar: ${err.message || err}`,
+      });
     } finally {
       setBulkHoursSaving(false);
     }
@@ -3775,9 +3811,19 @@ export function SimpleOperationsClient({
             }
             setCopilotUndoSnapshot(null);
             await loadData();
-            setMessage({ tone: "success", text: "Última acción del copiloto deshecha exitosamente." });
+            setMessage({
+              tone: "success",
+              text: isEn
+                ? "Last copilot action undone successfully."
+                : "Última acción del copiloto deshecha exitosamente.",
+            });
           } catch (err: any) {
-            setMessage({ tone: "error", text: "Error al deshacer: " + (err?.message || "Error desconocido") });
+            setMessage({
+              tone: "error",
+              text: isEn
+                ? `Error undoing: ${err?.message || "Unknown error"}`
+                : "Error al deshacer: " + (err?.message || "Error desconocido"),
+            });
           }
         }}
         onApplyFullCopilotResponse={async (copilotResp) => {
@@ -4301,12 +4347,16 @@ export function SimpleOperationsClient({
           if (changesCount > 0) {
             setMessage({
               tone: "success",
-              text: `¡Acción completada! Se aplicaron ${changesCount} cambios directamente en el sistema: ${changeMessages.slice(0, 3).join("; ")}${changeMessages.length > 3 ? '...' : ''}`,
+              text: isEn
+                ? `Action completed! Applied ${changesCount} changes directly in the system: ${changeMessages.slice(0, 3).join("; ")}${changeMessages.length > 3 ? "..." : ""}`
+                : `¡Acción completada! Se aplicaron ${changesCount} cambios directamente en el sistema: ${changeMessages.slice(0, 3).join("; ")}${changeMessages.length > 3 ? "..." : ""}`,
             });
           } else {
             setMessage({
               tone: "info",
-              text: "La consulta fue procesada pero no se requirieron cambios en la base de datos.",
+              text: isEn
+                ? "The request was processed but no database changes were needed."
+                : "La consulta fue procesada pero no se requirieron cambios en la base de datos.",
             });
           }
         }}
@@ -4739,23 +4789,23 @@ function renderHeader() {
           onClick={() => setIsCopilotOpen(true)}
         >
           <img src="/pristiner-logo-white.png" alt="Pristiner" className="size-4 object-contain" />
-          <span>Pristiner (Copiloto IA)</span>
+          <span>{isEn ? "Pristiner (AI Copilot)" : "Pristiner (Copiloto IA)"}</span>
         </Button>
         {view === "tasks" ? (
           <>
-            <Button variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays /> {importingMonthlySop ? "Generating..." : "Generate Monthly SOP"}</Button>
-            <Button variant="outline" disabled={deduplicating || importingMonthlySop} onClick={deduplicateTasks}><RotateCcw /> {deduplicating ? "Removing duplicates..." : "Remove duplicates"}</Button>
-            <Button onClick={() => openTaskDraft()}><Plus /> Add reminder</Button>
+            <Button variant="outline" disabled={importingMonthlySop} onClick={() => importMonthlySop()}><CalendarDays /> {importingMonthlySop ? (isEn ? "Generating..." : "Generando...") : (isEn ? "Generate Monthly SOP" : "Generar SOP Mensual")}</Button>
+            <Button variant="outline" disabled={deduplicating || importingMonthlySop} onClick={deduplicateTasks}><RotateCcw /> {deduplicating ? (isEn ? "Removing duplicates..." : "Eliminando duplicados...") : (isEn ? "Remove duplicates" : "Eliminar duplicados")}</Button>
+            <Button onClick={() => openTaskDraft()}><Plus /> {isEn ? "Add reminder" : "Agregar recordatorio"}</Button>
           </>
         ) : null}
             {view === "residential" ? (
               commercialPanelOpen ? (
                 <>
-                   <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> Residential payments</Button>
-                  <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> Add commercial hours</Button>
-                  <Button variant="outline" onClick={openBulkHoursModal}><FileSpreadsheet className="size-4" /> Ingreso Rápido</Button>
-                  <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> Configure</Button>
-                  <Button variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> Export</Button>
+                   <Button variant="outline" onClick={() => setCommercialPanelOpen(false)}><ChevronLeft className="size-4" /> {isEn ? "Residential payments" : "Pagos residenciales"}</Button>
+                  <Button onClick={() => setPaymentModalMode("commercial_hours")}><Plus className="size-4" /> {isEn ? "Add commercial hours" : "Agregar horas comerciales"}</Button>
+                  <Button variant="outline" onClick={openBulkHoursModal}><FileSpreadsheet className="size-4" /> {isEn ? "Quick Entry" : "Ingreso Rápido"}</Button>
+                  <Button variant="outline" onClick={() => setPaymentModalMode("commercial_schedule")}><Settings2 className="size-4" /> {isEn ? "Configure" : "Configurar"}</Button>
+                  <Button variant="outline" onClick={exportCommercialHours}><FileDown className="size-4" /> {isEn ? "Export" : "Exportar"}</Button>
                 </>
               ) : paymentsRegistryOpen ? (
                 <>
@@ -4894,7 +4944,7 @@ function renderHeader() {
           <p className="truncate font-semibold">{task.title}</p>
           <p className="text-xs font-medium text-muted-foreground">{task.assignee ?? "Unassigned"} · {displayDate(task.due_date)}</p>
         </div>
-        <Badge className={statusBadgeClass(normalizeTaskStatus(task.status))} variant="outline">{statusLabel(normalizeTaskStatus(task.status))}</Badge>
+        <Badge className={statusBadgeClass(normalizeTaskStatus(task.status))} variant="outline">{statusLabel(normalizeTaskStatus(task.status), isEs)}</Badge>
       </button>
     );
   }
@@ -5224,7 +5274,7 @@ function renderHeader() {
                       <td>{formatHours(totals.biweekly)}</td>
                       <td>{formatHours(totals.monthly)}</td>
                       <td>{account.assigned_team_name ?? "Unassigned"}</td>
-                      <td className="align-middle text-center"><div className="flex justify-center"><Badge className={statusBadgeClass(account.active === false ? "inactive" : "active")} variant="outline">{statusLabel(account.active === false ? "inactive" : "active")}</Badge></div></td>
+                      <td className="align-middle text-center"><div className="flex justify-center"><Badge className={statusBadgeClass(account.active === false ? "inactive" : "active")} variant="outline">{statusLabel(account.active === false ? "inactive" : "active", isEs)}</Badge></div></td>
                       <td className="pr-4">
                         <div className="flex justify-end gap-2">
                           <Button size="icon" variant="outline" aria-label="Edit account" title="Edit account" onClick={() => openAccountDraft(account)}><Edit3 className="size-[18px]" /></Button>
@@ -5327,7 +5377,7 @@ function renderHeader() {
                       <td className="font-semibold">{log.account_name}</td>
                       <td>{log.team_name}</td>
                       <td>{formatHours(toNumber(log.hours_worked))}</td>
-                      <td className="align-middle text-center"><div className="flex justify-center"><Badge className={statusBadgeClass(log.status ?? "pending")} variant="outline">{statusLabel(log.status ?? "pending")}</Badge></div></td>
+                      <td className="align-middle text-center"><div className="flex justify-center"><Badge className={statusBadgeClass(log.status ?? "pending")} variant="outline">{statusLabel(log.status ?? "pending", isEs)}</Badge></div></td>
                       <td className="max-w-64 truncate text-muted-foreground">{log.notes}</td>
                     </tr>
                   ))}
@@ -5671,7 +5721,7 @@ function renderHeader() {
                         <td className="align-middle text-center">
                           <div className="flex justify-center">
                             <Badge className={statusBadgeClass(row.status || "pending")} variant="outline">
-                              {statusLabel(row.status || "pending")}
+                              {statusLabel(row.status || "pending", isEs)}
                             </Badge>
                           </div>
                         </td>
@@ -5769,7 +5819,7 @@ function renderHeader() {
     const ana = isAnaMorales(summary.teamName);
     const validJobRows = summary.rows.filter((row) => paymentLineTotal(row) > 0 || Boolean(row.work_date));
     const hasRows = validJobRows.length > 0;
-    const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end);
+    const quincenaInfo = checkQuincenaPeriod(periodMode, weekRange.start, weekRange.end, isEn ? "en" : "es");
     const housesTotal = maria ? validJobRows.filter((r) => r.payment_type !== "flat_base" && r.city?.toLowerCase() !== "flat base").reduce((sum, row) => sum + (toNumber(row.residential_amount) > 0 ? toNumber(row.residential_amount) : paymentLineTotal(row)), 0) : 0;
     const mariaFlatBase = getMariaLopezFlatPayForPeriod(periodMode, quincenaInfo.isQuincena);
     const mariaTotal = roundHours(mariaFlatBase + housesTotal);
@@ -5802,10 +5852,10 @@ function renderHeader() {
       : carlos 
         ? "Ops Mgr." 
         : maria 
-          ? (quincenaInfo.isQuincena ? "Flat $1,000/quincena + Casas" : "Casas semanales (Base $1,000 quincenal)") 
+          ? (quincenaInfo.isQuincena ? (isEn ? "Flat $1,000/biweekly + Houses" : "Flat $1,000/quincena + Casas") : (isEn ? "Weekly houses ($1,000 biweekly base)" : "Casas semanales (Base $1,000 quincenal)")) 
           : ana 
-            ? "80h / Quincena" 
-            : "Residential";
+            ? (isEn ? "80h / Pay Period" : "80h / Quincena") 
+            : (isEn ? "Residential" : "Residencial");
 
     function rowStatusAccent(st: string | null | undefined) {
       if (st === "paid") return "border-l-[3px] border-l-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10";
@@ -5824,7 +5874,7 @@ function renderHeader() {
                 <p className="truncate text-[15px] font-semibold leading-tight text-white">{summary.teamName}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", typePillStyle)}>{typeLabel}</span>
-                  <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", statusPillStyle)}>{statusLabel(overallStatus)}</span>
+                  <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", statusPillStyle)}>{statusLabel(overallStatus, isEs)}</span>
                 </div>
               </div>
             </div>
@@ -5855,11 +5905,11 @@ function renderHeader() {
                   <th className="border-b border-border/60 bg-muted/30 px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">City</th>
                   {mixed ? (
                     <>
-                      <th className="w-[64px] min-w-[64px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Res.</th>
-                      <th className="w-[64px] min-w-[64px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Com.</th>
+                      <th className="w-[64px] min-w-[64px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{isEn ? "Res." : "Res."}</th>
+                      <th className="w-[64px] min-w-[64px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{isEn ? "Com." : "Com."}</th>
                     </>
                   ) : (
-                    <th className="w-[76px] min-w-[76px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{maria ? "Casa" : "Payment"}</th>
+                    <th className="w-[76px] min-w-[76px] border-b border-border/60 bg-muted/30 px-2 py-2 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{maria ? (isEn ? "House" : "Casa") : (isEn ? "Payment" : "Pago")}</th>
                   )}
                   <th className="w-[36px] min-w-[36px] border-b border-border/60 bg-muted/30 px-1 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     <span className="sr-only">Actions</span>
@@ -5871,7 +5921,7 @@ function renderHeader() {
                 {validJobRows.length === 0 ? (
                   <tr>
                     <td className="px-3 py-8 text-center text-[13px] font-medium text-muted-foreground/60" colSpan={mixed ? 5 : 4}>
-                      {maria ? "No houses added to payment yet. Click + Row to add houses." : ana ? "80 horas base quincenal ($1,440.00). Haz clic en + Row para agregar trabajos extras." : "No payments recorded for this period."}
+                      {maria ? (isEn ? "No houses added to payment yet. Click + Row to add houses." : "No se han agregado casas al pago. Haz clic en + Row para agregar casas.") : ana ? (isEn ? "80 hours base pay period ($1,440.00). Click + Row to add extra jobs." : "80 horas base quincenal ($1,440.00). Haz clic en + Row para agregar trabajos extras.") : (isEn ? "No payments recorded for this period." : "No se registraron pagos para este período.")}
                     </td>
                   </tr>
                 ) : null}
@@ -5926,7 +5976,7 @@ function renderHeader() {
           {/* TOTAL FOOTER */}
           <div className={cn("flex items-center justify-between gap-3 border-t border-border/60 px-4 py-3", mixed ? "bg-amber-50/40 dark:bg-amber-950/10" : carlos ? "bg-emerald-50/40 dark:bg-emerald-950/10" : maria ? "bg-violet-50/40 dark:bg-violet-950/10" : ana ? "bg-sky-50/40 dark:bg-sky-950/10" : "bg-muted/15")}>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{maria ? "Casas" : "Total"}</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{maria ? (isEn ? "Houses" : "Casas") : "Total"}</span>
               <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">{validJobRows.length}</span>
             </div>
             <span className={cn("text-xl font-bold tabular-nums tracking-tight", (hasRows || maria || ana) ? (mixed ? "text-amber-700 dark:text-amber-400" : carlos ? "text-emerald-700 dark:text-emerald-400" : maria ? "text-violet-700 dark:text-violet-400" : ana ? "text-sky-700 dark:text-sky-400" : "text-foreground") : "text-muted-foreground/40")}>
@@ -5942,10 +5992,10 @@ function renderHeader() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                  <span className="inline-block size-1.5 rounded-full bg-emerald-500" />Paid {formatMoney(paidAmount)}
+                  <span className="inline-block size-1.5 rounded-full bg-emerald-500" />{isEn ? "Paid" : "Pagado"} {formatMoney(paidAmount)}
                 </span>
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold text-orange-600 dark:text-orange-400">
-                  <span className="inline-block size-1.5 rounded-full bg-orange-400" />Pending {formatMoney(pendingAmount)}
+                  <span className="inline-block size-1.5 rounded-full bg-orange-400" />{isEn ? "Pending" : "Pendiente"} {formatMoney(pendingAmount)}
                 </span>
               </div>
             </div>
@@ -5955,16 +6005,16 @@ function renderHeader() {
           {mixed && hasRows ? (
             <div className="mx-4 mb-3 mt-1 grid gap-2 rounded-xl border border-amber-200/60 bg-amber-50/60 p-3 dark:border-amber-800/40 dark:bg-amber-950/20">
               <div className="flex items-center justify-between text-xs font-medium text-amber-800 dark:text-amber-300">
-                <span>Residential total:</span>
+                <span>{isEn ? "Residential total:" : "Total residencial:"}</span>
                 <span className="font-semibold tabular-nums">{formatMoney(summary.residentialTotal)}</span>
               </div>
               <div className="flex items-center justify-between text-xs font-medium text-amber-800 dark:text-amber-300">
-                <span>Commercial total:</span>
+                <span>{isEn ? "Commercial total:" : "Total comercial:"}</span>
                 <span className="font-semibold tabular-nums">{formatMoney(summary.commercialTotal)}</span>
               </div>
               <div className="my-0.5 border-t border-amber-200/40 dark:border-amber-800/30" />
               <div className="flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
-                <span>{summary.teamName} combined:</span>
+                <span>{summary.teamName} {isEn ? "combined:" : "combinado:"}</span>
                 <span className="text-sm tabular-nums">{formatMoney(summary.paymentTotal)}</span>
               </div>
             </div>
@@ -5974,16 +6024,16 @@ function renderHeader() {
           {maria ? (
             <div className="mx-4 mb-3 mt-1 grid gap-2 rounded-xl border border-violet-200/60 bg-violet-50/60 p-3 dark:border-violet-800/40 dark:bg-violet-950/20">
               <div className="flex items-center justify-between text-xs font-medium text-violet-800 dark:text-violet-300">
-                <span>Base Flat ({periodMode === "month" ? "Mensual · 2 quincenas" : quincenaInfo.isQuincena ? (quincenaInfo.type === "15th" ? "Quincena: 15 de mes" : "Quincena: Fin de mes") : "Semana regular"}):</span>
+                <span>{isEn ? "Base Flat" : "Base Flat"} ({periodMode === "month" ? (isEn ? "Monthly · 2 pay periods" : "Mensual · 2 quincenas") : quincenaInfo.isQuincena ? (quincenaInfo.type === "15th" ? (isEn ? "Pay Period: 15th of month" : "Quincena: 15 de mes") : (isEn ? "Pay Period: Month-end" : "Quincena: Fin de mes")) : (isEn ? "Regular week" : "Semana regular")}):</span>
                 <span className="font-semibold tabular-nums">
                   {formatMoney(mariaFlatBase)} 
                   <span className="text-[10px] text-muted-foreground font-normal ml-1">
-                    {mariaFlatBase > 0 ? "($1,000 cada 15 días)" : "(Base $1,000 el 15 y fin de mes)"}
+                    {mariaFlatBase > 0 ? (isEn ? "($1,000 every 15 days)" : "($1,000 cada 15 días)") : (isEn ? "(Base $1,000 on 15th and month-end)" : "(Base $1,000 el 15 y fin de mes)")}
                   </span>
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs font-medium text-violet-800 dark:text-violet-300">
-                <span>Casas agregadas ({validJobRows.filter((r) => r.payment_type !== "flat_base" && r.city?.toLowerCase() !== "flat base").length}):</span>
+                <span>{isEn ? "Added houses" : "Casas agregadas"} ({validJobRows.filter((r) => r.payment_type !== "flat_base" && r.city?.toLowerCase() !== "flat base").length}):</span>
                 <span className="font-semibold tabular-nums">+{formatMoney(housesTotal)}</span>
               </div>
               <div className="my-0.5 border-t border-violet-200/40 dark:border-violet-800/30" />
@@ -5998,18 +6048,20 @@ function renderHeader() {
           {ana ? (
             <div className="mx-4 mb-3 mt-1 grid gap-1.5 rounded-xl border border-sky-200/60 bg-sky-50/60 p-3 dark:border-sky-800/40 dark:bg-sky-950/20">
               <div className="flex items-center justify-between text-xs font-bold text-sky-950 dark:text-sky-100">
-                <span>Regla de horas:</span>
-                <span className="rounded-full bg-sky-200/70 px-2 py-0.5 text-[10px] font-bold text-sky-800 dark:bg-sky-900/60 dark:text-sky-200">80 horas / quincena</span>
+                <span>{isEn ? "Hours rule:" : "Regla de horas:"}</span>
+                <span className="rounded-full bg-sky-200/70 px-2 py-0.5 text-[10px] font-bold text-sky-800 dark:bg-sky-900/60 dark:text-sky-200">
+                  {isEn ? "80 hours / pay period" : "80 horas / quincena"}
+                </span>
               </div>
               <div className="flex items-center justify-between text-xs text-sky-800 dark:text-sky-300">
-                <span>{periodMode === "month" ? "Período mensual (2 quincenas · 160h)" : quincenaInfo.type === "15th" ? "Quincena: 15 de mes (80h)" : quincenaInfo.type === "month_end" ? "Quincena: Fin de mes (80h)" : "Pago quincenal (80h)"}:</span>
+                <span>{periodMode === "month" ? (isEn ? "Monthly period (2 pay periods · 160h)" : "Período mensual (2 quincenas · 160h)") : quincenaInfo.type === "15th" ? (isEn ? "Pay Period: 15th of month (80h)" : "Quincena: 15 de mes (80h)") : quincenaInfo.type === "month_end" ? (isEn ? "Pay Period: Month-end (80h)" : "Quincena: Fin de mes (80h)") : (isEn ? "Biweekly payment (80h)" : "Pago quincenal (80h)")}:</span>
                 <span className="font-semibold tabular-nums">
                   {formatMoney(anaBase)}
                 </span>
               </div>
               {anaExtraTotal > 0 ? (
                 <div className="flex items-center justify-between text-xs text-sky-800 dark:text-sky-300">
-                  <span>Trabajos adicionales ({validJobRows.filter((r) => r.payment_type !== "quincena_base" && r.city?.toLowerCase() !== "quincena base").length}):</span>
+                  <span>{isEn ? "Additional jobs" : "Trabajos adicionales"} ({validJobRows.filter((r) => r.payment_type !== "quincena_base" && r.city?.toLowerCase() !== "quincena base").length}):</span>
                   <span className="font-semibold tabular-nums">+{formatMoney(anaExtraTotal)}</span>
                 </div>
               ) : null}
@@ -6118,15 +6170,20 @@ function renderHeader() {
           <div className={cn(PAYMENT_MODAL_PANEL_CLASS, "max-w-4xl w-full")}>
             <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
               <div>
-                <h2 className="text-lg font-semibold tracking-normal text-emerald-950 dark:text-emerald-50">Ingreso Rápido de Horas Comerciales</h2>
-                <p className="mt-1 text-sm font-medium text-muted-foreground">Pega una lista de horas y días para subirlos de una sola vez.</p>
+                <h2 className="text-lg font-semibold tracking-normal text-emerald-950 dark:text-emerald-50">
+                  {isEn ? "Quick Entry of Commercial Hours" : "Ingreso Rápido de Horas Comerciales"}
+                </h2>
+                <p className="mt-1 text-sm font-medium text-muted-foreground">
+                  {isEn ? "Paste a list of hours and days to upload them all at once." : "Pega una lista de horas y días para subirlos de una sola vez."}
+                </p>
               </div>
               <button type="button" className="grid size-10 place-items-center rounded-xl text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close modal" onClick={() => setPaymentModalMode(null)}><X className="size-[18px]" /></button>
             </div>
             
             <div className="p-5 space-y-4">
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <label className={PAYMENT_LABEL_CLASS}>Limpiadora / Equipo
+                <label className={PAYMENT_LABEL_CLASS}>
+                  {isEn ? "Cleaner / Team" : "Limpiadora / Equipo"}
                   <select className={PAYMENT_FIELD_CLASS} value={bulkHoursCleaner} onChange={(event) => {
                     const cleaner = event.target.value;
                     setBulkHoursCleaner(cleaner);
@@ -6135,27 +6192,33 @@ function renderHeader() {
                     );
                     if (defaultAcc) setBulkHoursAccount(defaultAcc.id);
                   }}>
-                    <option value="">Seleccionar limpiadora</option>
+                    <option value="">{isEn ? "Select cleaner" : "Seleccionar limpiadora"}</option>
                     {activeCommercialTeams.map((team) => <option key={team.id} value={team.name}>{team.name}</option>)}
                   </select>
                 </label>
                 
-                <label className={PAYMENT_LABEL_CLASS}>Cuenta Comercial
+                <label className={PAYMENT_LABEL_CLASS}>
+                  {isEn ? "Commercial Account" : "Cuenta Comercial"}
                   <select className={PAYMENT_FIELD_CLASS} value={bulkHoursAccount} onChange={(event) => setBulkHoursAccount(event.target.value)}>
-                    <option value="">Seleccionar cuenta</option>
+                    <option value="">{isEn ? "Select account" : "Seleccionar cuenta"}</option>
                     {commercialAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} ({account.city})</option>)}
                   </select>
                 </label>
                 
-                <label className={PAYMENT_LABEL_CLASS}>Año
+                <label className={PAYMENT_LABEL_CLASS}>
+                  {isEn ? "Year" : "Año"}
                   <select className={PAYMENT_FIELD_CLASS} value={bulkHoursYear} onChange={(event) => setBulkHoursYear(Number(event.target.value))}>
                     {[2024, 2025, 2026, 2027].map((yr) => <option key={yr} value={yr}>{yr}</option>)}
                   </select>
                 </label>
                 
-                <label className={PAYMENT_LABEL_CLASS}>Mes
+                <label className={PAYMENT_LABEL_CLASS}>
+                  {isEn ? "Month" : "Mes"}
                   <select className={PAYMENT_FIELD_CLASS} value={bulkHoursMonth} onChange={(event) => setBulkHoursMonth(Number(event.target.value))}>
-                    {["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"].map((name, index) => (
+                    {(isEn
+                      ? ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                      : ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                    ).map((name, index) => (
                       <option key={index + 1} value={index + 1}>{name}</option>
                     ))}
                   </select>
@@ -6165,40 +6228,44 @@ function renderHeader() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-foreground">
-                    Copia y pega la lista de días y horas aquí:
+                    {isEn ? "Copy and paste the list of days and hours here:" : "Copia y pega la lista de días y horas aquí:"}
                   </label>
                   <textarea
                     className="w-full h-64 p-3 rounded-xl border border-input bg-background font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-                    placeholder={`Ejemplo:\n1: 7:09\n2: 7:36\n3: no trabajó (festivo)\n6: 5:47`}
+                    placeholder={
+                      isEn
+                        ? "Example:\n1: 7:09\n2: 7:36\n3: day off (holiday)\n6: 5:47"
+                        : "Ejemplo:\n1: 7:09\n2: 7:36\n3: no trabajó (festivo)\n6: 5:47"
+                    }
                     value={bulkHoursText}
                     onChange={(event) => setBulkHoursText(event.target.value)}
                   />
                   <div className="text-xs text-muted-foreground leading-relaxed">
-                    <strong>Formatos soportados:</strong><br />
-                    • Horas: <code>día: H:MM</code> (ej: <code>1: 7:09</code>) o <code>día H:MM</code> (ej: <code>7 5:47</code>)<br />
-                    • Decimales: <code>día: horas</code> (ej: <code>1: 7.15</code>)<br />
-                    • Festivos/No trabajados: incluye palabras como <code>festivo</code>, <code>holiday</code>, <code>no trabajó</code> (se guardan como 0h y se marcan como no elegibles/skipped).
+                    <strong>{isEn ? "Supported formats:" : "Formatos soportados:"}</strong><br />
+                    • {isEn ? "Hours:" : "Horas:"} <code>{isEn ? "day: H:MM" : "día: H:MM"}</code> ({isEn ? "e.g." : "ej:"} <code>1: 7:09</code>) {isEn ? "or" : "o"} <code>{isEn ? "day H:MM" : "día H:MM"}</code> ({isEn ? "e.g." : "ej:"} <code>7 5:47</code>)<br />
+                    • {isEn ? "Decimals:" : "Decimales:"} <code>{isEn ? "day: hours" : "día: horas"}</code> ({isEn ? "e.g." : "ej:"} <code>1: 7.15</code>)<br />
+                    • {isEn ? "Holidays / Days off: include words like holiday, day off, festivo (stored as 0h and marked as skipped)." : "Festivos/No trabajados: incluye palabras como festivo, holiday, no trabajó (se guardan como 0h y se marcan como no elegibles/skipped)."}
                   </div>
                 </div>
                 
                 <div className="space-y-2 flex flex-col h-full">
                   <div className="text-sm font-semibold text-foreground flex justify-between">
-                    <span>Previsualización del Cálculo:</span>
+                    <span>{isEn ? "Calculation Preview:" : "Previsualización del Cálculo:"}</span>
                     <span className="text-emerald-700 dark:text-emerald-400 font-bold">Total: {formatHours(parsedBulkTotalHours)}</span>
                   </div>
                   
                   <div className="flex-1 overflow-auto rounded-xl border border-border/70 bg-muted/20 p-3 max-h-64">
                     {parsedBulkRows.length === 0 ? (
                       <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">
-                        Los días y horas parseados aparecerán aquí...
+                        {isEn ? "Parsed days and hours will appear here..." : "Los días y horas parseados aparecerán aquí..."}
                       </div>
                     ) : (
                       <table className="w-full text-xs text-left">
                         <thead>
                           <tr className="border-b border-border/70 text-muted-foreground font-semibold">
-                            <th className="pb-2">Fecha</th>
-                            <th className="pb-2 text-right">Horas</th>
-                            <th className="pb-2 pl-3">Tipo / Nota</th>
+                            <th className="pb-2">{isEn ? "Date" : "Fecha"}</th>
+                            <th className="pb-2 text-right">{isEn ? "Hours" : "Horas"}</th>
+                            <th className="pb-2 pl-3">{isEn ? "Type / Note" : "Tipo / Nota"}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -6208,9 +6275,13 @@ function renderHeader() {
                               <td className="py-1.5 text-right font-semibold">{row.hours.toFixed(2)} hrs</td>
                               <td className="py-1.5 pl-3">
                                 {row.isHoliday ? (
-                                  <Badge className="border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-900 px-1 py-0" variant="outline">Festivo / No elegible</Badge>
+                                  <Badge className="border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-900 px-1 py-0" variant="outline">
+                                    {isEn ? "Holiday / Skipped" : "Festivo / No elegible"}
+                                  </Badge>
                                 ) : (
-                                  <span className="text-muted-foreground truncate max-w-[150px] inline-block" title={row.notes}>{row.notes.replace(/^\d+[:\s]*/, "") || "Normal"}</span>
+                                  <span className="text-muted-foreground truncate max-w-[150px] inline-block" title={row.notes}>
+                                    {row.notes.replace(/^\d+[:\s]*/, "") || (isEn ? "Normal" : "Normal")}
+                                  </span>
                                 )}
                               </td>
                             </tr>
@@ -6221,12 +6292,13 @@ function renderHeader() {
                   </div>
 
                   <div className="pt-2">
-                    <label className={PAYMENT_LABEL_CLASS}>Estado al guardar
+                    <label className={PAYMENT_LABEL_CLASS}>
+                      {isEn ? "Status upon save" : "Estado al guardar"}
                       <select className={PAYMENT_FIELD_CLASS} value={bulkHoursStatus} onChange={(event) => setBulkHoursStatus(event.target.value as CommercialHoursStatus)}>
-                        <option value="completed">Completed (Completado)</option>
-                        <option value="verified">Verified (Verificado)</option>
-                        <option value="paid">Paid (Pagado)</option>
-                        <option value="needs_review">Needs review (Requiere revisión)</option>
+                        <option value="completed">{isEn ? "Completed" : "Completed (Completado)"}</option>
+                        <option value="verified">{isEn ? "Verified" : "Verified (Verificado)"}</option>
+                        <option value="paid">{isEn ? "Paid" : "Paid (Pagado)"}</option>
+                        <option value="needs_review">{isEn ? "Needs review" : "Needs review (Requiere revisión)"}</option>
                       </select>
                     </label>
                   </div>
@@ -6235,13 +6307,17 @@ function renderHeader() {
             </div>
             
             <div className="flex justify-end gap-2 border-t border-border/70 p-4 bg-muted/10">
-              <Button className="rounded-xl" variant="outline" onClick={() => setPaymentModalMode(null)}>Cancelar</Button>
+              <Button className="rounded-xl" variant="outline" onClick={() => setPaymentModalMode(null)}>
+                {isEn ? "Cancel" : "Cancelar"}
+              </Button>
               <Button 
                 className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white" 
                 disabled={bulkHoursSaving || parsedBulkRows.length === 0 || !bulkHoursCleaner || !bulkHoursAccount} 
                 onClick={saveBulkHours}
               >
-                {bulkHoursSaving ? "Guardando..." : `Guardar ${parsedBulkRows.length} días (${formatHours(parsedBulkTotalHours)})`}
+                {bulkHoursSaving
+                  ? (isEn ? "Saving..." : "Guardando...")
+                  : (isEn ? `Save ${parsedBulkRows.length} days (${formatHours(parsedBulkTotalHours)})` : `Guardar ${parsedBulkRows.length} días (${formatHours(parsedBulkTotalHours)})`)}
               </Button>
             </div>
           </div>
@@ -6384,11 +6460,12 @@ function renderHeader() {
               setIsExtraHours(event.target.checked);
               if (!event.target.checked) setExtraHoursValue("");
             }} />
-            <span>Hora extra</span>
+            <span>{isEn ? "Overtime" : "Hora extra"}</span>
           </label>
         </div>
         {isExtraHours && (
-          <label className={PAYMENT_LABEL_CLASS}>Horas extras necesarias
+          <label className={PAYMENT_LABEL_CLASS}>
+            {isEn ? "Required overtime hours" : "Horas extras necesarias"}
             <input required className={PAYMENT_FIELD_CLASS} inputMode="decimal" min="0" step="any" type="number" value={extraHoursValue} onChange={(event) => setExtraHoursValue(event.target.value)} placeholder="0" />
           </label>
         )}
@@ -6596,7 +6673,7 @@ function renderHeader() {
                         <td className="border-b border-border/60 px-4 py-3 align-middle text-center">
                           <div className="flex justify-center">
                             <Badge className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusBadgeClass(entry.status))} variant="outline">
-                              {statusLabel(entry.status ?? "scheduled")}
+                              {statusLabel(entry.status ?? "scheduled", isEs)}
                             </Badge>
                           </div>
                         </td>
@@ -6796,7 +6873,7 @@ function renderHeader() {
                       <p className="mt-1 text-sm font-medium text-muted-foreground">{person.role}</p>
                       <p className="mt-2 text-xs font-medium text-muted-foreground">{person.email || "No email on file"}</p>
                     </div>
-                    <Badge className={statusBadgeClass(personStatus)} variant="outline">{statusLabel(personStatus)}</Badge>
+                    <Badge className={statusBadgeClass(personStatus)} variant="outline">{statusLabel(personStatus, isEs)}</Badge>
                   </div>
                 </article>
               );
@@ -6856,7 +6933,7 @@ function renderHeader() {
                         </p>
                       ) : null}
                     </div>
-                    <Badge className={statusBadgeClass(teamStatus)} variant="outline">{statusLabel(teamStatus)}</Badge>
+                    <Badge className={statusBadgeClass(teamStatus)} variant="outline">{statusLabel(teamStatus, isEs)}</Badge>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                     <div className="rounded-xl border border-border/60 bg-card/70 px-3 py-2">
@@ -7083,9 +7160,9 @@ function renderHeader() {
             <button type="button" className={SOP_CLOSE_BUTTON_CLASS} aria-label="Close task detail" onClick={() => setSelectedTask(null)}><X className="size-[18px]" /></button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Badge className={statusBadgeClass(selectedStatus)} variant="outline">{statusLabel(selectedStatus)}</Badge>
+            <Badge className={statusBadgeClass(selectedStatus)} variant="outline">{statusLabel(selectedStatus, isEs)}</Badge>
             <Badge variant="outline">{TASK_FREQUENCY_LABELS[frequencyFromRecurrence(selectedTask.recurrence)]}</Badge>
-            <Badge className={statusBadgeClass(selectedTask.priority)} variant="outline">{statusLabel(selectedTask.priority ?? "normal")}</Badge>
+            <Badge className={statusBadgeClass(selectedTask.priority)} variant="outline">{statusLabel(selectedTask.priority ?? "normal", isEs)}</Badge>
             {sourceDocument ? <Badge variant="outline">{sourceDocument}</Badge> : null}
           </div>
         </div>
@@ -7114,7 +7191,9 @@ function renderHeader() {
                   await completeTask(selectedTask, summaryNote);
                   setMessage({
                     tone: "success",
-                    text: "Sales Tracker conciliado y tarea SOP completada automáticamente.",
+                    text: isEn
+                      ? "Sales Tracker reconciled and SOP task completed automatically."
+                      : "Sales Tracker conciliado y tarea SOP completada automáticamente.",
                   });
                 }}
                 onNotify={(tone, text) => setMessage({ tone, text })}
@@ -7705,7 +7784,9 @@ function renderHeader() {
       console.error("Error executing schedule action:", err);
       setScheduleActionFeedback({
         tone: "error",
-        text: `Error al aplicar la acción: ${err?.message || "Ocurrió un error inesperado."}`,
+        text: isEn
+          ? `Error applying action: ${err?.message || "An unexpected error occurred."}`
+          : `Error al aplicar la acción: ${err?.message || "Ocurrió un error inesperado."}`,
       });
     } finally {
       setScheduleActionSubmitting(false);

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CheckCircle, AlertTriangle } from "lucide-react";
+import { useLanguage } from "@/components/providers/language-provider";
 
 export type FinancialEntry = {
   accountName: string;
@@ -22,6 +23,7 @@ interface BulkReviewTableProps {
 }
 
 export function BulkReviewTable({ entries, onApply, onCancel, isApplying }: BulkReviewTableProps) {
+  const { isEn } = useLanguage();
   const [rows, setRows] = useState<FinancialEntry[]>(entries);
   const [selected, setSelected] = useState<Set<number>>(new Set(Array.from({ length: entries.length }, (_, i) => i)));
 
@@ -45,9 +47,13 @@ export function BulkReviewTable({ entries, onApply, onCancel, isApplying }: Bulk
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
           <AlertTriangle className="size-3.5 text-amber-500" />
-          Revisión de {rows.length} Cuentas — Edita antes de aplicar
+          {isEn
+            ? `Review ${rows.length} Accounts — Edit before applying`
+            : `Revisión de ${rows.length} Cuentas — Edita antes de aplicar`}
         </span>
-        <span className="text-[10px] text-muted-foreground">{selected.size} seleccionadas</span>
+        <span className="text-[10px] text-muted-foreground">
+          {isEn ? `${selected.size} selected` : `${selected.size} seleccionadas`}
+        </span>
       </div>
 
       <div className="max-h-64 overflow-y-auto rounded-xl border border-border">
@@ -64,10 +70,10 @@ export function BulkReviewTable({ entries, onApply, onCancel, isApplying }: Bulk
                   className="size-3"
                 />
               </th>
-              <th className="px-2 py-1.5 text-left font-bold text-muted-foreground">Cuenta</th>
+              <th className="px-2 py-1.5 text-left font-bold text-muted-foreground">{isEn ? "Account" : "Cuenta"}</th>
               <th className="px-2 py-1.5 text-center font-bold text-muted-foreground">Hrs</th>
-              <th className="px-2 py-1.5 text-center font-bold text-muted-foreground">Tarifa/h</th>
-              <th className="px-2 py-1.5 text-center font-bold text-muted-foreground">$/Servicio</th>
+              <th className="px-2 py-1.5 text-center font-bold text-muted-foreground">{isEn ? "Rate/hr" : "Tarifa/h"}</th>
+              <th className="px-2 py-1.5 text-center font-bold text-muted-foreground">{isEn ? "$/Service" : "$/Servicio"}</th>
             </tr>
           </thead>
           <tbody>
@@ -110,7 +116,7 @@ export function BulkReviewTable({ entries, onApply, onCancel, isApplying }: Bulk
           onClick={onCancel}
           className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors"
         >
-          Cancelar
+          {isEn ? "Cancel" : "Cancelar"}
         </button>
         <button
           type="button"
@@ -119,7 +125,7 @@ export function BulkReviewTable({ entries, onApply, onCancel, isApplying }: Bulk
           className="flex-1 h-8 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-emerald-700 transition-colors disabled:opacity-50"
         >
           <CheckCircle className="size-3.5" />
-          Aplicar {selected.size} Cuentas Revisadas
+          {isEn ? `Apply ${selected.size} Reviewed Accounts` : `Aplicar ${selected.size} Cuentas Revisadas`}
         </button>
       </div>
     </div>

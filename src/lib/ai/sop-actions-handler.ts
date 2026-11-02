@@ -10,6 +10,19 @@ export type SopActionResult = {
   error?: string;
 };
 
+function isEnLang(lang?: "en" | "es" | string): boolean {
+  if (lang === "en") return true;
+  if (lang === "es") return false;
+  if (typeof window !== "undefined") {
+    try {
+      return localStorage.getItem("pristine_sop_language") !== "es";
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
 /**
  * Resolves colloquial aliases to official commercial account names
  */
@@ -56,11 +69,16 @@ export function resolveCanonicalAccountName(name: string): string {
  * Apply access updates (Lockbox, Alarm Codes, Special Cleaning Instructions)
  */
 export async function applyAccessUpdateAction(
-  update: NonNullable<SopCopilotResponse["accessUpdate"]> | NonNullable<SopCopilotResponse["accessUpdates"]>
+  update: NonNullable<SopCopilotResponse["accessUpdate"]> | NonNullable<SopCopilotResponse["accessUpdates"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   const updates = Array.isArray(update) ? update : [update];
   if (updates.length === 0) {
-    return { success: false, message: "No se encontraron códigos de acceso para actualizar." };
+    return {
+      success: false,
+      message: isEn ? "No access codes found to update." : "No se encontraron códigos de acceso para actualizar.",
+    };
   }
 
   const results: string[] = [];
@@ -75,7 +93,7 @@ export async function applyAccessUpdateAction(
     if (item.alarmCode) codeParts.push(`Alarm: ${item.alarmCode}`);
     if (item.gateCode) codeParts.push(`Gate: ${item.gateCode}`);
     if (item.keyLocation) codeParts.push(`Keys: ${item.keyLocation}`);
-    if (item.specialInstructions) codeParts.push(`Instrucciones: ${item.specialInstructions}`);
+    if (item.specialInstructions) codeParts.push(`${isEn ? "Instructions" : "Instrucciones"}: ${item.specialInstructions}`);
     if (item.otherNotes && !codeParts.some((p) => item.otherNotes!.includes(p))) codeParts.push(item.otherNotes);
     const accessText = codeParts.join(" | ");
 
@@ -150,7 +168,7 @@ export async function applyAccessUpdateAction(
 
     results.push(
       `"${canonicalName}": ${item.lockboxCode ? `Lockbox ${item.lockboxCode}` : ""}${
-        item.alarmCode ? ` | Alarma ${item.alarmCode}` : ""
+        item.alarmCode ? ` | ${isEn ? "Alarm" : "Alarma"} ${item.alarmCode}` : ""
       }${item.specialInstructions ? ` | ${item.specialInstructions}` : ""}`
     );
   }
@@ -161,7 +179,9 @@ export async function applyAccessUpdateAction(
 
   return {
     success: true,
-    message: `Códigos de acceso y notas actualizados con éxito:\n${results.join("\n")}`,
+    message: isEn
+      ? `Access codes and notes updated successfully:\n${results.join("\n")}`
+      : `Códigos de acceso y notas actualizados con éxito:\n${results.join("\n")}`,
     data: updates,
   };
 }
@@ -170,8 +190,10 @@ export async function applyAccessUpdateAction(
  * Apply a work occurrence / shift replacement (e.g., Field AI on August 22nd by Susana and Veronica)
  */
 export async function applyOccurrenceOverrideAction(
-  override: NonNullable<SopCopilotResponse["occurrenceOverride"]>
+  override: NonNullable<SopCopilotResponse["occurrenceOverride"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   try {
     const supabase = createClient();
 
@@ -199,7 +221,11 @@ export async function applyOccurrenceOverrideAction(
       status: "completed",
       verified: true,
       manual_entry: true,
-      notes: override.notes || `Reemplazo de turno registrado por Copiloto IA (${override.cleanerTeam})`,
+      notes:
+        override.notes ||
+        (isEn
+          ? `Shift replacement logged by AI Copilot (${override.cleanerTeam})`
+          : `Reemplazo de turno registrado por Copiloto IA (${override.cleanerTeam})`),
       updated_at: new Date().toISOString(),
     };
 
@@ -242,7 +268,9 @@ export async function applyOccurrenceOverrideAction(
       if (!error && data) {
         return {
           success: true,
-          message: `Turno ${existingEntry ? 'actualizado' : 'registrado'} exitosamente: ${accountName} el ${override.date} con el equipo de ${override.cleanerTeam} (${override.hours} hrs).`,
+          message: isEn
+            ? `Shift ${existingEntry ? "updated" : "logged"} successfully: ${accountName} on ${override.date} with team ${override.cleanerTeam} (${override.hours} hrs).`
+            : `Turno ${existingEntry ? "actualizado" : "registrado"} exitosamente: ${accountName} el ${override.date} con el equipo de ${override.cleanerTeam} (${override.hours} hrs).`,
           data,
         };
       }
@@ -263,14 +291,18 @@ export async function applyOccurrenceOverrideAction(
 
     return {
       success: true,
-      message: `Turno registrado en el sistema local: ${accountName} el ${override.date} con ${override.cleanerTeam} (${override.hours} hrs).`,
+      message: isEn
+        ? `Shift logged in local system: ${accountName} on ${override.date} with ${override.cleanerTeam} (${override.hours} hrs).`
+        : `Turno registrado en el sistema local: ${accountName} el ${override.date} con ${override.cleanerTeam} (${override.hours} hrs).`,
       data: newEntry,
     };
   } catch (err: any) {
     console.error("Error applying occurrence override:", err);
     return {
       success: false,
-      message: `No se pudo registrar el turno: ${err.message || String(err)}`,
+      message: isEn
+        ? `Could not log shift: ${err.message || String(err)}`
+        : `No se pudo registrar el turno: ${err.message || String(err)}`,
       error: err.message,
     };
   }
@@ -280,8 +312,10 @@ export async function applyOccurrenceOverrideAction(
  * Apply adding a new staff member or cleaner
  */
 export async function applyAddStaffAction(
-  staff: NonNullable<SopCopilotResponse["addStaff"]>
+  staff: NonNullable<SopCopilotResponse["addStaff"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   try {
     const supabase = createClient();
 
@@ -294,7 +328,9 @@ export async function applyAddStaffAction(
       status: "active",
       team_scope: "commercial",
       active: true,
-      notes: staff.phone ? `Tel: ${staff.phone}. ${staff.notes || ""}` : staff.notes || "Creado vía Copiloto IA",
+      notes: staff.phone
+        ? `Tel: ${staff.phone}. ${staff.notes || ""}`
+        : staff.notes || (isEn ? "Created via AI Copilot" : "Creado vía Copiloto IA"),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -332,7 +368,9 @@ export async function applyAddStaffAction(
         }
         return {
           success: true,
-          message: `Personal añadido exitosamente: ${staff.name} ($${staff.hourlyRate || 20}/hr) como ${staff.role}.`,
+          message: isEn
+            ? `Staff added successfully: ${staff.name} ($${staff.hourlyRate || 20}/hr) as ${staff.role}.`
+            : `Personal añadido exitosamente: ${staff.name} ($${staff.hourlyRate || 20}/hr) como ${staff.role}.`,
           data,
         };
       }
@@ -352,14 +390,18 @@ export async function applyAddStaffAction(
 
     return {
       success: true,
-      message: `Personal añadido al sistema: ${staff.name} ($${staff.hourlyRate || 20}/hr).`,
+      message: isEn
+        ? `Staff added to system: ${staff.name} ($${staff.hourlyRate || 20}/hr).`
+        : `Personal añadido al sistema: ${staff.name} ($${staff.hourlyRate || 20}/hr).`,
       data: newStaff,
     };
   } catch (err: any) {
     console.error("Error adding staff:", err);
     return {
       success: false,
-      message: `No se pudo añadir al personal: ${err.message || String(err)}`,
+      message: isEn
+        ? `Could not add staff: ${err.message || String(err)}`
+        : `No se pudo añadir al personal: ${err.message || String(err)}`,
       error: err.message,
     };
   }
@@ -369,12 +411,14 @@ export async function applyAddStaffAction(
  * Apply creating a new commercial account from a quote or prompt
  */
 export async function applyCreateCommercialAccountAction(
-  quote: NonNullable<SopCopilotResponse["commercialQuote"]>
+  quote: NonNullable<SopCopilotResponse["commercialQuote"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   try {
     const supabase = createClient();
 
-    const accountName = quote.clientName || "Nueva Cuenta Comercial";
+    const accountName = quote.clientName || (isEn ? "New Commercial Account" : "Nueva Cuenta Comercial");
     const accountData = {
       name: accountName,
       city: quote.city || "Orange County",
@@ -385,7 +429,9 @@ export async function applyCreateCommercialAccountAction(
       frequency: quote.frequency || "Weekly",
       has_supplies: false,
       has_keys: false,
-      supplies_notes: `Cotización IA: ${quote.squareFeet || 0} sq ft, ${quote.bathrooms || 0} baños. Margen: ${quote.profitMarginPct.toFixed(1)}%`,
+      supplies_notes: isEn
+        ? `AI Quote: ${quote.squareFeet || 0} sq ft, ${quote.bathrooms || 0} bathrooms. Margin: ${quote.profitMarginPct.toFixed(1)}%`
+        : `Cotización IA: ${quote.squareFeet || 0} sq ft, ${quote.bathrooms || 0} baños. Margen: ${quote.profitMarginPct.toFixed(1)}%`,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -400,7 +446,9 @@ export async function applyCreateCommercialAccountAction(
       if (!error && data) {
         return {
           success: true,
-          message: `Cuenta creada exitosamente: ${accountName} ($${quote.suggestedMonthlyPrice}/mes, Margen: ${quote.profitMarginPct.toFixed(1)}%).`,
+          message: isEn
+            ? `Account created successfully: ${accountName} ($${quote.suggestedMonthlyPrice}/mo, Margin: ${quote.profitMarginPct.toFixed(1)}%).`
+            : `Cuenta creada exitosamente: ${accountName} ($${quote.suggestedMonthlyPrice}/mes, Margen: ${quote.profitMarginPct.toFixed(1)}%).`,
           data,
         };
       }
@@ -414,14 +462,18 @@ export async function applyCreateCommercialAccountAction(
 
     return {
       success: true,
-      message: `Cuenta comercial creada en el sistema: ${accountName} ($${quote.suggestedMonthlyPrice}/mes).`,
+      message: isEn
+        ? `Commercial account created in system: ${accountName} ($${quote.suggestedMonthlyPrice}/mo).`
+        : `Cuenta comercial creada en el sistema: ${accountName} ($${quote.suggestedMonthlyPrice}/mes).`,
       data: newAcc,
     };
   } catch (err: any) {
     console.error("Error creating commercial account:", err);
     return {
       success: false,
-      message: `No se pudo crear la cuenta comercial: ${err.message || String(err)}`,
+      message: isEn
+        ? `Could not create commercial account: ${err.message || String(err)}`
+        : `No se pudo crear la cuenta comercial: ${err.message || String(err)}`,
       error: err.message,
     };
   }
@@ -432,29 +484,31 @@ export async function applyCreateCommercialAccountAction(
  * Creates or updates the commercial account with schedule details and structured access instructions.
  */
 export async function applyIngestScheduleAction(
-  schedule: NonNullable<SopCopilotResponse["ingestedSchedule"]>
+  schedule: NonNullable<SopCopilotResponse["ingestedSchedule"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
-  const accountName = schedule.clientName || schedule.buildingName || "Nueva Cuenta";
+  const isEn = isEnLang(lang);
+  const accountName = schedule.clientName || schedule.buildingName || (isEn ? "New Account" : "Nueva Cuenta");
 
   // Build structured notes from access instructions
   const ai = schedule.accessInstructions;
   const accessParts: string[] = [];
-  if (ai?.buildingType) accessParts.push(`Tipo: ${ai.buildingType}`);
+  if (ai?.buildingType) accessParts.push(`${isEn ? "Type" : "Tipo"}: ${ai.buildingType}`);
   if (ai?.suite) accessParts.push(`Suite: ${ai.suite}`);
-  if (ai?.floor) accessParts.push(`Piso: ${ai.floor}`);
-  if (ai?.elevator) accessParts.push(`Elevador: Sí${ai.elevatorNotes ? ` (${ai.elevatorNotes})` : ""}`);
-  if (ai?.parking) accessParts.push(`Estacionamiento: ${ai.parking}`);
-  if (ai?.accessCode) accessParts.push(`Código: ${ai.accessCode}`);
+  if (ai?.floor) accessParts.push(`${isEn ? "Floor" : "Piso"}: ${ai.floor}`);
+  if (ai?.elevator) accessParts.push(`${isEn ? "Elevator: Yes" : "Elevador: Sí"}${ai.elevatorNotes ? ` (${ai.elevatorNotes})` : ""}`);
+  if (ai?.parking) accessParts.push(`${isEn ? "Parking" : "Estacionamiento"}: ${ai.parking}`);
+  if (ai?.accessCode) accessParts.push(`${isEn ? "Code" : "Código"}: ${ai.accessCode}`);
   if (ai?.otherNotes) accessParts.push(ai.otherNotes);
   const accessText = accessParts.join(" | ");
 
   const notes = [
-    schedule.template ? `Plantilla: ${schedule.template}` : null,
-    schedule.recurringRule ? `Recurrencia: ${schedule.recurringRule}` : null,
-    schedule.startDate ? `Inicio: ${schedule.startDate}` : null,
+    schedule.template ? `${isEn ? "Template" : "Plantilla"}: ${schedule.template}` : null,
+    schedule.recurringRule ? `${isEn ? "Recurrence" : "Recurrencia"}: ${schedule.recurringRule}` : null,
+    schedule.startDate ? `${isEn ? "Start" : "Inicio"}: ${schedule.startDate}` : null,
     schedule.assignedCleaner ? `Cleaner: ${schedule.assignedCleaner}` : null,
     accessText || null,
-    schedule.internalNotes ? `Notas: ${schedule.internalNotes}` : null,
+    schedule.internalNotes ? `${isEn ? "Notes" : "Notas"}: ${schedule.internalNotes}` : null,
   ].filter(Boolean).join("\n");
 
   // Use the correct commercial_accounts schema
@@ -472,7 +526,9 @@ export async function applyIngestScheduleAction(
     updated_at: new Date().toISOString(),
   };
 
-  const successMsg = `✅ "${accountName}" guardado: ${schedule.recurringRule || schedule.frequency || ""}, ${schedule.scheduledTime || ""}${schedule.endTime ? `–${schedule.endTime}` : ""}, cleaner: ${schedule.assignedCleaner || "sin asignar"}.`;
+  const successMsg = isEn
+    ? `✅ "${accountName}" saved: ${schedule.recurringRule || schedule.frequency || ""}, ${schedule.scheduledTime || ""}${schedule.endTime ? `–${schedule.endTime}` : ""}, cleaner: ${schedule.assignedCleaner || "unassigned"}.`
+    : `✅ "${accountName}" guardado: ${schedule.recurringRule || schedule.frequency || ""}, ${schedule.scheduledTime || ""}${schedule.endTime ? `–${schedule.endTime}` : ""}, cleaner: ${schedule.assignedCleaner || "sin asignar"}.`;
 
   // 1. Try Supabase
   try {
@@ -544,14 +600,16 @@ export async function applyIngestScheduleAction(
 
     return {
       success: true,
-      message: successMsg + " (guardado localmente)",
+      message: successMsg + (isEn ? " (saved locally)" : " (guardado localmente)"),
       data: newEntry,
     };
   } catch (lsErr: any) {
     console.error("[IngestSchedule] localStorage error:", lsErr?.message);
     return {
       success: false,
-      message: `No se pudo guardar el schedule: ${lsErr?.message || "error desconocido"}`,
+      message: isEn
+        ? `Could not save schedule: ${lsErr?.message || "unknown error"}`
+        : `No se pudo guardar el schedule: ${lsErr?.message || "error desconocido"}`,
       error: lsErr?.message,
     };
   }
@@ -561,10 +619,15 @@ export async function applyIngestScheduleAction(
  * Apply operational / SOP modifications (updating account hours, days, cleaner assignments, pricing)
  */
 export async function applySopModificationsAction(
-  modifications: NonNullable<SopCopilotResponse["sopModifications"]>
+  modifications: NonNullable<SopCopilotResponse["sopModifications"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   if (!modifications || modifications.length === 0) {
-    return { success: true, message: "No se requirieron modificaciones operativas." };
+    return {
+      success: true,
+      message: isEn ? "No operational modifications required." : "No se requirieron modificaciones operativas.",
+    };
   }
 
   const results: string[] = [];
@@ -596,7 +659,11 @@ export async function applySopModificationsAction(
           for (const a of matchedAccs || []) {
             await supabase.from("commercial_accounts").update({ cleaner_name: substituteCleaner, updated_at: new Date().toISOString() }).eq("id", a.id);
             await supabase.from("commercial_account_schedule_rules").update({ assigned_cleaner_name: substituteCleaner, updated_at: new Date().toISOString() }).eq("commercial_account_id", a.id);
-            results.push(`"${a.name}": desvinculada de ${batchCleanerName} -> "${substituteCleaner}" (turnos en schedule activos).`);
+            results.push(
+              isEn
+                ? `"${a.name}": unassigned from ${batchCleanerName} -> "${substituteCleaner}" (schedule shifts kept active).`
+                : `"${a.name}": desvinculada de ${batchCleanerName} -> "${substituteCleaner}" (turnos en schedule activos).`
+            );
           }
 
           await supabase
@@ -611,7 +678,11 @@ export async function applySopModificationsAction(
             (a.schedule_rules || []).some((r: any) => (r.assigned_cleaner_name || "").toLowerCase().includes(cleanerNorm))
         );
         for (const imp of matchingImported) {
-          results.push(`"${imp.name}": turnos desvinculados de ${batchCleanerName} y mantenidos en el schedule como "${substituteCleaner}".`);
+          results.push(
+            isEn
+              ? `"${imp.name}": shifts unassigned from ${batchCleanerName} and kept in schedule as "${substituteCleaner}".`
+              : `"${imp.name}": turnos desvinculados de ${batchCleanerName} y mantenidos en el schedule como "${substituteCleaner}".`
+          );
         }
 
         if (typeof window !== "undefined") {
@@ -783,7 +854,11 @@ export async function applySopModificationsAction(
             }
 
             appliedSupabase = true;
-            results.push(`"${accountName}" fue eliminada completamente del sistema.`);
+            results.push(
+              isEn
+                ? `"${accountName}" was completely deleted from the system.`
+                : `"${accountName}" fue eliminada completamente del sistema.`
+            );
             continue;
           }
         } else {
@@ -811,7 +886,9 @@ export async function applySopModificationsAction(
               window.dispatchEvent(new CustomEvent("commercial-accounts-updated"));
               window.dispatchEvent(new CustomEvent("pristine:data-updated"));
             }
-            results.push(`"${canonicalAccName}" fue eliminada del sistema.`);
+            results.push(
+              isEn ? `"${canonicalAccName}" was deleted from the system.` : `"${canonicalAccName}" fue eliminada del sistema.`
+            );
             continue;
           }
           // If not in commercial_accounts yet, check importedCommercialAccounts or create brand new
@@ -856,7 +933,9 @@ export async function applySopModificationsAction(
           if (inserted) {
             accountId = inserted.id;
             accountName = inserted.name;
-            results.push(`Cuenta "${accountName}" creada en la base de datos.`);
+            results.push(
+              isEn ? `Account "${accountName}" created in database.` : `Cuenta "${accountName}" creada en la base de datos.`
+            );
           }
         }
 
@@ -903,7 +982,11 @@ export async function applySopModificationsAction(
             } catch {}
 
             appliedSupabase = true;
-            results.push(`"${accountName}" completó su ciclo con fecha final ${effectiveEnd}. Visitas previas preservadas y desprogramada a partir de septiembre.`);
+            results.push(
+              isEn
+                ? `"${accountName}" completed its cycle with end date ${effectiveEnd}. Previous visits preserved and unscheduled going forward.`
+                : `"${accountName}" completó su ciclo con fecha final ${effectiveEnd}. Visitas previas preservadas y desprogramada a partir de septiembre.`
+            );
           } else if (mod.action === "delete_rule" && mod.daysToDelete?.length) {
             for (const d of mod.daysToDelete) {
               await supabase
@@ -913,7 +996,9 @@ export async function applySopModificationsAction(
                 .eq("day_of_week", d);
             }
             appliedSupabase = true;
-            results.push(`Regla(s) de días eliminadas para "${accountName}".`);
+            results.push(
+              isEn ? `Day rule(s) deleted for "${accountName}".` : `Regla(s) de días eliminadas para "${accountName}".`
+            );
           } else {
             const anchor = mod.anchorDate || mod.effectiveDate || null;
             const DAY_MAP: Record<string, number> = {
@@ -1126,14 +1211,22 @@ export async function applySopModificationsAction(
             }
 
             appliedSupabase = true;
-            const dayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-            const daysFormatted = targetDays.map((d) => dayNames[d] || `Día ${d}`).join(", ");
+            const dayNames = isEn
+              ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+              : ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+            const daysFormatted = targetDays.map((d) => dayNames[d] || (isEn ? `Day ${d}` : `Día ${d}`)).join(", ");
             results.push(
-              `Modificado "${accountName}": ${typeof mod.newHours === "number" ? `${mod.newHours} hrs ` : ""}${
-                mod.ratePerService ? `($${mod.ratePerService}/serv) ` : ""
-              }${mod.cleanerName ? `(Cleaner: ${mod.cleanerName}) ` : ""}${
-                mod.frequency ? `[${mod.frequency}] ` : ""
-              }[Días: ${daysFormatted}]${anchor ? ` (Inicio: ${anchor})` : ""}`
+              isEn
+                ? `Modified "${accountName}": ${typeof mod.newHours === "number" ? `${mod.newHours} hrs ` : ""}${
+                    mod.ratePerService ? `($${mod.ratePerService}/serv) ` : ""
+                  }${mod.cleanerName ? `(Cleaner: ${mod.cleanerName}) ` : ""}${
+                    mod.frequency ? `[${mod.frequency}] ` : ""
+                  }[Days: ${daysFormatted}]${anchor ? ` (Start: ${anchor})` : ""}`
+                : `Modificado "${accountName}": ${typeof mod.newHours === "number" ? `${mod.newHours} hrs ` : ""}${
+                    mod.ratePerService ? `($${mod.ratePerService}/serv) ` : ""
+                  }${mod.cleanerName ? `(Cleaner: ${mod.cleanerName}) ` : ""}${
+                    mod.frequency ? `[${mod.frequency}] ` : ""
+                  }[Días: ${daysFormatted}]${anchor ? ` (Inicio: ${anchor})` : ""}`
             );
           }
         }
@@ -1153,7 +1246,11 @@ export async function applySopModificationsAction(
             existingList[idx] = { ...existingList[idx], ...updateData };
             localStorage.setItem(key, JSON.stringify(existingList));
             if (!appliedSupabase) {
-              results.push(`Modificado "${existingList[idx].name}" en almacenamiento local.`);
+              results.push(
+                isEn
+                  ? `Modified "${existingList[idx].name}" in local storage.`
+                  : `Modificado "${existingList[idx].name}" en almacenamiento local.`
+              );
             }
           }
         } catch {}
@@ -1168,24 +1265,33 @@ export async function applySopModificationsAction(
     return {
       success: true,
       message: results.length > 0
-        ? `Modificaciones operativas aplicadas con éxito:\n${results.join("\n")}`
-        : "Se procesaron las modificaciones operativas.",
+        ? (isEn
+            ? `Operational modifications applied successfully:\n${results.join("\n")}`
+            : `Modificaciones operativas aplicadas con éxito:\n${results.join("\n")}`)
+        : (isEn ? "Operational modifications processed." : "Se procesaron las modificaciones operativas."),
     };
   } catch (err: any) {
     console.error("Error applying SOP modifications:", err);
     return {
       success: false,
-      message: `Error al aplicar modificaciones: ${err.message || String(err)}`,
+      message: isEn
+        ? `Error applying modifications: ${err.message || String(err)}`
+        : `Error al aplicar modificaciones: ${err.message || String(err)}`,
       error: err.message,
     };
   }
 }
 
 export async function applyStaffModificationsAction(
-  modifications: NonNullable<SopCopilotResponse["staffModifications"]>
+  modifications: NonNullable<SopCopilotResponse["staffModifications"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   if (!modifications || modifications.length === 0) {
-    return { success: true, message: "No se requirieron modificaciones de personal." };
+    return {
+      success: true,
+      message: isEn ? "No staff modifications required." : "No se requirieron modificaciones de personal.",
+    };
   }
 
   const results: string[] = [];
@@ -1216,7 +1322,11 @@ export async function applyStaffModificationsAction(
           for (const a of dbAccs || []) {
             await supabase.from("commercial_accounts").update({ cleaner_name: replacement, updated_at: new Date().toISOString() }).eq("id", a.id);
             await supabase.from("commercial_account_schedule_rules").update({ assigned_cleaner_name: replacement, updated_at: new Date().toISOString() }).eq("commercial_account_id", a.id);
-            results.push(`"${a.name}": desvinculada de ${cname} -> "${replacement}" (turnos en schedule mantenidos).`);
+            results.push(
+              isEn
+                ? `"${a.name}": unassigned from ${cname} -> "${replacement}" (schedule shifts kept).`
+                : `"${a.name}": desvinculada de ${cname} -> "${replacement}" (turnos en schedule mantenidos).`
+            );
           }
 
           await supabase
@@ -1232,7 +1342,11 @@ export async function applyStaffModificationsAction(
             (a.schedule_rules || []).some((r: any) => (r.assigned_cleaner_name || "").toLowerCase().includes(cleanerNorm))
         );
         for (const imp of matchingImported) {
-          results.push(`"${imp.name}": desvinculada de ${cname} y mantenida activa en el schedule como "${replacement}".`);
+          results.push(
+            isEn
+              ? `"${imp.name}": unassigned from ${cname} and kept active in schedule as "${replacement}".`
+              : `"${imp.name}": desvinculada de ${cname} y mantenida activa en el schedule como "${replacement}".`
+          );
         }
 
         if (typeof window !== "undefined") {
@@ -1255,7 +1369,11 @@ export async function applyStaffModificationsAction(
           } catch {}
         }
 
-        results.push(`Baja procesada para ${cname} (efectiva: ${smod.effectiveDate || "31 de agosto"}). Todas sus cuentas se mantienen en el schedule pendientes de reasignación.`);
+        results.push(
+          isEn
+            ? `Deactivation processed for ${cname} (effective: ${smod.effectiveDate || "Aug 31"}). All their accounts remain in the schedule pending reassignment.`
+            : `Baja procesada para ${cname} (efectiva: ${smod.effectiveDate || "31 de agosto"}). Todas sus cuentas se mantienen en el schedule pendientes de reasignación.`
+        );
       } else if (smod.action === "add") {
         if (supabase) {
           try {
@@ -1265,7 +1383,9 @@ export async function applyStaffModificationsAction(
               active: true,
               status: "active",
             });
-            results.push(`Personal añadido: ${cname} (${smod.role || "cleaner"})`);
+            results.push(
+              isEn ? `Staff added: ${cname} (${smod.role || "cleaner"})` : `Personal añadido: ${cname} (${smod.role || "cleaner"})`
+            );
           } catch {}
         }
       }
@@ -1277,13 +1397,17 @@ export async function applyStaffModificationsAction(
 
     return {
       success: true,
-      message: results.length > 0 ? results.join("\n") : "Modificaciones de personal aplicadas con éxito.",
+      message: results.length > 0
+        ? results.join("\n")
+        : (isEn ? "Staff modifications applied successfully." : "Modificaciones de personal aplicadas con éxito."),
     };
   } catch (err: any) {
     console.error("Error applying staff modifications:", err);
     return {
       success: false,
-      message: `Error al aplicar modificaciones de personal: ${err.message || String(err)}`,
+      message: isEn
+        ? `Error applying staff modifications: ${err.message || String(err)}`
+        : `Error al aplicar modificaciones de personal: ${err.message || String(err)}`,
       error: err.message,
     };
   }
@@ -1293,12 +1417,14 @@ export async function applyStaffModificationsAction(
  * Apply Event Bookings for As-Needed or Single Event Commercial Accounts (e.g. The Harper, Weddings)
  */
 export async function applyEventBookingsAction(
-  events: NonNullable<SopCopilotResponse["eventBookings"]>
+  events: NonNullable<SopCopilotResponse["eventBookings"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   try {
     const supabase = createClient();
     if (!events || events.length === 0) {
-      return { success: false, message: "No hay eventos para registrar." };
+      return { success: false, message: isEn ? "No events to log." : "No hay eventos para registrar." };
     }
 
     const { data: accounts } = await supabase
@@ -1331,7 +1457,11 @@ export async function applyEventBookingsAction(
             status: "completed",
             verified: true,
             manual_entry: true,
-            notes: evt.notes || `Evento registrado por Copiloto IA (${evt.cleanerName || "Sin asignar"})`,
+            notes:
+              evt.notes ||
+              (isEn
+                ? `Event logged by AI Copilot (${evt.cleanerName || "Unassigned"})`
+                : `Evento registrado por Copiloto IA (${evt.cleanerName || "Sin asignar"})`),
             updated_at: new Date().toISOString(),
           },
           { onConflict: "account_id,work_date" }
@@ -1349,11 +1479,16 @@ export async function applyEventBookingsAction(
 
     return {
       success: true,
-      message: `Se registraron ${count} evento(s) de limpieza exitosamente:\n${insertedDates.join(", ")}`,
+      message: isEn
+        ? `Successfully logged ${count} cleaning event(s):\n${insertedDates.join(", ")}`
+        : `Se registraron ${count} evento(s) de limpieza exitosamente:\n${insertedDates.join(", ")}`,
       data: { count, events },
     };
   } catch (err: any) {
-    return { success: false, message: `Error al registrar eventos: ${err.message}` };
+    return {
+      success: false,
+      message: isEn ? `Error logging events: ${err.message}` : `Error al registrar eventos: ${err.message}`,
+    };
   }
 }
 
@@ -1361,12 +1496,17 @@ export async function applyEventBookingsAction(
  * Apply Batch QC Inspection Schedules to qc_inspection_schedules
  */
 export async function applyQcScheduleBatchAction(
-  schedules: NonNullable<SopCopilotResponse["qcScheduleBatch"]>
+  schedules: NonNullable<SopCopilotResponse["qcScheduleBatch"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   try {
     const supabase = createClient();
     if (!schedules || schedules.length === 0) {
-      return { success: false, message: "No hay inspecciones de QC para programar." };
+      return {
+        success: false,
+        message: isEn ? "No QC inspections to schedule." : "No hay inspecciones de QC para programar.",
+      };
     }
 
     const { data: existingInspectors } = await supabase
@@ -1391,7 +1531,7 @@ export async function applyQcScheduleBatchAction(
             email: `${normInsp.replace(/[^a-z0-9]+/g, ".")}@pristine.local`,
             color: isAna ? "#6366f1" : "#10b981",
             status: "active",
-            notes: "Creado por Copiloto IA",
+            notes: isEn ? "Created by AI Copilot" : "Creado por Copiloto IA",
           })
           .select()
           .single();
@@ -1473,11 +1613,18 @@ export async function applyQcScheduleBatchAction(
 
     return {
       success: true,
-      message: `Se registraron ${count} inspecciones de Control de Calidad y se actualizó la fecha de "Last QC Check" en las cuentas correspondientes:\n${details.join("\n")}`,
+      message: isEn
+        ? `Logged ${count} Quality Control inspection(s) and updated "Last QC Check" on matching accounts:\n${details.join("\n")}`
+        : `Se registraron ${count} inspecciones de Control de Calidad y se actualizó la fecha de "Last QC Check" en las cuentas correspondientes:\n${details.join("\n")}`,
       data: { count },
     };
   } catch (err: any) {
-    return { success: false, message: `Error al programar inspecciones de QC: ${err.message}` };
+    return {
+      success: false,
+      message: isEn
+        ? `Error scheduling QC inspections: ${err.message}`
+        : `Error al programar inspecciones de QC: ${err.message}`,
+    };
   }
 }
 
@@ -1485,8 +1632,10 @@ export async function applyQcScheduleBatchAction(
  * Deduplicate and Clean Staff Directory in Database
  */
 export async function applyCleanupStaffDuplicatesAction(
-  options?: NonNullable<SopCopilotResponse["cleanupStaffDuplicates"]>
+  options?: NonNullable<SopCopilotResponse["cleanupStaffDuplicates"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   try {
     const supabase = createClient();
     const { data: staff, error } = await supabase
@@ -1495,7 +1644,10 @@ export async function applyCleanupStaffDuplicatesAction(
       .order("name");
 
     if (error || !staff) {
-      return { success: false, message: `No se pudo leer el personal: ${error?.message}` };
+      return {
+        success: false,
+        message: isEn ? `Could not read staff: ${error?.message}` : `No se pudo leer el personal: ${error?.message}`,
+      };
     }
 
     const excluded = (options?.excludedCleaners || []).map((e) => e.toLowerCase().trim());
@@ -1538,11 +1690,16 @@ export async function applyCleanupStaffDuplicatesAction(
 
     return {
       success: true,
-      message: `Limpieza de personal completada. Se eliminaron ${deletedCount} registros duplicados o no requeridos.`,
+      message: isEn
+        ? `Staff cleanup completed. Removed ${deletedCount} duplicate or unneeded record(s).`
+        : `Limpieza de personal completada. Se eliminaron ${deletedCount} registros duplicados o no requeridos.`,
       data: { deletedCount },
     };
   } catch (err: any) {
-    return { success: false, message: `Error en la limpieza de personal: ${err.message}` };
+    return {
+      success: false,
+      message: isEn ? `Error during staff cleanup: ${err.message}` : `Error en la limpieza de personal: ${err.message}`,
+    };
   }
 }
 
@@ -1550,12 +1707,14 @@ export async function applyCleanupStaffDuplicatesAction(
  * Update Commercial Account Financials and Pricing Models
  */
 export async function applyUpdateAccountFinancialsAction(
-  updates: NonNullable<SopCopilotResponse["updateAccountFinancials"]>
+  updates: NonNullable<SopCopilotResponse["updateAccountFinancials"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   try {
     const supabase = createClient();
     if (!updates || updates.length === 0) {
-      return { success: false, message: "No hay finanzas para actualizar." };
+      return { success: false, message: isEn ? "No financials to update." : "No hay finanzas para actualizar." };
     }
 
     let updatedCount = 0;
@@ -1621,7 +1780,10 @@ export async function applyUpdateAccountFinancialsAction(
             accountUpdatedInDb = true;
             updatedCount++;
             const item = data[0];
-            const rateMsg = upd.ratePerService !== undefined ? `Labor/Serv: $${upd.ratePerService}` : `Rev: $${item.revenue}, Costo: $${item.cost}`;
+            const rateMsg =
+              upd.ratePerService !== undefined
+                ? `Labor/Serv: $${upd.ratePerService}`
+                : `Rev: $${item.revenue}, ${isEn ? "Cost" : "Costo"}: $${item.cost}`;
             const hrsMsg = upd.hours !== undefined ? `, ${upd.hours}h` : "";
             const clMsg = upd.cleanerName ? `, Cleaner: ${upd.cleanerName}` : "";
             messages.push(`${item.name} (${rateMsg}${hrsMsg}${clMsg})`);
@@ -1712,7 +1874,9 @@ export async function applyUpdateAccountFinancialsAction(
             localStorage.setItem(key, JSON.stringify(list));
             if (!accountUpdatedInDb) {
               updatedCount++;
-              messages.push(`${list[idx].name} (Actualizado localmente: Labor/Serv $${upd.ratePerService})`);
+              messages.push(
+                `${list[idx].name} (${isEn ? "Updated locally" : "Actualizado localmente"}: Labor/Serv $${upd.ratePerService})`
+              );
             }
           } else {
             // Add new entry
@@ -1737,7 +1901,9 @@ export async function applyUpdateAccountFinancialsAction(
             localStorage.setItem(key, JSON.stringify(list));
             if (!accountUpdatedInDb) {
               updatedCount++;
-              messages.push(`${newEntry.name} (Creado localmente: Labor/Serv $${upd.ratePerService})`);
+              messages.push(
+                `${newEntry.name} (${isEn ? "Created locally" : "Creado localmente"}: Labor/Serv $${upd.ratePerService})`
+              );
             }
           }
         } catch {}
@@ -1754,11 +1920,16 @@ export async function applyUpdateAccountFinancialsAction(
 
     return {
       success: true,
-      message: `Finanzas y Labor por Servicio actualizados para ${updatedCount} cuenta(s):\n${messages.join("\n")}`,
+      message: isEn
+        ? `Financials and Labor per Service updated for ${updatedCount} account(s):\n${messages.join("\n")}`
+        : `Finanzas y Labor por Servicio actualizados para ${updatedCount} cuenta(s):\n${messages.join("\n")}`,
       data: { updatedCount },
     };
   } catch (err: any) {
-    return { success: false, message: `Error al actualizar finanzas: ${err.message}` };
+    return {
+      success: false,
+      message: isEn ? `Error updating financials: ${err.message}` : `Error al actualizar finanzas: ${err.message}`,
+    };
   }
 }
 
@@ -1781,8 +1952,10 @@ function getVisitsPerMonth(frequency: string | null | undefined): number {
  * Apply bulk hourly rate updates to all accounts with exclusions
  */
 export async function applyBulkHourlyRateUpdateAction(
-  bulk: NonNullable<SopCopilotResponse["bulkHourlyRateUpdate"]>
+  bulk: NonNullable<SopCopilotResponse["bulkHourlyRateUpdate"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   try {
     const supabase = createClient();
     const hourlyRate = bulk.hourlyRate || 18;
@@ -1855,11 +2028,18 @@ export async function applyBulkHourlyRateUpdateAction(
 
     return {
       success: true,
-      message: `Tarifa de $${hourlyRate}/hr aplicada a ${updatedAccounts.length} cuenta(s) (exclusiones: ${bulk.excludedAccounts?.join(", ") || "Mama's, Green Leaf"}).`,
+      message: isEn
+        ? `Rate of $${hourlyRate}/hr applied to ${updatedAccounts.length} account(s) (exclusions: ${bulk.excludedAccounts?.join(", ") || "Mama's, Green Leaf"}).`
+        : `Tarifa de $${hourlyRate}/hr aplicada a ${updatedAccounts.length} cuenta(s) (exclusiones: ${bulk.excludedAccounts?.join(", ") || "Mama's, Green Leaf"}).`,
       data: { updatedCount: updatedAccounts.length, accounts: updatedAccounts },
     };
   } catch (err: any) {
-    return { success: false, message: `Error al aplicar tarifa masiva: ${err?.message || err}` };
+    return {
+      success: false,
+      message: isEn
+        ? `Error applying bulk rate: ${err?.message || err}`
+        : `Error al aplicar tarifa masiva: ${err?.message || err}`,
+    };
   }
 }
 
@@ -1867,10 +2047,15 @@ export async function applyBulkHourlyRateUpdateAction(
  * Universal Task Modifications Handler (Create, Delete, Update, Reschedule, Complete)
  */
 export async function applyTaskModificationsAction(
-  tasks: NonNullable<SopCopilotResponse["taskModifications"]>
+  tasks: NonNullable<SopCopilotResponse["taskModifications"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   if (!tasks || tasks.length === 0) {
-    return { success: true, message: "No se requirieron modificaciones de tareas." };
+    return {
+      success: true,
+      message: isEn ? "No task modifications required." : "No se requirieron modificaciones de tareas.",
+    };
   }
 
   const supabase = createClient();
@@ -1881,7 +2066,7 @@ export async function applyTaskModificationsAction(
       if (t.action === "create") {
         if (supabase) {
           await supabase.from("operation_tasks").insert({
-            title: t.taskTitle || "Nueva tarea operativa",
+            title: t.taskTitle || (isEn ? "New operational task" : "Nueva tarea operativa"),
             due_date: t.newDueDate || new Date().toISOString().split("T")[0],
             assignee: t.newAssignee || "Unassigned",
             priority: t.priority || "medium",
@@ -1893,7 +2078,11 @@ export async function applyTaskModificationsAction(
             updated_at: new Date().toISOString(),
           });
         }
-        results.push(`Tarea creada: "${t.taskTitle}" asignada a ${t.newAssignee || "Unassigned"}.`);
+        results.push(
+          isEn
+            ? `Task created: "${t.taskTitle}" assigned to ${t.newAssignee || "Unassigned"}.`
+            : `Tarea creada: "${t.taskTitle}" asignada a ${t.newAssignee || "Unassigned"}.`
+        );
       } else if (t.action === "delete" && (t.taskId || t.taskTitle)) {
         if (supabase) {
           let q = supabase.from("operation_tasks").delete();
@@ -1901,7 +2090,9 @@ export async function applyTaskModificationsAction(
           else if (t.taskTitle) q = q.ilike("title", `%${t.taskTitle}%`);
           await q;
         }
-        results.push(`Tarea eliminada: "${t.taskTitle || t.taskId}".`);
+        results.push(
+          isEn ? `Task deleted: "${t.taskTitle || t.taskId}".` : `Tarea eliminada: "${t.taskTitle || t.taskId}".`
+        );
       } else if ((t.action === "complete" || t.action === "reschedule" || t.action === "reassign" || t.action === "update") && (t.taskId || t.taskTitle)) {
         if (supabase) {
           const updates: Record<string, any> = { updated_at: new Date().toISOString() };
@@ -1916,7 +2107,9 @@ export async function applyTaskModificationsAction(
           else if (t.taskTitle) q = q.ilike("title", `%${t.taskTitle}%`);
           await q;
         }
-        results.push(`Tarea actualizada: "${t.taskTitle || t.taskId}".`);
+        results.push(
+          isEn ? `Task updated: "${t.taskTitle || t.taskId}".` : `Tarea actualizada: "${t.taskTitle || t.taskId}".`
+        );
       }
     } catch (err: any) {
       console.error("Error modifying task:", err);
@@ -1938,10 +2131,15 @@ export async function applyTaskModificationsAction(
  * Universal Mutations Handler - Supreme Power to mutate any table/entity directly
  */
 export async function applyUniversalMutationsAction(
-  mutations: NonNullable<SopCopilotResponse["universalMutations"]>
+  mutations: NonNullable<SopCopilotResponse["universalMutations"]>,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   if (!mutations || mutations.length === 0) {
-    return { success: true, message: "No se requirieron mutaciones universales." };
+    return {
+      success: true,
+      message: isEn ? "No universal mutations required." : "No se requirieron mutaciones universales.",
+    };
   }
 
   const supabase = createClient();
@@ -1961,7 +2159,7 @@ export async function applyUniversalMutationsAction(
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
-        results.push(`[${table}] Creado: ${m.description || m.targetIdentifier}`);
+        results.push(`[${table}] ${isEn ? "Created" : "Creado"}: ${m.description || m.targetIdentifier}`);
       } else if (m.action === "update") {
         let q = supabase.from(table).update({
           ...(m.fields || {}),
@@ -1979,7 +2177,7 @@ export async function applyUniversalMutationsAction(
           }
         }
         await q;
-        results.push(`[${table}] Actualizado: ${m.description || m.targetIdentifier}`);
+        results.push(`[${table}] ${isEn ? "Updated" : "Actualizado"}: ${m.description || m.targetIdentifier}`);
       } else if (m.action === "delete") {
         let q = supabase.from(table).delete();
         if (m.targetIdentifier) {
@@ -1994,7 +2192,7 @@ export async function applyUniversalMutationsAction(
           }
         }
         await q;
-        results.push(`[${table}] Eliminado: ${m.description || m.targetIdentifier}`);
+        results.push(`[${table}] ${isEn ? "Deleted" : "Eliminado"}: ${m.description || m.targetIdentifier}`);
       }
     } catch (err: any) {
       console.error(`Error in universal mutation for ${m.entity}:`, err);
@@ -2019,43 +2217,45 @@ export async function applyUniversalMutationsAction(
  * Executes ALL actionable operations staged in a SopCopilotResponse with Supreme Power.
  */
 export async function applyUniversalSupremeAction(
-  response: SopCopilotResponse
+  response: SopCopilotResponse,
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   const executedActions: string[] = [];
 
   // 1. Bulk Hourly Rate
   if (response.bulkHourlyRateUpdate) {
-    const res = await applyBulkHourlyRateUpdateAction(response.bulkHourlyRateUpdate);
+    const res = await applyBulkHourlyRateUpdateAction(response.bulkHourlyRateUpdate, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 2. Commercial Account Financials / Rates
   if (response.updateAccountFinancials && response.updateAccountFinancials.length > 0) {
-    const res = await applyUpdateAccountFinancialsAction(response.updateAccountFinancials);
+    const res = await applyUpdateAccountFinancialsAction(response.updateAccountFinancials, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 3. Access Updates (Alarm, Lockbox, Gate)
   if (response.accessUpdate || (response.accessUpdates && response.accessUpdates.length > 0)) {
-    const res = await applyAccessUpdateAction(response.accessUpdates || [response.accessUpdate!]);
+    const res = await applyAccessUpdateAction(response.accessUpdates || [response.accessUpdate!], lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 4. SOP & Commercial Account / Schedule Modifications
   if (response.sopModifications && response.sopModifications.length > 0) {
-    const res = await applySopModificationsAction(response.sopModifications);
+    const res = await applySopModificationsAction(response.sopModifications, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 5. Ingested Schedule from CleanGuru
   if (response.ingestedSchedule) {
-    const res = await applyIngestScheduleAction(response.ingestedSchedule);
+    const res = await applyIngestScheduleAction(response.ingestedSchedule, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 6. QC Inspection Schedules
   if (response.qcScheduleBatch && response.qcScheduleBatch.length > 0) {
-    const res = await applyQcScheduleBatchAction(response.qcScheduleBatch);
+    const res = await applyQcScheduleBatchAction(response.qcScheduleBatch, lang);
     if (res.message) executedActions.push(res.message);
   }
 
@@ -2064,75 +2264,82 @@ export async function applyUniversalSupremeAction(
     const overrides = response.occurrenceOverrides || [response.occurrenceOverride!];
     for (const occ of overrides) {
       if (!occ.accountName) continue;
-      const res = await applyOccurrenceOverrideAction({
-        accountName: occ.accountName,
-        date: occ.date || new Date().toISOString().split("T")[0],
-        cleanerTeam: occ.cleanerTeam || "Unassigned",
-        hours: occ.hours ?? 2.5,
-        notes: occ.notes,
-      });
+      const res = await applyOccurrenceOverrideAction(
+        {
+          accountName: occ.accountName,
+          date: occ.date || new Date().toISOString().split("T")[0],
+          cleanerTeam: occ.cleanerTeam || "Unassigned",
+          hours: occ.hours ?? 2.5,
+          notes: occ.notes,
+        },
+        lang
+      );
       if (res.message) executedActions.push(res.message);
     }
   }
 
   // 8. Staff / Cleaner Modifications
   if (response.staffModifications && response.staffModifications.length > 0) {
-    const res = await applyStaffModificationsAction(response.staffModifications);
+    const res = await applyStaffModificationsAction(response.staffModifications, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 9. Add Staff
   if (response.addStaff) {
-    const res = await applyAddStaffAction(response.addStaff);
+    const res = await applyAddStaffAction(response.addStaff, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 10. Staff Deduplication
   if (response.cleanupStaffDuplicates?.enabled) {
-    const res = await applyCleanupStaffDuplicatesAction(response.cleanupStaffDuplicates);
+    const res = await applyCleanupStaffDuplicatesAction(response.cleanupStaffDuplicates, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 11. Event Bookings
   if (response.eventBookings && response.eventBookings.length > 0) {
-    const res = await applyEventBookingsAction(response.eventBookings);
+    const res = await applyEventBookingsAction(response.eventBookings, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 12. Task Modifications
   if (response.taskModifications && response.taskModifications.length > 0) {
-    const res = await applyTaskModificationsAction(response.taskModifications);
+    const res = await applyTaskModificationsAction(response.taskModifications, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 13. Universal Mutations
   if (response.universalMutations && response.universalMutations.length > 0) {
-    const res = await applyUniversalMutationsAction(response.universalMutations);
+    const res = await applyUniversalMutationsAction(response.universalMutations, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 14. Residential Modifications
   if (response.residentialModifications && response.residentialModifications.length > 0) {
-    const res = await applyResidentialModificationsAction(response.residentialModifications);
+    const res = await applyResidentialModificationsAction(response.residentialModifications, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 15. Payroll Action
   if (response.payrollAction) {
-    const res = await applyPayrollAction(response.payrollAction);
+    const res = await applyPayrollAction(response.payrollAction, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // 16. Payment Modifications
   if (response.paymentModifications && response.paymentModifications.length > 0) {
-    const res = await applyPaymentModificationsAction(response.paymentModifications);
+    const res = await applyPaymentModificationsAction(response.paymentModifications, lang);
     if (res.message) executedActions.push(res.message);
   }
 
   // Log Copilot Action to audit table
   const finalMessage = executedActions.length > 0
-    ? `⚡ Poder Supremo Ejecutado con Éxito:\n${executedActions.join("\n")}`
-    : "Todos los cambios fueron aplicados al sistema con Poder Supremo.";
+    ? (isEn
+        ? `⚡ Supreme Power Executed Successfully:\n${executedActions.join("\n")}`
+        : `⚡ Poder Supremo Ejecutado con Éxito:\n${executedActions.join("\n")}`)
+    : (isEn
+        ? "All changes were applied to the system with Supreme Power."
+        : "Todos los cambios fueron aplicados al sistema con Poder Supremo.");
 
   await logCopilotAction({
     actionType: response.actionType || "universal_supreme",
@@ -2195,7 +2402,8 @@ export async function logCopilotAction({
   }
 }
 
-export async function reverseLastCopilotAction(logId?: string): Promise<SopActionResult> {
+export async function reverseLastCopilotAction(logId?: string, lang?: "en" | "es"): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   const supabase = createClient();
   try {
     let query = supabase
@@ -2211,13 +2419,21 @@ export async function reverseLastCopilotAction(logId?: string): Promise<SopActio
 
     const { data, error } = await query;
     if (error || !data || data.length === 0) {
-      return { success: false, message: "No se encontró registro previo para revertir." };
+      return {
+        success: false,
+        message: isEn ? "No previous record found to revert." : "No se encontró registro previo para revertir.",
+      };
     }
 
     const log = data[0];
     const snapshot = log.snapshot_before;
     if (!snapshot) {
-      return { success: false, message: "El registro no cuenta con snapshot previo para restaurar." };
+      return {
+        success: false,
+        message: isEn
+          ? "The record has no previous snapshot to restore."
+          : "El registro no cuenta con snapshot previo para restaurar.",
+      };
     }
 
     const restored: string[] = [];
@@ -2226,7 +2442,7 @@ export async function reverseLastCopilotAction(logId?: string): Promise<SopActio
       for (const acc of snapshot.commercial_accounts) {
         if (!acc.id) continue;
         await supabase.from("commercial_accounts").upsert(acc);
-        restored.push(`Cuenta: ${acc.name}`);
+        restored.push(isEn ? `Account: ${acc.name}` : `Cuenta: ${acc.name}`);
       }
     }
 
@@ -2234,7 +2450,11 @@ export async function reverseLastCopilotAction(logId?: string): Promise<SopActio
       for (const rule of snapshot.schedule_rules) {
         if (!rule.id) continue;
         await supabase.from("commercial_account_schedule_rules").upsert(rule);
-        restored.push(`Regla horario: ${rule.assigned_cleaner_name || rule.day_of_week}`);
+        restored.push(
+          isEn
+            ? `Schedule rule: ${rule.assigned_cleaner_name || rule.day_of_week}`
+            : `Regla horario: ${rule.assigned_cleaner_name || rule.day_of_week}`
+        );
       }
     }
 
@@ -2245,10 +2465,15 @@ export async function reverseLastCopilotAction(logId?: string): Promise<SopActio
 
     return {
       success: true,
-      message: `↩ Cambio revertido con éxito (${log.action_type || "acción"}). Restaurado:\n${restored.join(", ") || "estado previo"}`,
+      message: isEn
+        ? `↩ Change reverted successfully (${log.action_type || "action"}). Restored:\n${restored.join(", ") || "previous state"}`
+        : `↩ Cambio revertido con éxito (${log.action_type || "acción"}). Restaurado:\n${restored.join(", ") || "estado previo"}`,
     };
   } catch (err: any) {
-    return { success: false, message: `Error al revertir: ${err?.message}` };
+    return {
+      success: false,
+      message: isEn ? `Error reverting: ${err?.message}` : `Error al revertir: ${err?.message}`,
+    };
   }
 }
 
@@ -2264,8 +2489,10 @@ export async function applyResidentialModificationsAction(
     hoursWorked?: number;
     notes?: string;
     city?: string;
-  }[]
+  }[],
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   const supabase = createClient();
   const results: string[] = [];
 
@@ -2274,14 +2501,18 @@ export async function applyResidentialModificationsAction(
       if (m.action === "log_work") {
         const { error } = await supabase.from("residential_work_logs").insert({
           account_name: m.accountName,
-          team_name: m.teamName || "Equipo Residencial",
+          team_name: m.teamName || (isEn ? "Residential Team" : "Equipo Residencial"),
           work_date: m.workDate || new Date().toISOString().split("T")[0],
           hours_worked: m.hoursWorked || m.scheduledHours || 3.0,
-          notes: m.notes || "Registrado por Copiloto SOP",
+          notes: m.notes || (isEn ? "Logged by SOP Copilot" : "Registrado por Copiloto SOP"),
           status: "pending",
         });
         if (error) throw error;
-        results.push(`✓ Trabajo residencial registrado: ${m.accountName} (${m.hoursWorked || 3}h) por ${m.teamName || "Equipo"}`);
+        results.push(
+          isEn
+            ? `✓ Residential work logged: ${m.accountName} (${m.hoursWorked || 3}h) by ${m.teamName || "Team"}`
+            : `✓ Trabajo residencial registrado: ${m.accountName} (${m.hoursWorked || 3}h) por ${m.teamName || "Equipo"}`
+        );
       } else if (m.action === "create" || m.action === "update") {
         const payload: Record<string, any> = {
           account_name: m.accountName,
@@ -2296,17 +2527,27 @@ export async function applyResidentialModificationsAction(
 
         const { error } = await supabase.from("residential_recurring_cleaning_accounts").upsert(payload, { onConflict: "account_name" });
         if (error) throw error;
-        results.push(`✓ Cuenta residencial ${m.action === "create" ? "creada" : "actualizada"}: ${m.accountName}`);
+        results.push(
+          isEn
+            ? `✓ Residential account ${m.action === "create" ? "created" : "updated"}: ${m.accountName}`
+            : `✓ Cuenta residencial ${m.action === "create" ? "creada" : "actualizada"}: ${m.accountName}`
+        );
       } else if (m.action === "deactivate") {
         const { error } = await supabase
           .from("residential_recurring_cleaning_accounts")
           .update({ active: false, deleted_at: new Date().toISOString() })
           .ilike("account_name", `%${m.accountName}%`);
         if (error) throw error;
-        results.push(`✓ Cuenta residencial desactivada: ${m.accountName}`);
+        results.push(
+          isEn
+            ? `✓ Residential account deactivated: ${m.accountName}`
+            : `✓ Cuenta residencial desactivada: ${m.accountName}`
+        );
       }
     } catch (e: any) {
-      results.push(`✗ Error en ${m.accountName}: ${e?.message}`);
+      results.push(
+        isEn ? `✗ Error on ${m.accountName}: ${e?.message}` : `✗ Error en ${m.accountName}: ${e?.message}`
+      );
     }
   }
 
@@ -2317,19 +2558,23 @@ export async function applyResidentialModificationsAction(
   return { success: true, message: results.join("\n") };
 }
 
-export async function applyPayrollAction(action: {
-  action: "generate_period" | "approve_entry" | "add_adjustment" | "close_period";
-  startDate?: string;
-  endDate?: string;
-  periodLabel?: string;
-  cleanerName?: string;
-  accountName?: string;
-  adjustmentType?: string;
-  hoursDelta?: number;
-  amountDelta?: number;
-  reason?: string;
-  entryId?: string;
-}): Promise<SopActionResult> {
+export async function applyPayrollAction(
+  action: {
+    action: "generate_period" | "approve_entry" | "add_adjustment" | "close_period";
+    startDate?: string;
+    endDate?: string;
+    periodLabel?: string;
+    cleanerName?: string;
+    accountName?: string;
+    adjustmentType?: string;
+    hoursDelta?: number;
+    amountDelta?: number;
+    reason?: string;
+    entryId?: string;
+  },
+  lang?: "en" | "es"
+): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   const supabase = createClient();
   try {
     if (action.action === "approve_entry" && action.entryId) {
@@ -2338,11 +2583,15 @@ export async function applyPayrollAction(action: {
         .update({ status: "approved", approved_at: new Date().toISOString() })
         .eq("id", action.entryId);
       if (error) throw error;
-      return { success: true, message: `✓ Entrada de nómina aprobada (${action.entryId}).` };
+      return {
+        success: true,
+        message: isEn ? `✓ Payroll entry approved (${action.entryId}).` : `✓ Entrada de nómina aprobada (${action.entryId}).`,
+      };
     }
 
     if (action.action === "generate_period" && action.startDate && action.endDate) {
-      const label = action.periodLabel || `${action.startDate} al ${action.endDate}`;
+      const label =
+        action.periodLabel || (isEn ? `${action.startDate} to ${action.endDate}` : `${action.startDate} al ${action.endDate}`);
       const { data: period, error } = await supabase
         .from("commercial_pay_periods")
         .insert({
@@ -2354,12 +2603,23 @@ export async function applyPayrollAction(action: {
         .select()
         .single();
       if (error) throw error;
-      return { success: true, message: `✓ Período de nómina creado: ${label} (ID: ${period.id}).` };
+      return {
+        success: true,
+        message: isEn
+          ? `✓ Payroll period created: ${label} (ID: ${period.id}).`
+          : `✓ Período de nómina creado: ${label} (ID: ${period.id}).`,
+      };
     }
 
-    return { success: true, message: `Acción de nómina procesada (${action.action}).` };
+    return {
+      success: true,
+      message: isEn ? `Payroll action processed (${action.action}).` : `Acción de nómina procesada (${action.action}).`,
+    };
   } catch (err: any) {
-    return { success: false, message: `Error en nómina: ${err?.message}` };
+    return {
+      success: false,
+      message: isEn ? `Payroll error: ${err?.message}` : `Error en nómina: ${err?.message}`,
+    };
   }
 }
 
@@ -2372,8 +2632,10 @@ export async function applyPaymentModificationsAction(
     status?: "pending" | "verified" | "paid";
     notes?: string;
     paymentType?: string;
-  }[]
+  }[],
+  lang?: "en" | "es"
 ): Promise<SopActionResult> {
+  const isEn = isEnLang(lang);
   const supabase = createClient();
   const results: string[] = [];
 
@@ -2385,13 +2647,21 @@ export async function applyPaymentModificationsAction(
         week_index: m.weekIndex ?? 1,
         payment_amount: m.amount || 0,
         status: m.status || "pending",
-        notes: m.notes || "Creado por Copiloto SOP",
+        notes: m.notes || (isEn ? "Created by SOP Copilot" : "Creado por Copiloto SOP"),
         payment_type: m.paymentType || "commercial",
       });
       if (error) throw error;
-      results.push(`✓ Pago registrado para ${m.cleanerName}: $${m.amount || 0} (${m.status || "pending"})`);
+      results.push(
+        isEn
+          ? `✓ Payment logged for ${m.cleanerName}: $${m.amount || 0} (${m.status || "pending"})`
+          : `✓ Pago registrado para ${m.cleanerName}: $${m.amount || 0} (${m.status || "pending"})`
+      );
     } catch (e: any) {
-      results.push(`✗ Error en pago para ${m.cleanerName}: ${e?.message}`);
+      results.push(
+        isEn
+          ? `✗ Payment error for ${m.cleanerName}: ${e?.message}`
+          : `✗ Error en pago para ${m.cleanerName}: ${e?.message}`
+      );
     }
   }
 

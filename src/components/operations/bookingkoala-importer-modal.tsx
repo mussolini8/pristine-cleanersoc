@@ -22,6 +22,7 @@ import {
   Info,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useLanguage } from "@/components/providers/language-provider";
 
 export type BookingKoalaRow = {
   id?: string;
@@ -243,6 +244,7 @@ export function BookingKoalaImporterModal({
   onClose: () => void;
   onSuccess?: () => void;
 }) {
+  const { isEn } = useLanguage();
   const [tab, setTab] = useState<"paste" | "upload" | "guide">("paste");
   const [pasteText, setPasteText] = useState("");
   const [parsedRows, setParsedRows] = useState<BookingKoalaRow[]>([]);
@@ -259,7 +261,7 @@ export function BookingKoalaImporterModal({
   // Parse pasted raw text or table data
   const handleParseText = () => {
     if (!pasteText.trim()) {
-      setError("Please paste the BookingKoala text or table.");
+      setError(isEn ? "Please paste the BookingKoala text or table." : "Por favor pega el texto o tabla de BookingKoala.");
       return;
     }
 
@@ -274,7 +276,7 @@ export function BookingKoalaImporterModal({
       const gridRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false }) as any[][];
 
       if (!gridRows || gridRows.length === 0) {
-        setError("No data lines found.");
+        setError(isEn ? "No data lines found." : "No se encontraron líneas de datos.");
         setParsing(false);
         return;
       }
@@ -283,10 +285,10 @@ export function BookingKoalaImporterModal({
 
       setParsedRows(results);
       if (results.length === 0) {
-        setError("Could not extract valid rows. Check the pasted format.");
+        setError(isEn ? "Could not extract valid rows. Check the pasted format." : "No se pudieron extraer filas válidas. Verifica el formato pegado.");
       }
     } catch (err: any) {
-      setError(`Error processing the text: ${err.message}`);
+      setError(isEn ? `Error processing the text: ${err.message}` : `Error al procesar el texto: ${err.message}`);
     } finally {
       setParsing(false);
     }
@@ -311,7 +313,7 @@ export function BookingKoalaImporterModal({
         const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false }) as any[][];
 
         if (!jsonRows || jsonRows.length < 2) {
-          setError("The file does not contain data rows.");
+          setError(isEn ? "The file does not contain data rows." : "El archivo no contiene filas de datos.");
           setParsing(false);
           return;
         }
@@ -320,7 +322,7 @@ export function BookingKoalaImporterModal({
 
         setParsedRows(results);
       } catch (err: any) {
-        setError(`Error reading the file: ${err.message}`);
+        setError(isEn ? `Error reading the file: ${err.message}` : `Error al leer el archivo: ${err.message}`);
       } finally {
         setParsing(false);
       }
@@ -339,7 +341,7 @@ export function BookingKoalaImporterModal({
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
       if (!userId) {
-        setError("You must sign in to save data to the system.");
+        setError(isEn ? "You must sign in to save data to the system." : "Debes iniciar sesión para guardar datos en el sistema.");
         setSaving(false);
         return;
       }
@@ -461,10 +463,14 @@ export function BookingKoalaImporterModal({
         residentialPaymentRowsSaved = paymentRows.length;
       }
 
-      setSaveSuccessMsg(`Success Imported ${parsedRows.length} bookings (${commercialSaved} new commercial entries, ${residentialSaved} new residential work logs, ${residentialPaymentRowsSaved} new residential payment rows) into the system.`);
+      setSaveSuccessMsg(
+        isEn
+          ? `Successfully imported ${parsedRows.length} bookings (${commercialSaved} new commercial entries, ${residentialSaved} new residential work logs, ${residentialPaymentRowsSaved} new residential payment rows) into the system.`
+          : `Se importaron ${parsedRows.length} reservas (${commercialSaved} nuevas entradas comerciales, ${residentialSaved} nuevos registros residenciales, ${residentialPaymentRowsSaved} nuevas filas de pago residencial) al sistema.`
+      );
       if (onSuccess) onSuccess();
     } catch (err: any) {
-      setError(`Error saving to the database: ${err.message}`);
+      setError(isEn ? `Error saving to the database: ${err.message}` : `Error al guardar en la base de datos: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -505,18 +511,21 @@ export function BookingKoalaImporterModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                BookingKoala Smart Importer
+                {isEn ? "BookingKoala Smart Importer" : "Importador Inteligente de BookingKoala"}
                 <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-semibold text-primary">
-                  Fast Import
+                  {isEn ? "Fast Import" : "Importación Rápida"}
                 </span>
               </h2>
               <p className="text-xs text-muted-foreground">
-                Bulk import bookings, cleaners, and hours without copying them one by one.
+                {isEn
+                  ? "Bulk import bookings, cleaners, and hours without copying them one by one."
+                  : "Importa reservas, limpiadoras y horas en lote sin copiarlas una por una."}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label={isEn ? "Close" : "Cerrar"}
             className="rounded-lg p-2 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
             <X className="size-5" />
@@ -534,7 +543,7 @@ export function BookingKoalaImporterModal({
             }`}
           >
             <Clipboard className="size-3.5" />
-            1. Paste Table / Direct Text
+            {isEn ? "1. Paste Table / Direct Text" : "1. Pegar Tabla / Texto Directo"}
           </button>
           <button
             onClick={() => setTab("upload")}
@@ -545,7 +554,7 @@ export function BookingKoalaImporterModal({
             }`}
           >
             <Upload className="size-3.5" />
-            2. Upload CSV / Excel File
+            {isEn ? "2. Upload CSV / Excel File" : "2. Subir Archivo CSV / Excel"}
           </button>
           <button
             onClick={() => setTab("guide")}
@@ -556,7 +565,7 @@ export function BookingKoalaImporterModal({
             }`}
           >
             <Info className="size-3.5" />
-            BookingKoala Access Guide
+            {isEn ? "BookingKoala Access Guide" : "Guía de Acceso a BookingKoala"}
           </button>
         </div>
 
@@ -567,20 +576,40 @@ export function BookingKoalaImporterModal({
             <div className="space-y-4 rounded-xl border border-primary/20 bg-primary/5 p-5 text-sm">
               <h3 className="font-bold text-foreground flex items-center gap-2 text-base">
                 <Info className="size-4 text-primary" />
-                How to get the list if "Reports" says you do not have admin permissions:
+                {isEn
+                  ? 'How to get the list if "Reports" says you do not have admin permissions:'
+                  : 'Cómo obtener la lista si "Reports" indica que no tienes permisos de administrador:'}
               </h3>
               <div className="grid gap-3 text-xs text-muted-foreground md:grid-cols-3">
                 <div className="rounded-lg border border-border/80 bg-card p-3 shadow-sm">
-                  <strong className="text-foreground block mb-1">Step 1: Bookings Menu</strong>
-                  Click the left menu in BookingKoala and open <strong>Bookings</strong> (not Reports).
+                  <strong className="text-foreground block mb-1">
+                    {isEn ? "Step 1: Bookings Menu" : "Paso 1: Menú Bookings"}
+                  </strong>
+                  {isEn ? (
+                    <>Click the left menu in BookingKoala and open <strong>Bookings</strong> (not Reports).</>
+                  ) : (
+                    <>Haz clic en el menú izquierdo de BookingKoala y abre <strong>Bookings</strong> (no Reports).</>
+                  )}
                 </div>
                 <div className="rounded-lg border border-border/80 bg-card p-3 shadow-sm">
-                  <strong className="text-foreground block mb-1">Step 2: List View</strong>
-                  Select <strong>List View</strong> or <strong>All Bookings</strong> to see the full table with dates and cleaners.
+                  <strong className="text-foreground block mb-1">
+                    {isEn ? "Step 2: List View" : "Paso 2: Vista de Lista"}
+                  </strong>
+                  {isEn ? (
+                    <>Select <strong>List View</strong> or <strong>All Bookings</strong> to see the full table with dates and cleaners.</>
+                  ) : (
+                    <>Selecciona <strong>List View</strong> o <strong>All Bookings</strong> para ver la tabla completa con fechas y limpiadoras.</>
+                  )}
                 </div>
                 <div className="rounded-lg border border-border/80 bg-card p-3 shadow-sm">
-                  <strong className="text-foreground block mb-1">Step 3: Copy and Paste</strong>
-                  Select the text with your mouse or <kbd className="rounded bg-muted px-1">Cmd+A</kbd>, copy with <kbd className="rounded bg-muted px-1">Cmd+C</kbd>, and paste it in the <strong>Paste Table</strong> here.
+                  <strong className="text-foreground block mb-1">
+                    {isEn ? "Step 3: Copy and Paste" : "Paso 3: Copiar y Pegar"}
+                  </strong>
+                  {isEn ? (
+                    <>Select the text with your mouse or <kbd className="rounded bg-muted px-1">Cmd+A</kbd>, copy with <kbd className="rounded bg-muted px-1">Cmd+C</kbd>, and paste it in the <strong>Paste Table</strong> here.</>
+                  ) : (
+                    <>Selecciona el texto con el mouse o <kbd className="rounded bg-muted px-1">Cmd+A</kbd>, copia con <kbd className="rounded bg-muted px-1">Cmd+C</kbd> y pégalo aquí en <strong>Pegar Tabla</strong>.</>
+                  )}
                 </div>
               </div>
             </div>
@@ -592,16 +621,24 @@ export function BookingKoalaImporterModal({
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-foreground flex items-center gap-2">
                   <Clipboard className="size-3.5 text-primary" />
-                  Paste the table or list copied from BookingKoala here:
+                  {isEn
+                    ? "Paste the table or list copied from BookingKoala here:"
+                    : "Pega aquí la tabla o lista copiada de BookingKoala:"}
                 </label>
                 <span className="text-[11px] text-muted-foreground">
-                  Supports tab-separated text, commas, or copied columns
+                  {isEn
+                    ? "Supports tab-separated text, commas, or copied columns"
+                    : "Admite texto separado por tabulaciones, comas o columnas copiadas"}
                 </span>
               </div>
               <textarea
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
-                placeholder="Booking ID   Customer   Date   Cleaner   Service   Price   Pay...&#10;BK-101   Field AI   8/1/2026   Ana Morales   Commercial   $154.09   $54.00..."
+                placeholder={
+                  isEn
+                    ? "Booking ID   Customer   Date   Cleaner   Service   Price   Pay...\nBK-101   Field AI   8/1/2026   Ana Morales   Commercial   $154.09   $54.00..."
+                    : "Booking ID   Cliente   Fecha   Cleaner   Servicio   Precio   Pago...\nBK-101   Field AI   8/1/2026   Ana Morales   Commercial   $154.09   $54.00..."
+                }
                 rows={6}
                 className="w-full rounded-xl border border-border bg-background p-3 text-xs font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-inner"
               />
@@ -611,7 +648,7 @@ export function BookingKoalaImporterModal({
                   onClick={() => setPasteText("")}
                   className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
                 >
-                  Clear
+                  {isEn ? "Clear" : "Limpiar"}
                 </button>
                 <button
                   type="button"
@@ -620,7 +657,9 @@ export function BookingKoalaImporterModal({
                   className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground hover:bg-primary/90 shadow-sm disabled:opacity-50"
                 >
                   <Sparkles className="size-3.5" />
-                  {parsing ? "Processing..." : "Analyze and Preview"}
+                  {parsing
+                    ? isEn ? "Processing..." : "Procesando..."
+                    : isEn ? "Analyze and Preview" : "Analizar y Previsualizar"}
                 </button>
               </div>
             </div>
@@ -639,9 +678,11 @@ export function BookingKoalaImporterModal({
               <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-3">
                 <FileSpreadsheet className="size-6" />
               </div>
-              <h4 className="text-sm font-bold text-foreground">Drag your CSV or Excel file here</h4>
+              <h4 className="text-sm font-bold text-foreground">
+                {isEn ? "Drag your CSV or Excel file here" : "Arrastra tu archivo CSV o Excel aquí"}
+              </h4>
               <p className="text-xs text-muted-foreground mt-1 mb-4">
-                Direct Bookings export (.csv, .xlsx)
+                {isEn ? "Direct Bookings export (.csv, .xlsx)" : "Exportación directa de reservas (.csv, .xlsx)"}
               </p>
               <button
                 type="button"
@@ -649,7 +690,7 @@ export function BookingKoalaImporterModal({
                 className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90 shadow-sm"
               >
                 <Upload className="size-4" />
-                Select File
+                {isEn ? "Select File" : "Seleccionar Archivo"}
               </button>
             </div>
           )}
@@ -676,7 +717,7 @@ export function BookingKoalaImporterModal({
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 pb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-foreground">
-                    Detected rows ({parsedRows.length}):
+                    {isEn ? `Detected rows (${parsedRows.length}):` : `Filas detectadas (${parsedRows.length}):`}
                   </span>
                   <div className="flex rounded-lg border border-border/80 bg-muted/30 p-0.5 text-xs">
                     <button
@@ -686,7 +727,7 @@ export function BookingKoalaImporterModal({
                         filterType === "all" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      All ({totals.count})
+                      {isEn ? `All (${totals.count})` : `Todas (${totals.count})`}
                     </button>
                     <button
                       type="button"
@@ -695,7 +736,9 @@ export function BookingKoalaImporterModal({
                         filterType === "commercial" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      Commercial ({parsedRows.filter((r) => r.isCommercial).length})
+                      {isEn
+                        ? `Commercial (${parsedRows.filter((r) => r.isCommercial).length})`
+                        : `Comercial (${parsedRows.filter((r) => r.isCommercial).length})`}
                     </button>
                     <button
                       type="button"
@@ -704,7 +747,9 @@ export function BookingKoalaImporterModal({
                         filterType === "residential" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      Residential ({parsedRows.filter((r) => !r.isCommercial).length})
+                      {isEn
+                        ? `Residential (${parsedRows.filter((r) => !r.isCommercial).length})`
+                        : `Residencial (${parsedRows.filter((r) => !r.isCommercial).length})`}
                     </button>
                   </div>
                 </div>
@@ -712,16 +757,16 @@ export function BookingKoalaImporterModal({
                 <div className="flex items-center gap-4 text-xs">
                   <div className="flex items-center gap-1.5 text-muted-foreground">
                     <Clock className="size-3.5 text-primary" />
-                    <span>Total Hours: <strong>{totals.hrs.toFixed(1)}h</strong></span>
+                    <span>{isEn ? "Total Hours:" : "Horas Totales:"} <strong>{totals.hrs.toFixed(1)}h</strong></span>
                   </div>
                   <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <span>Payroll: <strong className="text-emerald-600 dark:text-emerald-400">${totals.pay.toFixed(2)}</strong></span>
+                    <span>{isEn ? "Payroll:" : "Nómina:"} <strong className="text-emerald-600 dark:text-emerald-400">${totals.pay.toFixed(2)}</strong></span>
                   </div>
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                     <input
                       type="text"
-                      placeholder="Filter by client/cleaner..."
+                      placeholder={isEn ? "Filter by client/cleaner..." : "Filtrar por cliente/limpiadora..."}
                       value={searchFilter}
                       onChange={(e) => setSearchFilter(e.target.value)}
                       className="h-8 rounded-lg border border-border bg-background pl-8 pr-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
@@ -735,14 +780,14 @@ export function BookingKoalaImporterModal({
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="sticky top-0 bg-muted/90 backdrop-blur-xs text-[11px] font-bold text-muted-foreground uppercase border-b border-border/60">
                     <tr>
-                      <th className="px-3 py-2.5">Type</th>
-                      <th className="px-3 py-2.5">Date</th>
-                      <th className="px-3 py-2.5">Client / Account</th>
-                      <th className="px-3 py-2.5">Cleaner / Provider</th>
-                      <th className="px-3 py-2.5">Service</th>
-                      <th className="px-3 py-2.5 text-right">Hours</th>
-                      <th className="px-3 py-2.5 text-right">Client Charge</th>
-                      <th className="px-3 py-2.5 text-right">Cleaner Pay (/h)</th>
+                      <th className="px-3 py-2.5">{isEn ? "Type" : "Tipo"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "Date" : "Fecha"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "Client / Account" : "Cliente / Cuenta"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "Cleaner / Provider" : "Limpiadora / Proveedor"}</th>
+                      <th className="px-3 py-2.5">{isEn ? "Service" : "Servicio"}</th>
+                      <th className="px-3 py-2.5 text-right">{isEn ? "Hours" : "Horas"}</th>
+                      <th className="px-3 py-2.5 text-right">{isEn ? "Client Charge" : "Cobro Cliente"}</th>
+                      <th className="px-3 py-2.5 text-right">{isEn ? "Cleaner Pay (/h)" : "Pago Limpiadora (/h)"}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/40">
@@ -757,14 +802,14 @@ export function BookingKoalaImporterModal({
                             }`}
                           >
                             {row.isCommercial ? <Building2 className="size-2.5" /> : <Home className="size-2.5" />}
-                            {row.isCommercial ? "Commercial" : "Residential"}
+                            {row.isCommercial ? (isEn ? "Commercial" : "Comercial") : (isEn ? "Residential" : "Residencial")}
                           </span>
                         </td>
                         <td className="px-3 py-2 font-mono text-[11px] text-foreground">{row.serviceDate}</td>
                         <td className="px-3 py-2 font-bold text-foreground">{row.customerName}</td>
                         <td className="px-3 py-2 text-foreground font-medium flex items-center gap-1.5">
                           <UserCheck className="size-3 text-primary" />
-                          {row.cleanerName}
+                          {row.cleanerName === "Unassigned" ? (isEn ? "Unassigned" : "Sin asignar") : row.cleanerName}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground text-[11px]">{row.serviceType}</td>
                         <td className="px-3 py-2 text-right font-mono font-medium">{row.hours > 0 ? `${row.hours}h` : "—"}</td>
@@ -788,7 +833,7 @@ export function BookingKoalaImporterModal({
             onClick={onClose}
             className="rounded-xl border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
-            Cancel
+            {isEn ? "Cancel" : "Cancelar"}
           </button>
           <div className="flex items-center gap-3">
             {parsedRows.length > 0 && (
@@ -799,7 +844,11 @@ export function BookingKoalaImporterModal({
                 className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-primary-foreground hover:bg-primary/90 shadow-md transition-all disabled:opacity-50"
               >
                 <Database className="size-4" />
-                {saving ? "Saving to Database..." : `Load ${parsedRows.length} Bookings to the Database`}
+                {saving
+                  ? isEn ? "Saving to Database..." : "Guardando en Base de Datos..."
+                  : isEn
+                    ? `Load ${parsedRows.length} Bookings to the Database`
+                    : `Cargar ${parsedRows.length} Reservas a la Base de Datos`}
               </button>
             )}
           </div>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDateKey, startOfWeek, addDays } from "@/lib/residential-operations";
+import { useLanguage } from "@/components/providers/language-provider";
 
 export type CalendarView = "month" | "week" | "day" | "agenda";
 
@@ -27,7 +28,8 @@ export type NormalizedCalendarEvent = {
   raw?: any;
 };
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 export function OperationsCalendar({
   events,
@@ -46,6 +48,9 @@ export function OperationsCalendar({
   emptyMessage: string;
   onEventSelect?: (event: NormalizedCalendarEvent) => void;
 }) {
+  const { isEn } = useLanguage();
+  const locale = isEn ? "en-US" : "es-US";
+  const DAY_NAMES = isEn ? DAY_NAMES_EN : DAY_NAMES_ES;
   const [mounted, setMounted] = useState(false);
   const [internalAnchor, setInternalAnchor] = useState<Date>(new Date());
   const [internalViewMode, setInternalViewMode] = useState<CalendarView>(viewMode);
@@ -71,7 +76,7 @@ export function OperationsCalendar({
               <p className="text-xs font-black uppercase text-muted-foreground">{day}</p>
             </div>
             <div className="rounded-md border border-dashed border-border p-3 text-center text-xs font-bold text-muted-foreground">
-              Loading...
+              {isEn ? "Loading..." : "Cargando..."}
             </div>
           </section>
         ))}
@@ -111,7 +116,7 @@ export function OperationsCalendar({
   // Header range label
   const getHeaderLabel = () => {
     if (activeViewMode === "day") {
-      return activeAnchor.toLocaleDateString("en-US", {
+      return activeAnchor.toLocaleDateString(locale, {
         weekday: "long",
         month: "short",
         day: "numeric",
@@ -119,7 +124,7 @@ export function OperationsCalendar({
       });
     }
     if (activeViewMode === "month") {
-      return activeAnchor.toLocaleDateString("en-US", {
+      return activeAnchor.toLocaleDateString(locale, {
         month: "long",
         year: "numeric",
       });
@@ -127,8 +132,8 @@ export function OperationsCalendar({
     // Week
     const start = startOfWeek(activeAnchor);
     const end = addDays(start, 6);
-    const startStr = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const endStr = end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const startStr = start.toLocaleDateString(locale, { month: "short", day: "numeric" });
+    const endStr = end.toLocaleDateString(locale, { month: "short", day: "numeric", year: "numeric" });
     return `${startStr} – ${endStr}`;
   };
 
@@ -152,19 +157,26 @@ export function OperationsCalendar({
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-3">
             <div>
               <p className={cn("text-xs font-black uppercase", isToday ? "text-primary font-black" : "text-muted-foreground")}>
-                {activeAnchor.toLocaleDateString("en-US", { weekday: "long" })} {isToday ? "• Today" : ""}
+                {activeAnchor.toLocaleDateString(locale, { weekday: "long" })} {isToday ? (isEn ? "• Today" : "• Hoy") : ""}
               </p>
               <h2 className="text-xl font-black text-foreground">
-                {activeAnchor.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                {activeAnchor.toLocaleDateString(locale, { month: "long", day: "numeric", year: "numeric" })}
               </h2>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs font-bold px-2.5 py-1">
-                {dayEvents.length} {dayEvents.length === 1 ? "service" : "services"}
+                {dayEvents.length}{" "}
+                {dayEvents.length === 1
+                  ? isEn
+                    ? "service"
+                    : "servicio"
+                  : isEn
+                  ? "services"
+                  : "servicios"}
               </Badge>
               {totalHours > 0 && (
                 <Badge className="bg-primary/15 text-primary border-primary/20 text-xs font-bold px-2.5 py-1">
-                  {totalHours.toFixed(1)} hrs total
+                  {totalHours.toFixed(1)} {isEn ? "hrs total" : "hrs totales"}
                 </Badge>
               )}
             </div>
@@ -172,7 +184,7 @@ export function OperationsCalendar({
 
           {dayEvents.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border/80 p-10 text-center text-sm font-semibold text-muted-foreground">
-              {emptyMessage || "No cleanings scheduled for this day."}
+              {emptyMessage || (isEn ? "No cleanings scheduled for this day." : "No hay servicios programados para este día.")}
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -199,7 +211,7 @@ export function OperationsCalendar({
                       )}
                     </div>
                     <div className="mt-2 flex items-center gap-1.5 text-xs text-foreground/80 font-medium">
-                      <span>{event.raw?.cleaner || "Unassigned"}</span>
+                      <span>{event.raw?.cleaner ? (event.raw.cleaner === "Unassigned" && !isEn ? "Sin asignar" : event.raw.cleaner) : (isEn ? "Unassigned" : "Sin asignar")}</span>
                     </div>
                   </div>
 
@@ -228,7 +240,7 @@ export function OperationsCalendar({
           const key = formatDateKey(day);
           const dayEvents = (events || []).filter((event) => (event.start || "").startsWith(key));
           const dayName = DAY_NAMES[day.getDay()];
-          const monthShort = day.toLocaleString("en-US", { month: "short" });
+          const monthShort = day.toLocaleString(locale, { month: "short" });
           const dayNum = day.getDate();
           const isToday = todayStr === key;
 
@@ -249,10 +261,10 @@ export function OperationsCalendar({
                       setViewMode("day");
                     }}
                     className="text-left group cursor-pointer"
-                    title="Click to view full day"
+                    title={isEn ? "Click to view full day" : "Clic para ver el día completo"}
                   >
                     <p className={cn("text-xs font-black uppercase transition-colors group-hover:text-primary", isToday ? "text-primary font-black" : "text-muted-foreground")}>
-                      {dayName} {isToday ? "• Today" : ""}
+                      {dayName} {isToday ? (isEn ? "• Today" : "• Hoy") : ""}
                     </p>
                     <p className="text-sm font-black text-foreground group-hover:underline">
                       {monthShort} {dayNum}
@@ -272,7 +284,7 @@ export function OperationsCalendar({
                 <div className="space-y-2">
                   {dayEvents.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-border/80 p-3 text-center text-xs font-semibold text-muted-foreground">
-                      Open day
+                      {isEn ? "Open day" : "Sin turnos"}
                     </div>
                   ) : null}
 
@@ -359,7 +371,7 @@ export function OperationsCalendar({
                           ? "text-muted-foreground/50 hover:bg-muted"
                           : "text-foreground hover:bg-muted"
                       )}
-                      title="Click to view day details"
+                      title={isEn ? "Click to view day details" : "Clic para ver detalles del día"}
                     >
                       {day.getDate()}
                     </button>
@@ -397,7 +409,7 @@ export function OperationsCalendar({
                         }}
                         className="w-full text-left text-[10px] font-bold text-primary hover:underline px-1 cursor-pointer"
                       >
-                        +{dayEvents.length - 3} more
+                        +{dayEvents.length - 3} {isEn ? "more" : "más"}
                       </button>
                     )}
                   </div>
@@ -419,7 +431,7 @@ export function OperationsCalendar({
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={handleToday} className="h-8 text-xs font-bold cursor-pointer">
-            Today
+            {isEn ? "Today" : "Hoy"}
           </Button>
           <Button variant="outline" size="sm" onClick={handleNext} className="h-8 w-8 p-0 cursor-pointer">
             <ChevronRight className="h-4 w-4" />
@@ -442,7 +454,7 @@ export function OperationsCalendar({
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              Month
+              {isEn ? "Month" : "Mes"}
             </button>
             <button
               type="button"
@@ -454,7 +466,7 @@ export function OperationsCalendar({
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              Week
+              {isEn ? "Week" : "Semana"}
             </button>
             <button
               type="button"
@@ -466,12 +478,19 @@ export function OperationsCalendar({
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              Day
+              {isEn ? "Day" : "Día"}
             </button>
           </div>
 
           <div className="text-xs font-semibold text-muted-foreground hidden sm:block">
-            {events.length} {events.length === 1 ? "service" : "services"}
+            {events.length}{" "}
+            {events.length === 1
+              ? isEn
+                ? "service"
+                : "servicio"
+              : isEn
+              ? "services"
+              : "servicios"}
           </div>
         </div>
       </div>

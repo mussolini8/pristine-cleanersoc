@@ -650,15 +650,18 @@ function Pill({ yes }: { yes: boolean }) {
 
 // ─────────────────────────────────────────────
 function ComplaintStrikesBadge({ strikes, onClick }: { strikes?: ComplaintStrike[] | null; onClick?: () => void }) {
+  const { isEn } = useLanguage();
   const normalized = normalizeComplaintStrikes(strikes);
   const count = normalized.filter((s) => s.checked).length;
   const checkedSummary = normalized
-    .map((s, idx) => s.checked ? `Strike #${idx + 1}: ${displayDate(s.date) || "Sin fecha"}${s.note ? ` - ${s.note}` : ""}` : null)
+    .map((s, idx) => s.checked ? `Strike #${idx + 1}: ${displayDate(s.date) || (isEn ? "No date" : "Sin fecha")}${s.note ? ` - ${s.note}` : ""}` : null)
     .filter(Boolean);
 
   const title = count === 0
-    ? "0 / 5 Complaints (Sin quejas - Vigencia hasta 31-12-2026)"
-    : `${count}/5 Complaints registradas (Año hasta 31-12-2026):\n${checkedSummary.join("\n")}`;
+    ? (isEn ? "0 / 5 Complaints (Clean record - Valid through 12-31-2026)" : "0 / 5 Complaints (Sin quejas - Vigencia hasta 31-12-2026)")
+    : isEn
+      ? `${count}/5 Complaints logged (Year through 12-31-2026):\n${checkedSummary.join("\n")}`
+      : `${count}/5 Complaints registradas (Año hasta 31-12-2026):\n${checkedSummary.join("\n")}`;
 
   const badgeClass = count === 0
     ? "strike-badge zero"
@@ -697,6 +700,7 @@ function ComplaintStrikesBadge({ strikes, onClick }: { strikes?: ComplaintStrike
 
 // ─────────────────────────────────────────────
 function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account: Account) => void; onDelete: (account: Account) => void }) {
+  const { isEn } = useLanguage();
   const [expanded, setExpanded] = useState(false);
 
   const realCost = getRealCost(acc);
@@ -849,8 +853,8 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
               <div className="complaints-card-header">
                 <div className="complaints-card-title">
                   <AlertTriangle size={15} style={{ color: countCheckedStrikes(acc.complaint_strikes) > 0 ? "hsl(38 92% 50%)" : "hsl(var(--muted-foreground))" }} />
-                  <strong>Quality Complaints & 5-Strike SLA Tracker</strong>
-                  <span className="complaints-card-tag">Año Calendario: Hasta 31-12-2026</span>
+                  <strong>{isEn ? "Quality Complaints & 5-Strike SLA Tracker" : "Control SLA de Quejas de Calidad y 5 Strikes"}</strong>
+                  <span className="complaints-card-tag">{isEn ? "Calendar Year: Through 12-31-2026" : "Año Calendario: Hasta 31-12-2026"}</span>
                 </div>
                 <div className="complaints-card-actions">
                   <span className={`complaints-pill ${countCheckedStrikes(acc.complaint_strikes) === 0 ? "good" : countCheckedStrikes(acc.complaint_strikes) < 3 ? "warn" : "critical"}`}>
@@ -864,7 +868,7 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
                       onEdit(acc);
                     }}
                   >
-                    <Edit2 size={11} /> Editar Quejas
+                    <Edit2 size={11} /> {isEn ? "Edit Complaints" : "Editar Quejas"}
                   </button>
                 </div>
               </div>
@@ -875,10 +879,10 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
                   <div key={idx} className={`complaint-slot-pill ${strike.checked ? "active" : "inactive"}`}>
                     <div className="slot-pill-top">
                       <span className="slot-num">Strike #{idx + 1}</span>
-                      <span className="slot-status">{strike.checked ? "✓ Registrado" : "○ Libre"}</span>
+                      <span className="slot-status">{strike.checked ? (isEn ? "✓ Logged" : "✓ Registrado") : (isEn ? "○ Available" : "○ Libre")}</span>
                     </div>
                     <div className="slot-date">
-                      {strike.checked ? (displayDate(strike.date) || "Sin fecha") : "—"}
+                      {strike.checked ? (displayDate(strike.date) || (isEn ? "No date" : "Sin fecha")) : "—"}
                     </div>
                     {strike.note ? <div className="slot-note" title={strike.note}>{strike.note}</div> : null}
                   </div>
@@ -887,11 +891,11 @@ function AccountRow({ acc, onEdit, onDelete }: { acc: Account; onEdit: (account:
 
               {/* General Complaints Notes */}
               <div className="complaints-notes-preview">
-                <strong>Notas de Complaints:</strong>
+                <strong>{isEn ? "Complaints Notes:" : "Notas de Complaints:"}</strong>
                 <p>
                   {acc.complaints_notes?.trim()
                     ? acc.complaints_notes
-                    : "No complaints registered. Cuenta con historial limpio en el año calendario (hasta 31-12-2026)."}
+                    : (isEn ? "No complaints registered. Account has clean record in calendar year (through 12-31-2026)." : "No complaints registered. Cuenta con historial limpio en el año calendario (hasta 31-12-2026).")}
                 </p>
               </div>
             </div>
@@ -1185,6 +1189,7 @@ function AccountStudio({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const { isEn } = useLanguage();
   const visits = getVisitsPerMonth(draft.frequency);
   const revenue = draft.revenue ?? 0;
   const cost = getRealCost(draft);
@@ -1562,26 +1567,34 @@ function AccountStudio({
           </label>
 
           {/* Section 6: Quality Complaints & Strikes Log (Max 5 / Calendar Year) */}
-          <div className="studio-section-title"><AlertTriangle size={15} /> 6. Quality Complaints & Strikes Log (Max 5 / Año Calendario)</div>
+          <div className="studio-section-title">
+            <AlertTriangle size={15} /> {isEn ? "6. Quality Complaints & Strikes Log (Max 5 / Calendar Year)" : "6. Quality Complaints & Strikes Log (Max 5 / Año Calendario)"}
+          </div>
 
           <div className="complaints-studio-banner">
             <div className="complaints-banner-text">
-              <strong>Vigencia de Año Calendario: hasta 31-12-2026</strong>
-              <span>Registro de notas de complaints y hasta 5 checkmarks con fecha para control de SLA y calidad.</span>
+              <strong>{isEn ? "Calendar Year Validity: Through 12-31-2026" : "Vigencia de Año Calendario: hasta 31-12-2026"}</strong>
+              <span>{isEn ? "Log complaint notes and up to 5 dated checkmarks for SLA and quality tracking." : "Registro de notas de complaints y hasta 5 checkmarks con fecha para control de SLA y calidad."}</span>
             </div>
             <div className="complaints-banner-status">
               <span className={`complaints-status-badge ${countCheckedStrikes(draft.complaint_strikes) === 0 ? "good" : countCheckedStrikes(draft.complaint_strikes) < 3 ? "warn" : "critical"}`}>
-                {countCheckedStrikes(draft.complaint_strikes)} de 5 Strikes Utilizados
+                {isEn
+                  ? `${countCheckedStrikes(draft.complaint_strikes)} of 5 Strikes Used`
+                  : `${countCheckedStrikes(draft.complaint_strikes)} de 5 Strikes Utilizados`}
               </span>
             </div>
           </div>
 
           <label className="studio-field">
-            <span>Notas Generales de Complaints & Feedback</span>
+            <span>{isEn ? "General Complaints & Feedback Notes" : "Notas Generales de Complaints & Feedback"}</span>
             <textarea
               value={draft.complaints_notes ?? ""}
               onChange={(e) => onChange({ ...draft, complaints_notes: e.target.value })}
-              placeholder="Detalla quejas del cliente, seguimiento, llamadas de calidad, acuerdos correctivos..."
+              placeholder={
+                isEn
+                  ? "Detail client complaints, follow-up, quality calls, corrective action agreements..."
+                  : "Detalla quejas del cliente, seguimiento, llamadas de calidad, acuerdos correctivos..."
+              }
               style={{ minHeight: 70 }}
             />
           </label>
@@ -1612,13 +1625,13 @@ function AccountStudio({
                       <span className="studio-strike-title">Strike #{strikeNumber}</span>
                     </label>
                     <span className={`studio-strike-tag ${strike.checked ? "active" : "inactive"}`}>
-                      {strike.checked ? "✓ Registrado" : "○ Libre"}
+                      {strike.checked ? (isEn ? "✓ Logged" : "✓ Registrado") : (isEn ? "○ Available" : "○ Libre")}
                     </span>
                   </div>
 
                   <div className="studio-strike-body">
                     <label className="studio-strike-field">
-                      <span>Fecha (hasta 31-12-2026)</span>
+                      <span>{isEn ? "Date (through 12-31-2026)" : "Fecha (hasta 31-12-2026)"}</span>
                       <input
                         type="date"
                         lang="en-US"
@@ -1634,11 +1647,15 @@ function AccountStudio({
                     </label>
 
                     <label className="studio-strike-field">
-                      <span>Motivo / Detalle</span>
+                      <span>{isEn ? "Reason / Detail" : "Motivo / Detalle"}</span>
                       <input
                         type="text"
                         disabled={!strike.checked}
-                        placeholder={strike.checked ? "Ej. Baños, polvo, basura, retraso..." : "Activar checkbox para ingresar"}
+                        placeholder={
+                          strike.checked
+                            ? (isEn ? "e.g. Restrooms, dust, trash, delay..." : "Ej. Baños, polvo, basura, retraso...")
+                            : (isEn ? "Check box to enter" : "Activar checkbox para ingresar")
+                        }
                         value={strike.note ?? ""}
                         onChange={(e) => {
                           const updated = [...strikesList];
@@ -2628,8 +2645,12 @@ export default function CommercialPage() {
       <div className="commercial-page">
         <div className="commercial-head">
           <div>
-            <h1 className="page-title">Commercial Accounts</h1>
-            <p className="page-sub">Accounts sheet + Team supplies, including hidden rows, Last QC Check, and financial overview</p>
+            <h1 className="page-title">{isEn ? "Commercial Accounts" : "Cuentas Comerciales"}</h1>
+            <p className="page-sub">
+              {isEn
+                ? "Accounts sheet + Team supplies, including hidden rows, Last QC Check, and financial overview"
+                : "Planilla de cuentas + Suministros de equipos, filas ocultas, Último Control QC y resumen financiero"}
+            </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
             <Link
@@ -2649,7 +2670,7 @@ export default function CommercialPage() {
               }}
             >
               <TrendingUp size={15} color="hsl(142 76% 36%)" />
-              Sales Track Report
+              {isEn ? "Sales Track Report" : "Reporte de Ventas"}
             </Link>
             <button
               onClick={() => setIsCopilotOpen(true)}
@@ -2673,7 +2694,7 @@ export default function CommercialPage() {
             </button>
             <button className="add-account-btn" onClick={() => showAccountStudio ? closeAccountStudio() : openCreateStudio()} type="button">
               {showAccountStudio ? <X size={15} /> : <Plus size={15} />}
-              {showAccountStudio ? "Close Form" : "Add Account"}
+              {showAccountStudio ? (isEn ? "Close Form" : "Cerrar Formulario") : (isEn ? "Add Account" : "Agregar Cuenta")}
             </button>
           </div>
         </div>
@@ -2703,20 +2724,54 @@ export default function CommercialPage() {
         ) : null}
 
         <div className="stat-bar">
-          <div className="stat-card"><div className="stat-label">Total Accounts</div><div className="stat-value">{accounts.length}</div><div className="stat-note">{filteredAccounts.length} visible</div></div>
-          <div className="stat-card"><div className="stat-label">Monthly Revenue</div><div className="stat-value">${totalRevenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">Booked billing</div></div>
-          <div className="stat-card"><div className="stat-label">Monthly Cost</div><div className="stat-value">${totalCost.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">Cleaner cost</div></div>
-          <div className="stat-card"><div className="stat-label">Insurance Costs</div><div className="stat-value">${totalInsurance.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">10.57% Tax + 12.09% Comp</div></div>
-          <div className="stat-card accent"><div className="stat-label">Monthly Profit</div><div className="stat-value">${totalProfit.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div><div className="stat-note">{totalRevenue ? Math.round((totalProfit / totalRevenue) * 100) : 0}% margin</div></div>
-          <div className="stat-card"><div className="stat-label">Supplies Ready</div><div className="stat-value">{supplyReady}/{accounts.length}</div><div className="stat-note">{accountsNeedingQc} need QC</div></div>
-          <div className="stat-card"><div className="stat-label">Keys Secured</div><div className="stat-value">{keyedAccounts}/{accounts.length}</div><div className="stat-note">Access tracked</div></div>
+          <div className="stat-card">
+            <div className="stat-label">{isEn ? "Total Accounts" : "Total Cuentas"}</div>
+            <div className="stat-value">{accounts.length}</div>
+            <div className="stat-note">{filteredAccounts.length} {isEn ? "visible" : "visibles"}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">{isEn ? "Monthly Revenue" : "Ingresos Mensuales"}</div>
+            <div className="stat-value">${totalRevenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+            <div className="stat-note">{isEn ? "Booked billing" : "Facturación registrada"}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">{isEn ? "Monthly Cost" : "Costo Mensual"}</div>
+            <div className="stat-value">${totalCost.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+            <div className="stat-note">{isEn ? "Cleaner cost" : "Costo de personal"}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">{isEn ? "Insurance Costs" : "Costos de Seguros"}</div>
+            <div className="stat-value">${totalInsurance.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+            <div className="stat-note">10.57% Tax + 12.09% Comp</div>
+          </div>
+          <div className="stat-card accent">
+            <div className="stat-label">{isEn ? "Monthly Profit" : "Ganancia Mensual"}</div>
+            <div className="stat-value">${totalProfit.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+            <div className="stat-note">{totalRevenue ? Math.round((totalProfit / totalRevenue) * 100) : 0}% {isEn ? "margin" : "margen"}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">{isEn ? "Supplies Ready" : "Suministros Listos"}</div>
+            <div className="stat-value">{supplyReady}/{accounts.length}</div>
+            <div className="stat-note">{accountsNeedingQc} {isEn ? "need QC" : "requieren QC"}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">{isEn ? "Keys Secured" : "Llaves Aseguradas"}</div>
+            <div className="stat-value">{keyedAccounts}/{accounts.length}</div>
+            <div className="stat-note">{isEn ? "Access tracked" : "Acceso controlado"}</div>
+          </div>
         </div>
 
         <div className="analytics-grid">
           <div className="analytics-card">
-            <div className="analytics-title">Accounts by Cleaner</div>
+            <div className="analytics-title">{isEn ? "Accounts by Cleaner" : "Cuentas por Limpiadora"}</div>
             <table className="cleaner-table">
-              <thead><tr><th>Cleaner</th><th style={{ textAlign: "center" }}>Accounts</th><th>% of Total</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{isEn ? "Cleaner" : "Limpiadora"}</th>
+                  <th style={{ textAlign: "center" }}>{isEn ? "Accounts" : "Cuentas"}</th>
+                  <th>{isEn ? "% of Total" : "% del Total"}</th>
+                </tr>
+              </thead>
               <tbody>
                 {chartData.map((row) => (
                   <tr key={row.name}>
@@ -2737,7 +2792,7 @@ export default function CommercialPage() {
           </div>
 
           <div className="analytics-card">
-            <div className="analytics-title">Distribution by Cleaner</div>
+            <div className="analytics-title">{isEn ? "Distribution by Cleaner" : "Distribución por Limpiadora"}</div>
             {accounts.length > 0 && (
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
@@ -2749,7 +2804,7 @@ export default function CommercialPage() {
                     labelLine={false}>
                     {chartData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                   </Pie>
-                  <Tooltip formatter={(value, name) => [`${value ?? 0} accounts`, name ?? ""]} />
+                  <Tooltip formatter={(value, name) => [`${value ?? 0} ${isEn ? "accounts" : "cuentas"}`, name ?? ""]} />
                 </PieChart>
               </ResponsiveContainer>
             )}
@@ -2758,23 +2813,26 @@ export default function CommercialPage() {
 
         <div className="table-card">
           <div className="table-header">
-            <div className="table-title"><Package size={16} />Commercial Accounts + Team Supplies</div>
+            <div className="table-title">
+              <Package size={16} />
+              {isEn ? "Commercial Accounts + Team Supplies" : "Cuentas Comerciales + Suministros"}
+            </div>
             <div className="account-controls">
               <label className="account-search">
                 <Search size={14} />
                 <input
-                  aria-label="Search accounts"
-                  placeholder="Search account, cleaner, city..."
+                  aria-label={isEn ? "Search accounts" : "Buscar cuentas"}
+                  placeholder={isEn ? "Search account, cleaner, city..." : "Buscar cuenta, limpiadora, ciudad..."}
                   value={accountSearch}
                   onChange={(event) => setAccountSearch(event.target.value)}
                 />
               </label>
               <div className="view-tabs" aria-label="Account views">
                 {[
-                  ["all", "All"],
-                  ["needs-qc", "Needs QC"],
-                  ["supplies", "Supplies"],
-                  ["keys", "Keys"],
+                  ["all", isEn ? "All" : "Todas"],
+                  ["needs-qc", isEn ? "Needs QC" : "Requiere QC"],
+                  ["supplies", isEn ? "Supplies" : "Suministros"],
+                  ["keys", isEn ? "Keys" : "Llaves"],
                 ].map(([key, label]) => (
                   <button
                     className={`view-tab ${accountView === key ? "active" : ""}`}
@@ -2790,22 +2848,24 @@ export default function CommercialPage() {
             </div>
           </div>
           {loading ? (
-            <div className="loading-msg">Loading accounts…</div>
+            <div className="loading-msg">{isEn ? "Loading accounts…" : "Cargando cuentas…"}</div>
           ) : (
             <div className="table-wrap">
               <table className="main-table">
                 <thead>
                   <tr>
-                    <th>Account</th><th>Cleaner</th>
-                    <th style={{ textAlign: "center" }}>All Supplies</th>
-                    <th>Delivery Date</th><th>Est. Fill Date</th>
-                    <th style={{ textAlign: "center" }}>Keys</th>
-                    <th>Last QC Check</th>
-                    <th style={{ textAlign: "center" }}>Complaints (5 Max)</th>
-                    <th>Notes</th>
-                    <th style={{ textAlign: "right" }}>Revenue</th>
-                    <th style={{ textAlign: "right" }}>Cost</th>
-                    <th style={{ textAlign: "right" }}>Profit</th>
+                    <th>{isEn ? "Account" : "Cuenta"}</th>
+                    <th>{isEn ? "Cleaner" : "Limpiadora"}</th>
+                    <th style={{ textAlign: "center" }}>{isEn ? "All Supplies" : "Suministros"}</th>
+                    <th>{isEn ? "Delivery Date" : "Fecha Entrega"}</th>
+                    <th>{isEn ? "Est. Fill Date" : "Fecha Est. Llenado"}</th>
+                    <th style={{ textAlign: "center" }}>{isEn ? "Keys" : "Llaves"}</th>
+                    <th>{isEn ? "Last QC Check" : "Último Check QC"}</th>
+                    <th style={{ textAlign: "center" }}>{isEn ? "Complaints (5 Max)" : "Quejas (Máx 5)"}</th>
+                    <th>{isEn ? "Notes" : "Notas"}</th>
+                    <th style={{ textAlign: "right" }}>{isEn ? "Revenue" : "Ingresos"}</th>
+                    <th style={{ textAlign: "right" }}>{isEn ? "Cost" : "Costo"}</th>
+                    <th style={{ textAlign: "right" }}>{isEn ? "Profit" : "Ganancia"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2814,7 +2874,9 @@ export default function CommercialPage() {
                   ))}
                 </tbody>
               </table>
-              {filteredAccounts.length === 0 ? <div className="empty-accounts">No accounts match this view.</div> : null}
+              {filteredAccounts.length === 0 ? (
+                <div className="empty-accounts">{isEn ? "No accounts match this view." : "Ninguna cuenta coincide con esta vista."}</div>
+              ) : null}
             </div>
           )}
         </div>

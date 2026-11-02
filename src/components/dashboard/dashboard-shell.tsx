@@ -15,16 +15,16 @@ import { BookingKoalaImporterModal } from "@/components/operations/bookingkoala-
 import { JobBroadcastModal } from "@/components/ai/job-broadcast-modal";
 
 const navItems = [
-  { key: "nav.dashboard", label: "Dashboard", shortLabel: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
-  { key: "nav.sales_track", label: "Sales Track & AI Copilot", shortLabel: "Sales Track", href: "/commercial/sales-track", icon: TrendingUp, area: "workspace" as AccessArea },
-  { key: "nav.task_reminders", label: "Task Reminders", shortLabel: "Tareas", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
-  { key: "nav.residential", label: "Residential payments / commercial hours", shortLabel: "Nómina & Horas", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
-  { key: "nav.schedules", label: "Schedules (Comm & QC)", shortLabel: "Schedules", href: "/schedules", icon: CalendarDays, area: "workspace" as AccessArea },
-  { key: "nav.commercial_accounts", label: "Commercial Accounts", shortLabel: "Cuentas", href: "/commercial/accounts", icon: Building2, area: "workspace" as AccessArea },
-  { key: "nav.qc_inspections", label: "QC Inspections", shortLabel: "QC", href: "/qc/dashboard", icon: ClipboardCheck, area: "workspace" as AccessArea },
-  { key: "nav.staff", label: "Staff / Teams", shortLabel: "Staff", href: "/staff", icon: Users, area: "operations" as AccessArea },
-  { key: "nav.reports", label: "Reports", shortLabel: "Reportes", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
-  { key: "nav.settings", label: "Settings", shortLabel: "Ajustes", href: "/settings", icon: Settings, area: "operations" as AccessArea },
+  { key: "nav.dashboard", shortKey: "nav.short.dashboard", label: "Dashboard", shortLabel: "Dashboard", href: "/dashboard", icon: Home, area: "workspace" as AccessArea },
+  { key: "nav.sales_track", shortKey: "nav.short.sales_track", label: "Sales Track & AI Copilot", shortLabel: "Sales Track", href: "/commercial/sales-track", icon: TrendingUp, area: "workspace" as AccessArea },
+  { key: "nav.task_reminders", shortKey: "nav.short.task_reminders", label: "Task Reminders", shortLabel: "Tasks", href: "/tasks", icon: CheckSquare, area: "tasks" as AccessArea },
+  { key: "nav.residential", shortKey: "nav.short.residential", label: "Residential payments / commercial hours", shortLabel: "Payroll & Hours", href: "/residential", icon: Wallet, area: "workspace" as AccessArea },
+  { key: "nav.schedules", shortKey: "nav.short.schedules", label: "Schedules (Comm & QC)", shortLabel: "Schedules", href: "/schedules", icon: CalendarDays, area: "workspace" as AccessArea },
+  { key: "nav.commercial_accounts", shortKey: "nav.short.commercial_accounts", label: "Commercial Accounts", shortLabel: "Accounts", href: "/commercial/accounts", icon: Building2, area: "workspace" as AccessArea },
+  { key: "nav.qc_inspections", shortKey: "nav.short.qc_inspections", label: "QC Inspections", shortLabel: "QC", href: "/qc/dashboard", icon: ClipboardCheck, area: "workspace" as AccessArea },
+  { key: "nav.staff", shortKey: "nav.short.staff", label: "Staff / Teams", shortLabel: "Staff", href: "/staff", icon: Users, area: "operations" as AccessArea },
+  { key: "nav.reports", shortKey: "nav.short.reports", label: "Reports", shortLabel: "Reports", href: "/reports", icon: BarChart3, area: "operations" as AccessArea },
+  { key: "nav.settings", shortKey: "nav.short.settings", label: "Settings", shortLabel: "Settings", href: "/settings", icon: Settings, area: "operations" as AccessArea },
 ];
 
 export function DashboardShell({
@@ -106,7 +106,7 @@ export function DashboardShell({
           <button
             type="button"
             onClick={toggleSidebar}
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={sidebarCollapsed ? t("nav.expand_sidebar", "Expand sidebar") : t("nav.collapse_sidebar", "Collapse sidebar")}
             className="shrink-0 flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all cursor-pointer"
           >
             <PanelLeftClose size={15} />
@@ -179,7 +179,7 @@ export function DashboardShell({
               <button
                 type="button"
                 onClick={toggleSidebar}
-                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label={sidebarCollapsed ? t("nav.expand_sidebar", "Expand sidebar") : t("nav.collapse_sidebar", "Collapse sidebar")}
                 className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/60 border border-border/60 transition-all cursor-pointer"
               >
                 {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
@@ -201,10 +201,10 @@ export function DashboardShell({
                 size="sm"
                 onClick={() => setIsBroadcastOpen(true)}
                 className="inline-flex items-center gap-1.5 sm:gap-2 border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400 font-bold cursor-pointer h-8 sm:h-9 px-2 sm:px-3"
-                title="Difundir trabajo a cleaners residenciales"
+                title={t("nav.broadcast_job_title", "Broadcast job to residential cleaners")}
               >
                 <Megaphone className="size-3.5 sm:size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="hidden sm:inline">Broadcast Job</span>
+                <span className="hidden sm:inline">{t("nav.broadcast_job", "Broadcast Job")}</span>
               </Button>
               <LanguageToggle />
               <ThemeToggle />
@@ -230,7 +230,7 @@ export function DashboardShell({
                 key={item.href}
               >
                 <item.icon className="size-3.5 sm:size-4 shrink-0" />
-                <span className="whitespace-nowrap sm:hidden">{item.shortLabel || t(item.key, item.label)}</span>
+                <span className="whitespace-nowrap sm:hidden">{t(item.shortKey, item.shortLabel)}</span>
                 <span className="whitespace-nowrap hidden sm:inline">{t(item.key, item.label)}</span>
               </Link>
             ))}

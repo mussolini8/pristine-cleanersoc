@@ -3,34 +3,45 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ClipboardCheck, Home, LogOut, User } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { LanguageToggle, useLanguage } from "@/components/providers/language-provider";
+import { ThemeToggle } from "@/components/providers/theme-toggle";
 import { cn } from "@/lib/utils";
 import type { AppRole } from "@/lib/access-control";
 
-const INSPECTOR_NAV = [
-  { label: "Today", href: "/qc/inspector", icon: Home },
-  { label: "Profile", href: "/qc/inspector/profile", icon: User },
-];
-
 export function QCShell({ children, role }: { children: React.ReactNode; role: AppRole }) {
   const pathname = usePathname();
+  const { isEn } = useLanguage();
+
+  const inspectorNav = [
+    { label: isEn ? "Today" : "Hoy", href: "/qc/inspector", icon: Home },
+    { label: isEn ? "Profile" : "Perfil", href: "/qc/inspector/profile", icon: User },
+  ];
 
   if (role === "inspector") {
     return (
       <div className="flex min-h-dvh flex-col bg-background">
         {/* Top bar */}
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border/60 bg-background/90 px-4 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
-          <div className="flex items-center gap-2">
-            <ClipboardCheck className="size-5 text-primary" />
-            <span className="text-sm font-bold text-foreground">Pristine QC</span>
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/90 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-xl sm:px-4">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <ClipboardCheck className="size-5 shrink-0 text-primary" />
+            <span className="truncate text-sm font-bold text-foreground">
+              {isEn ? "Pristine QC" : "Control QC"}
+            </span>
           </div>
-          <form action="/auth/sign-out" method="post">
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 rounded-xl border border-border/60 bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
-            >
-              <LogOut className="size-3.5" /> Sign out
-            </button>
-          </form>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <LanguageToggle className="origin-right scale-95 sm:scale-100" />
+            <ThemeToggle />
+            <form action="/auth/sign-out" method="post">
+              <button
+                type="submit"
+                aria-label={isEn ? "Sign out" : "Cerrar sesión"}
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-border/60 bg-card px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground sm:px-3"
+              >
+                <LogOut className="size-3.5 shrink-0" />
+                <span>{isEn ? "Sign out" : "Cerrar sesión"}</span>
+              </button>
+            </form>
+          </div>
         </header>
 
         {/* Main scrollable content */}
@@ -42,7 +53,7 @@ export function QCShell({ children, role }: { children: React.ReactNode; role: A
 
         {/* Bottom nav bar — mobile ergonomic, thumb-friendly */}
         <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border/60 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
-          {INSPECTOR_NAV.map((item) => {
+          {inspectorNav.map((item) => {
             const active =
               item.href === "/qc/inspector"
                 ? pathname === "/qc/inspector"

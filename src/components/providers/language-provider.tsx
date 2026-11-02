@@ -32,7 +32,21 @@ const DICTIONARY: Record<string, { en: string; es: string }> = {
   "nav.staff": { en: "Staff / Teams", es: "Personal / Equipos" },
   "nav.reports": { en: "Reports", es: "Reportes" },
   "nav.settings": { en: "Settings", es: "Configuración" },
+  "nav.short.dashboard": { en: "Dashboard", es: "Panel" },
+  "nav.short.sales_track": { en: "Sales Track", es: "Ventas" },
+  "nav.short.task_reminders": { en: "Tasks", es: "Tareas" },
+  "nav.short.residential": { en: "Payroll & Hours", es: "Nómina y Horas" },
+  "nav.short.schedules": { en: "Schedules", es: "Schedules" },
+  "nav.short.commercial_accounts": { en: "Accounts", es: "Cuentas" },
+  "nav.short.qc_inspections": { en: "QC", es: "QC" },
+  "nav.short.staff": { en: "Staff", es: "Personal" },
+  "nav.short.reports": { en: "Reports", es: "Reportes" },
+  "nav.short.settings": { en: "Settings", es: "Ajustes" },
   "nav.import_bookingkoala": { en: "Import BookingKoala", es: "Importar BookingKoala" },
+  "nav.broadcast_job": { en: "Broadcast Job", es: "Difundir Trabajo" },
+  "nav.broadcast_job_title": { en: "Broadcast job to residential cleaners", es: "Difundir trabajo a cleaners residenciales" },
+  "nav.expand_sidebar": { en: "Expand sidebar", es: "Expandir barra lateral" },
+  "nav.collapse_sidebar": { en: "Collapse sidebar", es: "Contraer barra lateral" },
   "nav.premium_sop": { en: "Premium cleaning SOP", es: "SOP de limpieza premium" },
   "nav.operations_sop": { en: "Operations SOP", es: "SOP de Operaciones" },
   "nav.signed_in": { en: "Signed in", es: "Conectado como" },
@@ -227,10 +241,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const stored = localStorage.getItem(STORAGE_KEY) as Language | null;
       if (stored === "en" || stored === "es") {
         setLanguageState(stored);
+        document.documentElement.lang = stored === "en" ? "en-US" : "es-US";
       } else {
         // Enforce English as default
         setLanguageState("en");
         localStorage.setItem(STORAGE_KEY, "en");
+        document.documentElement.lang = "en-US";
       }
     } catch {
       setLanguageState("en");
@@ -242,6 +258,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.setItem(STORAGE_KEY, lang);
       localStorage.setItem(COPILOT_LANG_KEY, lang === "en" ? "en-US" : "es-US");
+      document.documentElement.lang = lang === "en" ? "en-US" : "es-US";
       window.dispatchEvent(new Event("languagechange"));
     } catch {}
   }, []);
@@ -302,7 +319,7 @@ export function useLanguage() {
  * Modern header toggle button for English / Spanish
  */
 export function LanguageToggle({ className }: { className?: string }) {
-  const { language, setLanguage, isEn } = useLanguage();
+  const { setLanguage, isEn } = useLanguage();
 
   return (
     <div
@@ -311,7 +328,7 @@ export function LanguageToggle({ className }: { className?: string }) {
         className
       )}
       role="group"
-      aria-label="Language selection"
+      aria-label={isEn ? "Language selection" : "Selección de idioma"}
     >
       <button
         type="button"
@@ -322,7 +339,7 @@ export function LanguageToggle({ className }: { className?: string }) {
             ? "bg-primary text-primary-foreground shadow-xs"
             : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
         )}
-        title="Switch to English"
+        title={isEn ? "English (active)" : "Switch to English"}
       >
         <span>🇺🇸</span>
         <span>EN</span>
@@ -337,7 +354,7 @@ export function LanguageToggle({ className }: { className?: string }) {
             ? "bg-primary text-primary-foreground shadow-xs"
             : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
         )}
-        title="Cambiar a Español"
+        title={isEn ? "Switch to Spanish" : "Español (activo)"}
       >
         <span>🇪🇸</span>
         <span>ES</span>

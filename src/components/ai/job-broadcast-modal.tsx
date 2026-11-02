@@ -20,6 +20,7 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/components/providers/language-provider";
 import { RESIDENTIAL_CLEANER_CONTACTS, type CleanerContact } from "@/lib/cleaner-contacts";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ export function JobBroadcastModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
+  const { isEn } = useLanguage();
   // Navigation tab
   const [activeTab, setActiveTab] = useState<"new" | "history">("new");
 
@@ -418,7 +420,9 @@ export function JobBroadcastModal({
       if (notifyOtherCleaners && recipientsToNotify.length === 0) {
         // All recipients were filtered out — nothing to send
         setActionFeedbackMsg(
-          "⚠️ No hay otros cleaners en este broadcast a quienes notificar (solo estaba quien lo tomó)."
+          isEn
+            ? "⚠️ No other cleaners in this broadcast to notify (only the assigned cleaner was selected)."
+            : "⚠️ No hay otros cleaners en este broadcast a quienes notificar (solo estaba quien lo tomó)."
         );
         setActionLoading(false);
         return;
@@ -444,7 +448,10 @@ export function JobBroadcastModal({
         const data = await res.json();
 
         if (!res.ok) {
-          setActionFeedbackMsg("❌ Error al enviar SMS: " + (data?.error || "Error desconocido"));
+          setActionFeedbackMsg(
+            (isEn ? "❌ Error sending SMS: " : "❌ Error al enviar SMS: ") +
+              (data?.error || (isEn ? "Unknown error" : "Error desconocido"))
+          );
           setActionLoading(false);
           return;
         }
@@ -453,7 +460,9 @@ export function JobBroadcastModal({
 
         if (failCount > 0 && sentCount === 0) {
           setActionFeedbackMsg(
-            `❌ No se pudo enviar el SMS a ningún cleaner (${failCount} fallaron). Intenta de nuevo.`
+            isEn
+              ? `❌ Could not send SMS to any cleaner (${failCount} failed). Please try again.`
+              : `❌ No se pudo enviar el SMS a ningún cleaner (${failCount} fallaron). Intenta de nuevo.`
           );
           setActionLoading(false);
           return;
@@ -473,9 +482,11 @@ export function JobBroadcastModal({
         saveHistory(updated);
 
         const takenName = takenByCleaner.trim() || "Assigned";
-        const failNote = failCount > 0 ? `, ${failCount} fallaron` : "";
+        const failNote = failCount > 0 ? (isEn ? `, ${failCount} failed` : `, ${failCount} fallaron`) : "";
         setActionFeedbackMsg(
-          `✅ Marcado como tomado por ${takenName}. SMS enviado a ${sentCount} cleaner${sentCount !== 1 ? "s" : ""}${failNote}.`
+          isEn
+            ? `✅ Marked as taken by ${takenName}. SMS sent to ${sentCount} cleaner${sentCount !== 1 ? "s" : ""}${failNote}.`
+            : `✅ Marcado como tomado por ${takenName}. SMS enviado a ${sentCount} cleaner${sentCount !== 1 ? "s" : ""}${failNote}.`
         );
       } else {
         // notifyOtherCleaners is false — just update history silently
@@ -491,7 +502,9 @@ export function JobBroadcastModal({
         );
         saveHistory(updated);
         setActionFeedbackMsg(
-          `✅ Marcado como tomado por ${takenByCleaner.trim() || "Assigned"}. No se envió SMS.`
+          isEn
+            ? `✅ Marked as taken by ${takenByCleaner.trim() || "Assigned"}. No SMS sent.`
+            : `✅ Marcado como tomado por ${takenByCleaner.trim() || "Assigned"}. No se envió SMS.`
         );
       }
 
@@ -1273,10 +1286,14 @@ export function JobBroadcastModal({
                     />
                     <div className="text-[11px] leading-snug">
                       <span className="font-semibold text-foreground block">
-                        Enviar SMS "Ya No Disponible" a los demás cleaners
+                        {isEn
+                          ? 'Send "No Longer Available" SMS to other cleaners'
+                          : 'Enviar SMS "Ya No Disponible" a los demás cleaners'}
                       </span>
                       <span className="text-muted-foreground">
-                        Notifica a los otros cleaners que el {actionJob.serviceType} en {actionJob.city} ya fue asignado.
+                        {isEn
+                          ? `Notifies other cleaners that the ${actionJob.serviceType} in ${actionJob.city} has been assigned.`
+                          : `Notifica a los otros cleaners que el ${actionJob.serviceType} en ${actionJob.city} ya fue asignado.`}
                       </span>
                     </div>
                   </label>
@@ -1294,7 +1311,9 @@ export function JobBroadcastModal({
                     return willReceive.length > 0 ? (
                       <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-2.5 text-[11px] space-y-1">
                         <p className="font-semibold text-emerald-700 dark:text-emerald-400">
-                          📲 SMS se enviará a {willReceive.length} cleaner{willReceive.length !== 1 ? "s" : ""}:
+                          📲 {isEn
+                            ? `SMS will be sent to ${willReceive.length} cleaner${willReceive.length !== 1 ? "s" : ""}:`
+                            : `SMS se enviará a ${willReceive.length} cleaner${willReceive.length !== 1 ? "s" : ""}:`}
                         </p>
                         <ul className="space-y-0.5 text-muted-foreground">
                           {willReceive.map((r) => (
@@ -1304,7 +1323,9 @@ export function JobBroadcastModal({
                       </div>
                     ) : (
                       <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-                        ⚠️ No quedan otros cleaners a quienes notificar en este broadcast.
+                        {isEn
+                          ? "⚠️ No other cleaners left to notify in this broadcast."
+                          : "⚠️ No quedan otros cleaners a quienes notificar en este broadcast."}
                       </div>
                     );
                   })()}

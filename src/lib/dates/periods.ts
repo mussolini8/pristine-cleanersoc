@@ -44,19 +44,30 @@ export function startOfWeek(date: Date) {
   return start;
 }
 
-export function getCurrentWeekPeriod(anchor: string | Date = new Date()): PayrollPeriodRange {
+export function getCurrentWeekPeriod(anchor: string | Date = new Date(), lang: "en" | "es" = "en"): PayrollPeriodRange {
   const anchorDate = anchor instanceof Date ? anchor : parseDateOnly(anchor) ?? new Date();
   const start = startOfWeek(anchorDate);
-  return { start: formatDateOnly(start), end: formatDateOnly(addDays(start, 6)), label: "This week" };
+  return {
+    start: formatDateOnly(start),
+    end: formatDateOnly(addDays(start, 6)),
+    label: lang === "es" ? "Esta semana" : "This week",
+  };
 }
 
-export function getEvery15DaysPeriod(anchor: string | Date = new Date()): PayrollPeriodRange {
+export function getEvery15DaysPeriod(anchor: string | Date = new Date(), lang: "en" | "es" = "en"): PayrollPeriodRange {
   const anchorDate = anchor instanceof Date ? anchor : parseDateOnly(anchor) ?? new Date();
   const year = anchorDate.getFullYear();
   const month = anchorDate.getMonth();
   const start = anchorDate.getDate() <= 15 ? new Date(year, month, 1) : new Date(year, month, 16);
   const end = anchorDate.getDate() <= 15 ? new Date(year, month, 15) : new Date(year, month + 1, 0);
-  const label = anchorDate.getDate() <= 15 ? "1st - 15th of Month" : "16th - End of Month";
+  const label =
+    anchorDate.getDate() <= 15
+      ? lang === "es"
+        ? "1 al 15 del mes"
+        : "1st - 15th of Month"
+      : lang === "es"
+      ? "16 a fin de mes"
+      : "16th - End of Month";
   return { start: formatDateOnly(start), end: formatDateOnly(end), label };
 }
 
@@ -64,30 +75,45 @@ export type QuincenaInfo = {
   isQuincena: boolean;
   type: "15th" | "month_end" | "both" | null;
   label: string;
+  labelEn: string;
+  labelEs: string;
 };
 
-export function checkQuincenaPeriod(mode: PayrollPeriodMode, start: string, end: string): QuincenaInfo {
+export function checkQuincenaPeriod(
+  mode: PayrollPeriodMode,
+  start: string,
+  end: string,
+  lang: "en" | "es" = "en"
+): QuincenaInfo {
   if (mode === "biweekly") {
     const startDate = parseDateOnly(start);
     const isFirstHalf = startDate ? startDate.getDate() <= 15 : true;
+    const labelEn = isFirstHalf ? "15th of month" : "End of month";
+    const labelEs = isFirstHalf ? "15 de mes" : "Fin de mes";
     return {
       isQuincena: true,
       type: isFirstHalf ? "15th" : "month_end",
-      label: isFirstHalf ? "15 de mes" : "Fin de mes",
+      label: lang === "es" ? labelEs : labelEn,
+      labelEn,
+      labelEs,
     };
   }
 
   if (mode === "month") {
+    const labelEn = "Full month (2 pay periods)";
+    const labelEs = "Mes completo (2 quincenas)";
     return {
       isQuincena: true,
       type: "both",
-      label: "Mes completo (2 quincenas)",
+      label: lang === "es" ? labelEs : labelEn,
+      labelEn,
+      labelEs,
     };
   }
 
   const startDate = parseDateOnly(start);
   const endDate = parseDateOnly(end);
-  if (!startDate || !endDate) return { isQuincena: false, type: null, label: "" };
+  if (!startDate || !endDate) return { isQuincena: false, type: null, label: "", labelEn: "", labelEs: "" };
 
   let contains15th = false;
   let containsMonthEnd = false;
@@ -102,15 +128,21 @@ export function checkQuincenaPeriod(mode: PayrollPeriodMode, start: string, end:
   }
 
   if (contains15th && containsMonthEnd) {
-    return { isQuincena: true, type: "both", label: "Quincena 15 y Fin de mes" };
+    const labelEn = "15th & End of month";
+    const labelEs = "Quincena 15 y Fin de mes";
+    return { isQuincena: true, type: "both", label: lang === "es" ? labelEs : labelEn, labelEn, labelEs };
   }
   if (contains15th) {
-    return { isQuincena: true, type: "15th", label: "Quincena del 15" };
+    const labelEn = "15th cutoff";
+    const labelEs = "Quincena del 15";
+    return { isQuincena: true, type: "15th", label: lang === "es" ? labelEs : labelEn, labelEn, labelEs };
   }
   if (containsMonthEnd) {
-    return { isQuincena: true, type: "month_end", label: "Quincena fin de mes" };
+    const labelEn = "Month-end cutoff";
+    const labelEs = "Quincena fin de mes";
+    return { isQuincena: true, type: "month_end", label: lang === "es" ? labelEs : labelEn, labelEn, labelEs };
   }
-  return { isQuincena: false, type: null, label: "" };
+  return { isQuincena: false, type: null, label: "", labelEn: "", labelEs: "" };
 }
 
 export function getNextBiweeklyAnchor(anchor: string | Date = new Date(), direction: 1 | -1 = 1): string {
@@ -125,29 +157,35 @@ export function getNextBiweeklyAnchor(anchor: string | Date = new Date(), direct
   }
 }
 
-export function getMonthPeriod(anchor: string | Date = new Date()): PayrollPeriodRange {
+export function getMonthPeriod(anchor: string | Date = new Date(), lang: "en" | "es" = "en"): PayrollPeriodRange {
   const anchorDate = anchor instanceof Date ? anchor : parseDateOnly(anchor) ?? new Date();
   return {
     start: formatDateOnly(new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1)),
     end: formatDateOnly(new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0)),
-    label: "This month",
+    label: lang === "es" ? "Este mes" : "This month",
   };
 }
 
-export function getCustomPeriod(start: string, end: string, label = "Custom period"): PayrollPeriodRange {
+export function getCustomPeriod(start: string, end: string, label?: string, lang: "en" | "es" = "en"): PayrollPeriodRange {
+  const resolvedLabel = label ?? (lang === "es" ? "Período personalizado" : "Custom period");
   const normalizedStart = normalizeDateOnly(start);
   const normalizedEnd = normalizeDateOnly(end);
-  if (!normalizedStart || !normalizedEnd) return getCurrentWeekPeriod();
+  if (!normalizedStart || !normalizedEnd) return getCurrentWeekPeriod(new Date(), lang);
   return normalizedStart <= normalizedEnd
-    ? { start: normalizedStart, end: normalizedEnd, label }
-    : { start: normalizedEnd, end: normalizedStart, label };
+    ? { start: normalizedStart, end: normalizedEnd, label: resolvedLabel }
+    : { start: normalizedEnd, end: normalizedStart, label: resolvedLabel };
 }
 
-export function getPayrollPeriod(mode: PayrollPeriodMode, anchor: string | Date = new Date(), custom?: { start?: string; end?: string }) {
-  if (mode === "custom") return getCustomPeriod(custom?.start ?? "", custom?.end ?? "");
-  if (mode === "biweekly") return getEvery15DaysPeriod(anchor);
-  if (mode === "month") return getMonthPeriod(anchor);
-  return getCurrentWeekPeriod(anchor);
+export function getPayrollPeriod(
+  mode: PayrollPeriodMode,
+  anchor: string | Date = new Date(),
+  custom?: { start?: string; end?: string },
+  lang: "en" | "es" = "en"
+) {
+  if (mode === "custom") return getCustomPeriod(custom?.start ?? "", custom?.end ?? "", undefined, lang);
+  if (mode === "biweekly") return getEvery15DaysPeriod(anchor, lang);
+  if (mode === "month") return getMonthPeriod(anchor, lang);
+  return getCurrentWeekPeriod(anchor, lang);
 }
 
 export function getPeriodRange(mode: Exclude<PayrollPeriodMode, "custom">, anchorKey: string) {

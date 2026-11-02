@@ -183,7 +183,11 @@ export function AiSopCopilotModal({
       recognition.onerror = (event: any) => {
         console.warn("Speech recognition error:", event.error);
         if (event.error === "not-allowed") {
-          setError("Permiso de micrófono denegado. Permite el acceso al micrófono en tu navegador.");
+          setError(
+            isEn
+              ? "Microphone permission denied. Please allow microphone access in your browser."
+              : "Permiso de micrófono denegado. Permite el acceso al micrófono en tu navegador."
+          );
         }
         setIsListening(false);
       };
@@ -196,7 +200,10 @@ export function AiSopCopilotModal({
       recognition.start();
     } catch (err: any) {
       console.error("Error starting speech recognition:", err);
-      setError("No se pudo iniciar el micrófono: " + (err.message || String(err)));
+      setError(
+        (isEn ? "Could not start microphone: " : "No se pudo iniciar el micrófono: ") +
+          (err.message || String(err))
+      );
       setIsListening(false);
     }
   };
@@ -266,27 +273,48 @@ export function AiSopCopilotModal({
         data = await res.json();
       } catch {
         if (res.status === 413) {
-          throw new Error("La solicitud es demasiado grande. Intenta reducir las imágenes o el contenido.");
+          throw new Error(
+            isEn
+              ? "Request is too large. Try reducing images or content."
+              : "La solicitud es demasiado grande. Intenta reducir las imágenes o el contenido."
+          );
         }
         if (res.status === 504) {
-          throw new Error("El servidor de IA tardó demasiado en responder (Tiempo de espera agotado - 504). Por favor intenta de nuevo.");
+          throw new Error(
+            isEn
+              ? "AI server timed out (504). Please try again."
+              : "El servidor de IA tardó demasiado en responder (Tiempo de espera agotado - 504). Por favor intenta de nuevo."
+          );
         }
         if (res.status === 502 || res.status === 503) {
-          throw new Error(`El servicio de IA no está disponible en este momento (${res.status}). Por favor intenta en unos instantes.`);
+          throw new Error(
+            isEn
+              ? `AI service is currently unavailable (${res.status}). Please try again in a moment.`
+              : `El servicio de IA no está disponible en este momento (${res.status}). Por favor intenta en unos instantes.`
+          );
         }
-        throw new Error(`Error del servidor (${res.status}). Por favor intenta nuevamente.`);
+        throw new Error(
+          isEn
+            ? `Server error (${res.status}). Please try again.`
+            : `Error del servidor (${res.status}). Por favor intenta nuevamente.`
+        );
       }
 
       if (!res.ok || !data.success) {
         if (data.needsApiKey) {
           setShowApiKeyInput(true);
         }
-        throw new Error(data.error || "Ocurrió un error al procesar con Gemini.");
+        throw new Error(
+          data.error ||
+            (isEn ? "An error occurred while processing with Gemini." : "Ocurrió un error al procesar con Gemini.")
+        );
       }
 
       setResponse(data.data);
     } catch (err: any) {
-      setError(err?.message || "Error al conectar con el Asistente IA.");
+      setError(
+        err?.message || (isEn ? "Error connecting to AI Assistant." : "Error al conectar con el Asistente IA.")
+      );
     } finally {
       setLoading(false);
     }
@@ -355,12 +383,14 @@ export function AiSopCopilotModal({
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Error al enviar SMS por Quo.");
+        throw new Error(data.error || (isEn ? "Error sending SMS via Quo." : "Error al enviar SMS por Quo."));
       }
 
-      setSmsSentSuccess(data.message || `SMS enviado con éxito a ${phone} vía Quo.`);
+      setSmsSentSuccess(
+        data.message || (isEn ? `SMS sent successfully to ${phone} via Quo.` : `SMS enviado con éxito a ${phone} vía Quo.`)
+      );
     } catch (err: any) {
-      setError(err?.message || "Error al conectar con el servicio de Quo.");
+      setError(err?.message || (isEn ? "Error connecting to Quo service." : "Error al conectar con el servicio de Quo."));
     } finally {
       setIsSendingSms(false);
     }

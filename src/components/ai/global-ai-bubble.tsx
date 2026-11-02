@@ -313,7 +313,7 @@ export function GlobalAiBubble() {
 
       recognition.onerror = (event: any) => {
         if (event.error === "not-allowed") {
-          setError("Permiso de micrófono denegado en el navegador.");
+          setError(isEn ? "Microphone permission denied in browser." : "Permiso de micrófono denegado en el navegador.");
         }
         setIsListening(false);
       };
@@ -325,7 +325,7 @@ export function GlobalAiBubble() {
       recognitionRef.current = recognition;
       recognition.start();
     } catch (err: any) {
-      setError("No se pudo iniciar el micrófono: " + (err.message || String(err)));
+      setError((isEn ? "Could not start microphone: " : "No se pudo iniciar el micrófono: ") + (err.message || String(err)));
       setIsListening(false);
     }
   };
@@ -341,7 +341,11 @@ export function GlobalAiBubble() {
 
     // Guard: max 5 images at a time
     if (images.length > 5) {
-      setError(`Tienes ${images.length} imágenes. El límite es 5 por solicitud. Elimina algunas y vuelve a intentarlo.`);
+      setError(
+        isEn
+          ? `You have ${images.length} images. Limit is 5 per request. Please remove some and try again.`
+          : `Tienes ${images.length} imágenes. El límite es 5 por solicitud. Elimina algunas y vuelve a intentarlo.`
+      );
       return;
     }
 
@@ -386,19 +390,37 @@ export function GlobalAiBubble() {
         data = await res.json();
       } catch {
         if (res.status === 413) {
-          throw new Error("La solicitud es demasiado grande. Intenta reducir las imágenes o el contenido.");
+          throw new Error(
+            isEn
+              ? "Request is too large. Try reducing images or content."
+              : "La solicitud es demasiado grande. Intenta reducir las imágenes o el contenido."
+          );
         }
         if (res.status === 504) {
-          throw new Error("El servidor de IA tardó demasiado en responder (Tiempo de espera agotado - 504). Por favor intenta de nuevo.");
+          throw new Error(
+            isEn
+              ? "AI server timed out (504). Please try again."
+              : "El servidor de IA tardó demasiado en responder (Tiempo de espera agotado - 504). Por favor intenta de nuevo."
+          );
         }
         if (res.status === 502 || res.status === 503) {
-          throw new Error(`El servicio de IA no está disponible en este momento (${res.status}). Por favor intenta en unos instantes.`);
+          throw new Error(
+            isEn
+              ? `AI service is currently unavailable (${res.status}). Please try again in a moment.`
+              : `El servicio de IA no está disponible en este momento (${res.status}). Por favor intenta en unos instantes.`
+          );
         }
-        throw new Error(`Error del servidor (${res.status}). Por favor intenta nuevamente.`);
+        throw new Error(
+          isEn
+            ? `Server error (${res.status}). Please try again.`
+            : `Error del servidor (${res.status}). Por favor intenta nuevamente.`
+        );
       }
 
       if (!res.ok) {
-        throw new Error(data.error || "Ocurrió un error al procesar la instrucción.");
+        throw new Error(
+          data.error || (isEn ? "An error occurred while processing instruction." : "Ocurrió un error al procesar la instrucción.")
+        );
       }
 
       let parsedData = data.data;
@@ -787,12 +809,14 @@ export function GlobalAiBubble() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Error al enviar SMS por Quo.");
+        throw new Error(data.error || (isEn ? "Error sending SMS via Quo." : "Error al enviar SMS por Quo."));
       }
 
-      setSmsSentSuccess(data.message || `SMS enviado exitosamente a ${phone} vía Quo.`);
+      setSmsSentSuccess(
+        data.message || (isEn ? `SMS sent successfully to ${phone} via Quo.` : `SMS enviado exitosamente a ${phone} vía Quo.`)
+      );
     } catch (err: any) {
-      setError(err?.message || "Error al conectar con el servicio de Quo.");
+      setError(err?.message || (isEn ? "Error connecting to Quo service." : "Error al conectar con el servicio de Quo."));
     } finally {
       setIsSendingSms(false);
     }
@@ -806,12 +830,14 @@ export function GlobalAiBubble() {
           <button
             onClick={() => setIsOpen(true)}
             className="group flex items-center gap-2 sm:gap-2.5 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 px-3.5 py-2 sm:px-4 sm:py-2.5 text-white shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-emerald-500/25 active:scale-95 border-0 cursor-pointer"
-            title="Abrir Pristiner Copiloto IA"
+            title={isEn ? "Open Pristiner AI Copilot" : "Abrir Pristiner Copiloto IA"}
           >
             <div className="relative flex size-5 sm:size-6 items-center justify-center shrink-0">
               <img src="/pristiner-logo-white.png" alt="Pristiner" className="size-4 sm:size-5 object-contain" />
             </div>
-            <span className="text-xs font-black tracking-wide pr-0.5">Pristiner Copiloto</span>
+            <span className="text-xs font-black tracking-wide pr-0.5">
+              {isEn ? "Pristiner Copilot" : "Pristiner Copiloto"}
+            </span>
           </button>
         </div>
       )}
@@ -1117,7 +1143,7 @@ export function GlobalAiBubble() {
               {undoSuccessMsg && (
                 <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-primary">
                   <div className="font-bold flex items-center gap-1.5 text-[11px]">
-                    <RotateCcw className="size-3.5 text-primary" /> Cambio Revertido con Éxito
+                    <RotateCcw className="size-3.5 text-primary" /> {isEn ? "Change Reverted Successfully" : "Cambio Revertido con Éxito"}
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed font-medium">{undoSuccessMsg}</p>
                 </div>
@@ -1127,7 +1153,7 @@ export function GlobalAiBubble() {
               {canUndo && (
                 <div className="flex items-center justify-between rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-xs">
                   <span className="text-foreground font-medium text-[11px] flex items-center gap-1.5">
-                    <Sparkles className="size-3.5 text-primary" /> ¿Deseas revertir el último cambio aplicado?
+                    <Sparkles className="size-3.5 text-primary" /> {isEn ? "Do you want to revert the last applied change?" : "¿Deseas revertir el último cambio aplicado?"}
                   </span>
                   <Button
                     size="sm"
@@ -1137,7 +1163,7 @@ export function GlobalAiBubble() {
                     className="h-7 text-xs font-bold gap-1 border-primary/40 text-primary hover:bg-primary/10 cursor-pointer"
                   >
                     {isUndoing ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
-                    {isUndoing ? "Revirtiendo..." : "↩ Deshacer"}
+                    {isUndoing ? (isEn ? "Reverting..." : "Revirtiendo...") : (isEn ? "↩ Undo" : "↩ Deshacer")}
                   </Button>
                 </div>
               )}
@@ -1146,13 +1172,13 @@ export function GlobalAiBubble() {
               {conversation.length > 2 && (
                 <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 space-y-1.5">
                   <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    <span>Historial de la Sesión ({conversation.length} mensajes)</span>
+                    <span>{isEn ? `Session History (${conversation.length} messages)` : `Historial de la Sesión (${conversation.length} mensajes)`}</span>
                     <button
                       type="button"
                       onClick={handleResetConversation}
                       className="text-primary hover:underline cursor-pointer lowercase font-medium"
                     >
-                      reiniciar
+                      {isEn ? "reset" : "reiniciar"}
                     </button>
                   </div>
                   <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
@@ -1166,7 +1192,7 @@ export function GlobalAiBubble() {
                         }`}
                       >
                         <span className="font-bold opacity-60 block text-[9px]">
-                          {msg.role === "user" ? "Tú" : "Copiloto"} · {msg.timestamp}
+                          {msg.role === "user" ? (isEn ? "You" : "Tú") : (isEn ? "Copilot" : "Copiloto")} · {msg.timestamp}
                         </span>
                         <p className="line-clamp-2">{msg.text}</p>
                       </div>
@@ -1191,12 +1217,12 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-amber-900 dark:text-amber-200 space-y-2">
                       <div className="flex items-center gap-1.5 font-bold text-xs">
                         <AlertTriangle className="size-4 text-amber-600" />
-                        Alerta de Conflicto de Horario (Reminder)
+                        {isEn ? "Schedule Conflict Alert (Reminder)" : "Alerta de Conflicto de Horario (Reminder)"}
                       </div>
                       <p className="text-[11px] leading-relaxed">{response.scheduleConflictWarning.warningMessage}</p>
                       {response.scheduleConflictWarning.suggestedResolution && (
                         <p className="text-[11px] text-muted-foreground italic">
-                          Sugerencia: {response.scheduleConflictWarning.suggestedResolution}
+                          {isEn ? "Suggestion:" : "Sugerencia:"} {response.scheduleConflictWarning.suggestedResolution}
                         </p>
                       )}
                     </div>
@@ -1227,10 +1253,12 @@ export function GlobalAiBubble() {
                           </span>
                           <div>
                             <span className="text-xs font-black text-emerald-900 dark:text-emerald-100 flex items-center gap-1.5">
-                              ⚡ PODER SUPREMO OPERACIONAL
+                              ⚡ {isEn ? "OPERATIONAL SUPREME POWER" : "PODER SUPREMO OPERACIONAL"}
                             </span>
                             <p className="text-[10px] text-muted-foreground">
-                              Aplica todas las modificaciones detectadas directamente a la base de datos
+                              {isEn
+                                ? "Applies all detected modifications directly to the database"
+                                : "Aplica todas las modificaciones detectadas directamente a la base de datos"}
                             </p>
                           </div>
                         </div>
@@ -1247,7 +1275,9 @@ export function GlobalAiBubble() {
                           ) : (
                             <Sparkles className="size-3.5" />
                           )}
-                          {Object.keys(savedActions).length > 0 ? "Aplicado con Éxito" : "⚡ Aplicar Todo"}
+                          {Object.keys(savedActions).length > 0
+                            ? (isEn ? "Applied Successfully" : "Aplicado con Éxito")
+                            : (isEn ? "⚡ Apply All" : "⚡ Aplicar Todo")}
                         </Button>
                       </div>
                     </div>
@@ -1258,7 +1288,7 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <Clock className="size-3.5 text-primary" /> Reemplazo / Turno Detectado
+                          <Clock className="size-3.5 text-primary" /> {isEn ? "Replacement / Shift Detected" : "Reemplazo / Turno Detectado"}
                         </span>
                         <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
                           {response.occurrenceOverride.date}
@@ -1267,15 +1297,15 @@ export function GlobalAiBubble() {
 
                       <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
                         <div className="rounded-lg bg-muted/40 p-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Cuenta</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Account" : "Cuenta"}</span>
                           <p className="font-bold text-foreground mt-0.5">{response.occurrenceOverride.accountName}</p>
                         </div>
                         <div className="rounded-lg bg-muted/40 p-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Equipo Asignado</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Assigned Team" : "Equipo Asignado"}</span>
                           <p className="font-bold text-foreground mt-0.5">{response.occurrenceOverride.cleanerTeam}</p>
                         </div>
                         <div className="rounded-lg bg-muted/40 p-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Horas</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Hours" : "Horas"}</span>
                           <p className="font-black text-foreground mt-0.5">{response.occurrenceOverride.hours}h</p>
                         </div>
                       </div>
@@ -1599,7 +1629,7 @@ export function GlobalAiBubble() {
                     <div className="rounded-xl border border-border/80 bg-card p-3.5 shadow-sm space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
-                          <Calendar className="size-3.5 text-primary" /> Schedule Detectado en Imagen
+                          <Calendar className="size-3.5 text-primary" /> {isEn ? "Schedule Detected in Image" : "Schedule Detectado en Imagen"}
                         </span>
                         {response.ingestedSchedule.frequency && (
                           <Badge variant="outline" className="border-primary/30 text-primary text-[10px] font-bold">
@@ -1611,7 +1641,7 @@ export function GlobalAiBubble() {
                       {/* Main fields grid */}
                       <div className="grid grid-cols-2 gap-2 text-[11px]">
                         <div className="rounded-lg bg-muted/40 p-2 col-span-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Cliente</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Client" : "Cliente"}</span>
                           <p className="font-black text-foreground mt-0.5">{response.ingestedSchedule.clientName}</p>
                           {response.ingestedSchedule.buildingName && response.ingestedSchedule.buildingName !== response.ingestedSchedule.clientName && (
                             <p className="text-muted-foreground text-[10px]">{response.ingestedSchedule.buildingName}</p>
@@ -1620,33 +1650,33 @@ export function GlobalAiBubble() {
 
                         {response.ingestedSchedule.address && (
                           <div className="rounded-lg bg-muted/40 p-2 col-span-2">
-                            <span className="text-[9px] uppercase font-bold text-muted-foreground">Dirección</span>
+                            <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Address" : "Dirección"}</span>
                             <p className="font-medium text-foreground mt-0.5">{response.ingestedSchedule.address}{response.ingestedSchedule.city ? `, ${response.ingestedSchedule.city}` : ""}</p>
                           </div>
                         )}
 
                         {response.ingestedSchedule.recurringRule && (
                           <div className="rounded-lg bg-muted/40 p-2 col-span-2">
-                            <span className="text-[9px] uppercase font-bold text-muted-foreground">Recurrencia</span>
+                            <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Recurrence" : "Recurrencia"}</span>
                             <p className="font-medium text-foreground mt-0.5">{response.ingestedSchedule.recurringRule}</p>
                           </div>
                         )}
 
                         <div className="rounded-lg bg-muted/40 p-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Horario</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Schedule" : "Horario"}</span>
                           <p className="font-bold text-foreground mt-0.5">
                             {response.ingestedSchedule.scheduledTime || "—"}{response.ingestedSchedule.endTime ? ` – ${response.ingestedSchedule.endTime}` : ""}
                           </p>
                         </div>
 
                         <div className="rounded-lg bg-muted/40 p-2">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground">Presupuesto</span>
+                          <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Budget" : "Presupuesto"}</span>
                           <p className="font-black text-foreground mt-0.5">{response.ingestedSchedule.budgetHours ? `${response.ingestedSchedule.budgetHours} hrs` : "—"}</p>
                         </div>
 
                         {response.ingestedSchedule.assignedCleaner && (
                           <div className="rounded-lg bg-muted/40 p-2 col-span-2">
-                            <span className="text-[9px] uppercase font-bold text-muted-foreground">Cleaner Asignada</span>
+                            <span className="text-[9px] uppercase font-bold text-muted-foreground">{isEn ? "Assigned Cleaner" : "Cleaner Asignada"}</span>
                             <p className="font-bold text-foreground mt-0.5">{response.ingestedSchedule.assignedCleaner}</p>
                           </div>
                         )}
@@ -1656,7 +1686,7 @@ export function GlobalAiBubble() {
                       {response.ingestedSchedule.accessInstructions && (
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 p-2.5 space-y-1.5">
                           <span className="text-[9px] uppercase font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                            🔑 Acceso / Instrucciones de Entrada
+                            🔑 {isEn ? "Access / Entry Instructions" : "Acceso / Instrucciones de Entrada"}
                           </span>
                           <div className="flex flex-wrap gap-1.5">
                             {response.ingestedSchedule.accessInstructions.suite && (
@@ -1666,12 +1696,12 @@ export function GlobalAiBubble() {
                             )}
                             {response.ingestedSchedule.accessInstructions.floor && (
                               <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
-                                Piso {response.ingestedSchedule.accessInstructions.floor}
+                                {isEn ? "Floor" : "Piso"} {response.ingestedSchedule.accessInstructions.floor}
                               </span>
                             )}
                             {response.ingestedSchedule.accessInstructions.elevator && (
                               <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
-                                🛗 Elevador
+                                🛗 {isEn ? "Elevator" : "Elevador"}
                               </span>
                             )}
                             {response.ingestedSchedule.accessInstructions.parking && (
@@ -1706,7 +1736,7 @@ export function GlobalAiBubble() {
                       {/* Template info */}
                       {response.ingestedSchedule.template && (
                         <p className="text-[10px] text-muted-foreground italic">
-                          Plantilla: {response.ingestedSchedule.template}
+                          {isEn ? "Template:" : "Plantilla:"} {response.ingestedSchedule.template}
                         </p>
                       )}
 
@@ -1791,9 +1821,21 @@ export function GlobalAiBubble() {
                               const daysList = (mod.newDays && mod.newDays.length > 0)
                                 ? mod.newDays.join(", ")
                                 : (mod.daysOfWeek && mod.daysOfWeek.length > 0)
-                                ? mod.daysOfWeek.map((d: number) => ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d] || `Día ${d}`).join(", ")
+                                ? mod.daysOfWeek
+                                    .map(
+                                      (d: number) =>
+                                        (isEn
+                                          ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+                                          : ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"])[d] ||
+                                        (isEn ? `Day ${d}` : `Día ${d}`)
+                                    )
+                                    .join(", ")
                                 : startDate
-                                ? ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][new Date(startDate + "T12:00:00").getDay()]
+                                ? (isEn
+                                    ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+                                    : ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"])[
+                                    new Date(startDate + "T12:00:00").getDay()
+                                  ]
                                 : null;
 
                               return (

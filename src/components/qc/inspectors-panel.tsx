@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useLanguage } from "@/components/providers/language-provider";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,7 +67,7 @@ const PRESET_COLORS = [
 const FREQ_TYPES = ["weekly", "biweekly", "daily", "monthly", "one_off"] as const;
 type FrequencyType = (typeof FREQ_TYPES)[number];
 
-const FREQ_LABELS: Record<FrequencyType, string> = {
+const FREQ_LABELS_EN: Record<FrequencyType, string> = {
   weekly: "Weekly",
   biweekly: "Bi-weekly",
   daily: "Daily",
@@ -74,15 +75,25 @@ const FREQ_LABELS: Record<FrequencyType, string> = {
   one_off: "One-off Date",
 };
 
-const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const FREQ_LABELS_ES: Record<FrequencyType, string> = {
+  weekly: "Semanal",
+  biweekly: "Quincenal",
+  daily: "Diario",
+  monthly: "Mensual",
+  one_off: "Fecha única",
+};
+
+const DAYS_OF_WEEK_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS_OF_WEEK_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
-function formatDaysOfWeek(days: number[] | null): string {
+function formatDaysOfWeek(days: number[] | null, isEn: boolean): string {
   if (!days || days.length === 0) return "—";
-  return days.map((d) => DAYS_OF_WEEK[d]).join(", ");
+  const labels = isEn ? DAYS_OF_WEEK_EN : DAYS_OF_WEEK_ES;
+  return days.map((d) => labels[d]).join(", ");
 }
 
 // ─────────────────────────────────────────────
@@ -221,6 +232,7 @@ function InspectorModal({
   onSaved: (inspector: QCInspector) => void;
   onDeleted?: (id: string) => void;
 }) {
+  const { isEn } = useLanguage();
   const supabase = useMemo(() => createClient(), []);
   const [form, setForm] = useState<InspectorFormState>(DEFAULT_FORM);
   const [saving, setSaving] = useState(false);
@@ -250,7 +262,11 @@ function InspectorModal({
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim() || !form.email.trim()) {
-      setError("Name and email are required.");
+      setError(
+        isEn
+          ? "Name and email are required."
+          : "El nombre y el correo electrónico son obligatorios.",
+      );
       return;
     }
     setSaving(true);
@@ -289,7 +305,10 @@ function InspectorModal({
 
     setSaving(false);
     if (err || !data) {
-      setError(err?.message ?? "Failed to save inspector.");
+      setError(
+        err?.message ??
+          (isEn ? "Failed to save inspector." : "No se pudo guardar el inspector."),
+      );
       return;
     }
     onSaved(data);
@@ -297,7 +316,15 @@ function InspectorModal({
   }
 
   async function handleDelete() {
-    if (!existing || !window.confirm(`Are you sure you want to delete ${existing.name}? This will also delete all their assignments.`)) return;
+    if (
+      !existing ||
+      !window.confirm(
+        isEn
+          ? `Are you sure you want to delete ${existing.name}? This will also delete all their assignments.`
+          : `¿Estás seguro de que deseas eliminar a ${existing.name}? Esto también eliminará todas sus asignaciones.`,
+      )
+    )
+      return;
     setSaving(true);
     setError(null);
     try {
@@ -307,14 +334,20 @@ function InspectorModal({
         .eq("id", existing.id);
         
       if (err) {
-        setError(err.message ?? "Failed to delete inspector.");
+        setError(
+          err.message ??
+            (isEn ? "Failed to delete inspector." : "No se pudo eliminar el inspector."),
+        );
         return;
       }
       
       onDeleted?.(existing.id);
       onClose();
     } catch (err: any) {
-      setError(err?.message ?? "Error deleting inspector.");
+      setError(
+        err?.message ??
+          (isEn ? "Error deleting inspector." : "Error al eliminar el inspector."),
+      );
     } finally {
       setSaving(false);
     }
@@ -325,11 +358,18 @@ function InspectorModal({
       <form onSubmit={handleSave}>
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
           <h2 className="text-base font-bold text-foreground">
-            {existing ? "Edit Inspector" : "Add Inspector"}
+            {existing
+              ? isEn
+                ? "Edit Inspector"
+                : "Editar Inspector"
+              : isEn
+                ? "Add Inspector"
+                : "Agregar Inspector"}
           </h2>
           <button
             type="button"
             onClick={onClose}
+            aria-label={isEn ? "Close" : "Cerrar"}
             className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground"
           >
             <X className="size-4" />
@@ -345,32 +385,32 @@ function InspectorModal({
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Name *
+              {isEn ? "Name *" : "Nombre *"}
             </label>
             <Input
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              placeholder="Jane Smith"
+              placeholder={isEn ? "Jane Smith" : "María Pérez"}
               required
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Email *
+              {isEn ? "Email *" : "Correo electrónico *"}
             </label>
             <Input
               type="email"
               value={form.email}
               onChange={(e) => set("email", e.target.value)}
-              placeholder="jane@example.com"
+              placeholder={isEn ? "jane@example.com" : "maria@ejemplo.com"}
               required
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Phone
+              {isEn ? "Phone" : "Teléfono"}
             </label>
             <Input
               type="tel"
@@ -382,7 +422,7 @@ function InspectorModal({
 
           <div className="flex flex-col gap-2">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Color
+              {isEn ? "Color" : "Color"}
             </label>
             <ColorPicker
               value={form.color}
@@ -392,7 +432,7 @@ function InspectorModal({
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Status
+              {isEn ? "Status" : "Estado"}
             </label>
             <div className="flex gap-2">
               {(["active", "inactive"] as const).map((s) => (
@@ -401,7 +441,7 @@ function InspectorModal({
                   type="button"
                   onClick={() => set("status", s)}
                   className={cn(
-                    "flex-1 rounded-xl border px-3 py-2 text-sm font-semibold capitalize transition-colors",
+                    "flex-1 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors",
                     form.status === s
                       ? s === "active"
                         ? "border-primary/30 bg-primary/10 text-primary"
@@ -409,7 +449,13 @@ function InspectorModal({
                       : "border-border/60 bg-card/60 text-muted-foreground hover:bg-muted/60",
                   )}
                 >
-                  {s}
+                  {s === "active"
+                    ? isEn
+                      ? "Active"
+                      : "Activo"
+                    : isEn
+                      ? "Inactive"
+                      : "Inactivo"}
                 </button>
               ))}
             </div>
@@ -417,12 +463,12 @@ function InspectorModal({
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Notes
+              {isEn ? "Notes" : "Notas"}
             </label>
             <textarea
               value={form.notes}
               onChange={(e) => set("notes", e.target.value)}
-              placeholder="Optional notes…"
+              placeholder={isEn ? "Optional notes…" : "Notas opcionales…"}
               rows={3}
               className="flex w-full rounded-xl border border-input bg-card/80 px-3.5 py-2.5 text-sm font-medium ring-offset-background placeholder:text-muted-foreground focus-visible:border-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/15"
             />
@@ -437,7 +483,7 @@ function InspectorModal({
                 onClick={handleDelete}
                 disabled={saving}
               >
-                <Trash2 className="size-4" /> Delete
+                <Trash2 className="size-4" /> {isEn ? "Delete" : "Eliminar"}
               </Button>
             )}
             <Button type="submit" disabled={saving} className="flex-1 cursor-pointer">
@@ -446,7 +492,17 @@ function InspectorModal({
               ) : (
                 <Check className="size-4" />
               )}
-              {saving ? "Saving…" : existing ? "Save Changes" : "Add Inspector"}
+              {saving
+                ? isEn
+                  ? "Saving…"
+                  : "Guardando…"
+                : existing
+                  ? isEn
+                    ? "Save Changes"
+                    : "Guardar Cambios"
+                  : isEn
+                    ? "Add Inspector"
+                    : "Agregar Inspector"}
             </Button>
           </div>
         </div>
@@ -496,6 +552,10 @@ function ScheduleAssignForm({
   onSaved: (row: QCScheduleRow) => void;
   onCancel: () => void;
 }) {
+  const { isEn } = useLanguage();
+  const freqLabels = isEn ? FREQ_LABELS_EN : FREQ_LABELS_ES;
+  const daysOfWeek = isEn ? DAYS_OF_WEEK_EN : DAYS_OF_WEEK_ES;
+
   const supabase = useMemo(() => createClient(), []);
   const [form, setForm] = useState<ScheduleFormState>(DEFAULT_SCHED_FORM);
   const [saving, setSaving] = useState(false);
@@ -556,7 +616,9 @@ function ScheduleAssignForm({
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!form.account_name.trim()) {
-      setError("Please select an account.");
+      setError(
+        isEn ? "Please select an account." : "Por favor selecciona una cuenta.",
+      );
       return;
     }
     setSaving(true);
@@ -601,7 +663,10 @@ function ScheduleAssignForm({
 
     setSaving(false);
     if (err || !data) {
-      setError(err?.message ?? "Failed to save schedule.");
+      setError(
+        err?.message ??
+          (isEn ? "Failed to save schedule." : "No se pudo guardar el horario."),
+      );
       return;
     }
     onSaved(data);
@@ -613,7 +678,13 @@ function ScheduleAssignForm({
       className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 p-4"
     >
       <p className="text-xs font-bold uppercase tracking-wider text-primary">
-        {existing ? "Edit Assignment" : "New Assignment"}
+        {existing
+          ? isEn
+            ? "Edit Assignment"
+            : "Editar Asignación"
+          : isEn
+            ? "New Assignment"
+            : "Nueva Asignación"}
       </p>
 
       {error && (
@@ -625,7 +696,7 @@ function ScheduleAssignForm({
       {/* Account selector */}
       <div className="flex flex-col gap-1.5" ref={acctRef}>
         <label className="text-xs font-semibold text-muted-foreground">
-          Account *
+          {isEn ? "Account *" : "Cuenta *"}
         </label>
         <div className="relative">
           <Input
@@ -640,7 +711,7 @@ function ScheduleAssignForm({
               }));
             }}
             onFocus={() => setShowAcctList(true)}
-            placeholder="Search accounts…"
+            placeholder={isEn ? "Search accounts…" : "Buscar cuentas…"}
           />
           <ChevronDown className="pointer-events-none absolute right-3 top-3 size-4 text-muted-foreground" />
           {showAcctList && filteredAccounts.length > 0 && (
@@ -674,7 +745,7 @@ function ScheduleAssignForm({
       {/* Frequency type */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-semibold text-muted-foreground">
-          Frequency
+          {isEn ? "Frequency" : "Frecuencia"}
         </label>
         <select
           value={form.frequency_type}
@@ -688,7 +759,7 @@ function ScheduleAssignForm({
         >
           {FREQ_TYPES.map((ft) => (
             <option key={ft} value={ft}>
-              {FREQ_LABELS[ft]}
+              {freqLabels[ft]}
             </option>
           ))}
         </select>
@@ -698,10 +769,10 @@ function ScheduleAssignForm({
       {showDays && (
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
-            Days of Week
+            {isEn ? "Days of Week" : "Días de la Semana"}
           </label>
           <div className="flex flex-wrap gap-1.5">
-            {DAYS_OF_WEEK.map((label, dow) => (
+            {daysOfWeek.map((label, dow) => (
               <button
                 key={dow}
                 type="button"
@@ -724,11 +795,11 @@ function ScheduleAssignForm({
       {form.frequency_type === "one_off" && (
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
-            Date
+            {isEn ? "Date" : "Fecha"}
           </label>
           <Input
             type="date"
-            lang="en-US"
+            lang={isEn ? "en-US" : "es-US"}
             value={form.effective_start_date}
             onChange={(e) =>
               setForm((f) => ({ ...f, effective_start_date: e.target.value }))
@@ -741,7 +812,7 @@ function ScheduleAssignForm({
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
-            Time
+            {isEn ? "Time" : "Hora"}
           </label>
           <Input
             type="time"
@@ -753,7 +824,7 @@ function ScheduleAssignForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-muted-foreground">
-            Duration (min)
+            {isEn ? "Duration (min)" : "Duración (min)"}
           </label>
           <Input
             type="number"
@@ -772,11 +843,11 @@ function ScheduleAssignForm({
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              Start Date
+              {isEn ? "Start Date" : "Fecha de Inicio"}
             </label>
             <Input
               type="date"
-              lang="en-US"
+              lang={isEn ? "en-US" : "es-US"}
               value={form.effective_start_date}
               onChange={(e) =>
                 setForm((f) => ({ ...f, effective_start_date: e.target.value }))
@@ -785,11 +856,11 @@ function ScheduleAssignForm({
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-muted-foreground">
-              End Date
+              {isEn ? "End Date" : "Fecha de Fin"}
             </label>
             <Input
               type="date"
-              lang="en-US"
+              lang={isEn ? "en-US" : "es-US"}
               value={form.effective_end_date}
               onChange={(e) =>
                 setForm((f) => ({ ...f, effective_end_date: e.target.value }))
@@ -802,12 +873,12 @@ function ScheduleAssignForm({
       {/* Notes */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-semibold text-muted-foreground">
-          Notes
+          {isEn ? "Notes" : "Notas"}
         </label>
         <Input
           value={form.notes}
           onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-          placeholder="Optional notes…"
+          placeholder={isEn ? "Optional notes…" : "Notas opcionales…"}
         />
       </div>
 
@@ -819,7 +890,13 @@ function ScheduleAssignForm({
           ) : (
             <Check className="size-3.5" />
           )}
-          {saving ? "Saving…" : "Save Assignment"}
+          {saving
+            ? isEn
+              ? "Saving…"
+              : "Guardando…"
+            : isEn
+              ? "Save Assignment"
+              : "Guardar Asignación"}
         </Button>
         <Button
           type="button"
@@ -828,7 +905,7 @@ function ScheduleAssignForm({
           onClick={onCancel}
           disabled={saving}
         >
-          Cancel
+          {isEn ? "Cancel" : "Cancelar"}
         </Button>
       </div>
     </form>
@@ -850,6 +927,9 @@ function ScheduleModal({
   inspector: QCInspector | null;
   accounts: CommercialAccountOption[];
 }) {
+  const { isEn } = useLanguage();
+  const freqLabels = isEn ? FREQ_LABELS_EN : FREQ_LABELS_ES;
+
   const supabase = useMemo(() => createClient(), []);
   const [schedules, setSchedules] = useState<QCScheduleRow[]>([]);
   const [loadingSchedules, setLoadingSchedules] = useState(false);
@@ -912,7 +992,7 @@ function ScheduleModal({
       <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-primary">
-            Manage Schedule
+            {isEn ? "Manage Schedule" : "Gestionar Horario"}
           </p>
           <h2 className="text-base font-bold text-foreground">
             {inspector.name}
@@ -921,6 +1001,7 @@ function ScheduleModal({
         <button
           type="button"
           onClick={onClose}
+          aria-label={isEn ? "Close" : "Cerrar"}
           className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground"
         >
           <X className="size-4" />
@@ -941,7 +1022,7 @@ function ScheduleModal({
           </div>
         ) : schedules.length === 0 && !showAddForm ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            No schedules assigned yet.
+            {isEn ? "No schedules assigned yet." : "Aún no hay horarios asignados."}
           </p>
         ) : (
           <div className="flex flex-col divide-y divide-border/50">
@@ -966,9 +1047,9 @@ function ScheduleModal({
                       {row.account_name}
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      {FREQ_LABELS[row.frequency_type as FrequencyType] ?? row.frequency_type}
+                      {freqLabels[row.frequency_type as FrequencyType] ?? row.frequency_type}
                       {row.days_of_week && row.days_of_week.length > 0 && (
-                        <> · {formatDaysOfWeek(row.days_of_week)}</>
+                        <> · {formatDaysOfWeek(row.days_of_week, isEn)}</>
                       )}
                       {row.scheduled_time && (
                         <> · {row.scheduled_time.slice(0, 5)}</>
@@ -978,6 +1059,7 @@ function ScheduleModal({
                   <div className="flex shrink-0 gap-1">
                     <button
                       onClick={() => setEditingRow(row)}
+                      aria-label={isEn ? "Edit" : "Editar"}
                       className="flex size-8 items-center justify-center rounded-lg border border-border/60 bg-card/80 text-muted-foreground hover:text-foreground"
                     >
                       <Edit2 className="size-3.5" />
@@ -985,6 +1067,7 @@ function ScheduleModal({
                     <button
                       onClick={() => handleDelete(row.id)}
                       disabled={deletingId === row.id}
+                      aria-label={isEn ? "Delete" : "Eliminar"}
                       className="flex size-8 items-center justify-center rounded-lg border border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive/10"
                     >
                       {deletingId === row.id ? (
@@ -1018,7 +1101,7 @@ function ScheduleModal({
             onClick={() => setShowAddForm(true)}
           >
             <Plus className="size-4" />
-            Assign Account
+            {isEn ? "Assign Account" : "Asignar Cuenta"}
           </Button>
         )}
       </div>
@@ -1041,6 +1124,8 @@ function InspectorCard({
   onEdit: () => void;
   onManageSchedule: () => void;
 }) {
+  const { isEn } = useLanguage();
+
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
       {/* Top: color + name + status */}
@@ -1061,14 +1146,24 @@ function InspectorCard({
               : "border-border/60 bg-muted text-muted-foreground",
           )}
         >
-          {inspector.status}
+          {inspector.status === "active"
+            ? isEn
+              ? "Active"
+              : "Activo"
+            : isEn
+              ? "Inactive"
+              : "Inactivo"}
         </Badge>
       </div>
 
       {/* Assigned count */}
       <p className="text-xs text-muted-foreground">
         <span className="font-bold text-foreground">{assignedCount}</span>{" "}
-        assigned account{assignedCount !== 1 ? "s" : ""}
+        {isEn
+          ? `assigned account${assignedCount !== 1 ? "s" : ""}`
+          : assignedCount === 1
+            ? "cuenta asignada"
+            : "cuentas asignadas"}
       </p>
 
       {/* Actions */}
@@ -1080,7 +1175,7 @@ function InspectorCard({
           onClick={onEdit}
         >
           <Edit2 className="size-3.5" />
-          Edit
+          {isEn ? "Edit" : "Editar"}
         </Button>
         <Button
           variant="secondary"
@@ -1088,7 +1183,7 @@ function InspectorCard({
           className="flex-1"
           onClick={onManageSchedule}
         >
-          Schedule
+          {isEn ? "Schedule" : "Horario"}
         </Button>
       </div>
     </div>
@@ -1110,6 +1205,7 @@ export function InspectorsPanel({
   schedules,
   onInspectorsChange,
 }: InspectorsPanelProps) {
+  const { isEn } = useLanguage();
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<QCInspector | null>(null);
   const [scheduleTarget, setScheduleTarget] = useState<QCInspector | null>(null);
@@ -1180,14 +1276,18 @@ export function InspectorsPanel({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-foreground">Inspectors</h2>
+          <h2 className="text-lg font-bold text-foreground">
+            {isEn ? "Inspectors" : "Inspectores"}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            {inspectors.length} inspector{inspectors.length !== 1 ? "s" : ""} on team
+            {isEn
+              ? `${inspectors.length} inspector${inspectors.length !== 1 ? "s" : ""} on team`
+              : `${inspectors.length} ${inspectors.length === 1 ? "inspector" : "inspectores"} en el equipo`}
           </p>
         </div>
         <Button onClick={openAdd} size="sm">
           <Plus className="size-4" />
-          Add Inspector
+          {isEn ? "Add Inspector" : "Agregar Inspector"}
         </Button>
       </div>
 
@@ -1195,7 +1295,9 @@ export function InspectorsPanel({
       {inspectors.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border/70 py-16 text-center">
           <p className="text-sm font-semibold text-muted-foreground">
-            No inspectors yet. Add your first inspector to get started.
+            {isEn
+              ? "No inspectors yet. Add your first inspector to get started."
+              : "Aún no hay inspectores. Agrega tu primer inspector para comenzar."}
           </p>
         </div>
       ) : (

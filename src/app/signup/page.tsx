@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -8,13 +8,26 @@ import { signUp } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LanguageToggle, useLanguage } from "@/components/providers/language-provider";
+
+const SIGNUP_ERROR_ES: Record<string, string> = {
+  "Name must be at least 2 characters": "El nombre debe tener al menos 2 caracteres",
+  "Enter your username or email": "Ingresa tu usuario o correo electrónico",
+  "Password must be at least 6 characters": "La contraseña debe tener al menos 6 caracteres",
+  "User already registered": "Este usuario ya está registrado",
+};
 
 export default function SignupPage() {
   const [state, action, pending] = useActionState(signUp, {});
+  const { isEn } = useLanguage();
+  const translateAuthError = (msg: string) => (isEn ? msg : SIGNUP_ERROR_ES[msg] || msg);
 
   return (
     <main className="grid min-h-dvh place-items-center bg-[linear-gradient(180deg,#f8faf9,#edf3ef)] px-4 py-10 text-[#0f172a]">
       <section className="w-full max-w-[420px] rounded-lg border border-white/80 bg-white/95 p-7 shadow-[0_22px_70px_-48px_rgba(15,23,42,0.58)] backdrop-blur">
+        <div className="mb-4 flex justify-end">
+          <LanguageToggle />
+        </div>
         <div className="mb-8 flex flex-col items-center text-center">
           <Image
             alt="Pristine Cleaners"
@@ -25,17 +38,17 @@ export default function SignupPage() {
             width={853}
           />
           <h1 className="mt-7 text-2xl font-semibold tracking-normal text-[#0f172a]">
-            Create access
+            {isEn ? "Create access" : "Crear acceso"}
           </h1>
           <p className="mt-2 text-sm font-medium text-[#64748b]">
-            Set up your Pristine Cleaners login
+            {isEn ? "Set up your Pristine Cleaners login" : "Configura tu acceso a Pristine Cleaners"}
           </p>
         </div>
 
         <form action={action} className="grid gap-5">
           <div className="grid gap-2">
             <Label className="text-[13px] font-semibold text-[#334155]" htmlFor="fullName">
-              Full name
+              {isEn ? "Full name" : "Nombre completo"}
             </Label>
             <Input
               autoComplete="name"
@@ -46,14 +59,14 @@ export default function SignupPage() {
             />
             {state.errors?.fullName?.map((error) => (
               <p className="text-sm font-semibold text-destructive" key={error}>
-                {error}
+                {translateAuthError(error)}
               </p>
             ))}
           </div>
 
           <div className="grid gap-2">
             <Label className="text-[13px] font-semibold text-[#334155]" htmlFor="email">
-              Email
+              {isEn ? "Email" : "Correo electrónico"}
             </Label>
             <Input
               autoComplete="email"
@@ -64,14 +77,14 @@ export default function SignupPage() {
             />
             {state.errors?.email?.map((error) => (
               <p className="text-sm font-semibold text-destructive" key={error}>
-                {error}
+                {translateAuthError(error)}
               </p>
             ))}
           </div>
 
           <div className="grid gap-2">
             <Label className="text-[13px] font-semibold text-[#334155]" htmlFor="password">
-              Password
+              {isEn ? "Password" : "Contraseña"}
             </Label>
             <Input
               autoComplete="new-password"
@@ -82,14 +95,14 @@ export default function SignupPage() {
             />
             {state.errors?.password?.map((error) => (
               <p className="text-sm font-semibold text-destructive" key={error}>
-                {error}
+                {translateAuthError(error)}
               </p>
             ))}
           </div>
 
           {state.message ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-              {state.message}
+              {translateAuthError(state.message)}
             </p>
           ) : null}
 
@@ -99,14 +112,14 @@ export default function SignupPage() {
             type="submit"
           >
             {pending ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
-            Create account
+            {isEn ? "Create account" : "Crear cuenta"}
           </Button>
         </form>
 
         <p className="mt-6 text-center text-sm font-medium text-[#64748b]">
-          Already have access?{" "}
+          {isEn ? "Already have access?" : "¿Ya tienes acceso?"}{" "}
           <Link className="font-semibold text-[#3f765f] hover:text-[#356351]" href="/login">
-            Sign in
+            {isEn ? "Sign in" : "Iniciar sesión"}
           </Link>
         </p>
       </section>

@@ -40,7 +40,7 @@ const FIXED_QC_SUPERVISOR_PAYROLL = [
     baseHours: 80,
     payRate: 18,
     amount: 1440,
-    notes: "QC supervisor fixed pay: 80 hours at $18/hour per pay period (quincenal: 15 y fin de mes).",
+    notes: "QC supervisor fixed pay: 80 hours at $18/hour per pay period (biweekly: 15th & end of month).",
   },
   {
     cleanerName: "Maria Lopez",
@@ -57,7 +57,7 @@ const LUCIA_REVIEW_SETTING: CleanerPaymentSetting = {
   default_pay_rate: null,
   payment_method: "ACH",
   requires_manual_review: true,
-  manual_review_reason: "Steripax: Horas trabajadas se calculan manualmente. Confirmar horas y costo total antes de aprobar.",
+  manual_review_reason: "Steripax: Worked hours are calculated manually. Confirm hours and total cost before approving.",
   active: true,
 };
 
