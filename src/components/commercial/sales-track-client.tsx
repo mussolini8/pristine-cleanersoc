@@ -28,6 +28,7 @@ import {
   Layers,
   Scale,
   CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { Button } from "@/components/ui/button";
@@ -56,10 +57,22 @@ import {
 import { initialSalesTrackerBookings } from "@/lib/sales-tracker/seed-data";
 import { augustSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-august-2026";
 import { septemberSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-september-2026";
+import {
+  getMonthInfo,
+  getCurrentMonthKey,
+  reconcileMonthlyTracker,
+  type MonthlyReconciliationResult,
+} from "@/lib/sales-tracker/monthly-reconciler";
+import { createClient } from "@/lib/supabase/client";
 
 export function SalesTrackClient() {
-  const [selectedPeriod, setSelectedPeriod] = useState<"september_2026" | "august_2026" | "july_2026">("september_2026");
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string>("2026-10");
   const [currentMonthBookings, setCurrentMonthBookings] = useState<ServiceBookingRow[]>([]);
+  const [dynamicMonthBookings, setDynamicMonthBookings] = useState<ServiceBookingRow[]>([]);
+  const [syncingMonth, setSyncingMonth] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const supabase = useMemo(() => createClient(), []);
+
   const [scopeFilter, setScopeFilter] = useState<"all" | "residential" | "commercial">("all");
   const [activeTab, setActiveTab] = useState<"dash" | "table" | "target" | "comparison" | "ledger">("dash");
   const [search, setSearch] = useState("");
@@ -84,31 +97,80 @@ export function SalesTrackClient() {
     actualHours: 3.0,
   });
 
-  // Load manual additions from localStorage for September 2026 (on top of seed data)
+  const syncMonthFromSupabase = async (monthKey: string) => {
+    setSyncingMonth(true);
+    setSyncFeedback(null);
+    try {
+      if (monthKey === "2026-07" || monthKey === "2026-08" || monthKey === "2026-09") {
+        setSyncingMonth(false);
+        return;
+      }
+
+      const res = await reconcileMonthlyTracker(supabase, monthKey);
+      setDynamicMonthBookings(res.bookings);
+
+      const bkCount = res.stats.residentialCount;
+      const commCount = res.stats.commercialCount;
+      if (bkCount > 0) {
+        setSyncFeedback(`Sincronizados ${bkCount} reservas BookingKoala + ${commCount} visitas comerciales de ${res.monthInfo.label}.`);
+      } else {
+        setSyncFeedback(`${res.monthInfo.label}: ${commCount} visitas comerciales activas consolidadas.`);
+      }
+    } catch (e: any) {
+      console.warn("Could not sync month bookings from Supabase:", e);
+      setSyncFeedback("No se pudo conectar a la base de datos.");
+    } finally {
+      setSyncingMonth(false);
+      setTimeout(() => setSyncFeedback(null), 5000);
+    }
+  };
+
+  // Load bookings from localStorage on mount and trigger initial sync
   useEffect(() => {
-    const saved = localStorage.getItem("pristine_sales_tracker_sep_2026");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setCurrentMonthBookings(parsed);
-          return;
-        }
-      } catch (e) {
-        console.error("Could not load stored bookings", e);
+    let initialMonth = "2026-10";
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const m = params.get("month");
+      if (m && /^\d{4}-\d{2}$/.test(m)) {
+        initialMonth = m;
       }
     }
-    setCurrentMonthBookings([]);
+    setSelectedMonthKey(initialMonth);
+
+    // September legacy cache
+    const savedSep = localStorage.getItem("pristine_sales_tracker_sep_2026");
+    if (savedSep) {
+      try {
+        const parsed = JSON.parse(savedSep);
+        if (Array.isArray(parsed)) setCurrentMonthBookings(parsed);
+      } catch (e) {}
+    }
+
+    // Try loading initial dynamic month from localStorage cache first for instant render
+    const cached = localStorage.getItem(`pristine_sales_tracker_${initialMonth}`);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setDynamicMonthBookings(parsed);
+        }
+      } catch (e) {}
+    }
+
+    syncMonthFromSupabase(initialMonth);
   }, []);
 
   const rawPeriodBookings = useMemo(() => {
-    if (selectedPeriod === "july_2026") return initialSalesTrackerBookings;
-    if (selectedPeriod === "august_2026") return augustSalesTrackerBookings;
-    // September: seed data + any manual additions saved in localStorage
-    const manualIds = new Set(currentMonthBookings.map((b) => b.id));
-    const seedFiltered = septemberSalesTrackerBookings.filter((b) => !manualIds.has(b.id));
-    return [...currentMonthBookings, ...seedFiltered];
-  }, [selectedPeriod, currentMonthBookings]);
+    if (selectedMonthKey === "2026-07") return initialSalesTrackerBookings;
+    if (selectedMonthKey === "2026-08") return augustSalesTrackerBookings;
+    if (selectedMonthKey === "2026-09") {
+      const manualIds = new Set(currentMonthBookings.map((b) => b.id));
+      const seedFiltered = septemberSalesTrackerBookings.filter((b) => !manualIds.has(b.id));
+      return [...currentMonthBookings, ...seedFiltered];
+    }
+    // Dynamic month (October 2026, November 2026, December 2026, etc.):
+    return dynamicMonthBookings;
+  }, [selectedMonthKey, currentMonthBookings, dynamicMonthBookings]);
 
   // Split into Residential vs Commercial
   const residentialBookings = useMemo(() => {
@@ -127,12 +189,18 @@ export function SalesTrackClient() {
   }, [scopeFilter, residentialBookings, commercialBookings, rawPeriodBookings]);
 
   const saveCurrentBookings = (newBookings: ServiceBookingRow[]) => {
-    setCurrentMonthBookings(newBookings);
-    localStorage.setItem("pristine_sales_tracker_sep_2026", JSON.stringify(newBookings));
+    if (selectedMonthKey === "2026-09") {
+      setCurrentMonthBookings(newBookings);
+      localStorage.setItem("pristine_sales_tracker_sep_2026", JSON.stringify(newBookings));
+    } else {
+      setDynamicMonthBookings(newBookings);
+      localStorage.setItem(`pristine_sales_tracker_${selectedMonthKey}`, JSON.stringify(newBookings));
+    }
   };
 
   const handleClearCurrentMonth = () => {
-    if (confirm("¿Deseas limpiar todos los registros de Septiembre 2026 para empezar desde cero?")) {
+    const monthInfo = getMonthInfo(selectedMonthKey);
+    if (confirm(`¿Deseas limpiar las adiciones manuales de ${monthInfo.label} para empezar desde cero?`)) {
       saveCurrentBookings([]);
     }
   };
@@ -165,7 +233,8 @@ export function SalesTrackClient() {
       });
     });
 
-    const updated = [...convertedRows, ...currentMonthBookings];
+    const baseList = selectedMonthKey === "2026-09" ? currentMonthBookings : dynamicMonthBookings;
+    const updated = [...convertedRows, ...baseList];
     saveCurrentBookings(updated);
   };
 
@@ -179,7 +248,8 @@ export function SalesTrackClient() {
       teamEarningsWithoutTips: Number(newBookingDraft.teamEarningsWithoutTips) || 0,
     });
 
-    saveCurrentBookings([row, ...currentMonthBookings]);
+    const baseList = selectedMonthKey === "2026-09" ? currentMonthBookings : dynamicMonthBookings;
+    saveCurrentBookings([row, ...baseList]);
     setShowAddModal(false);
     setNewBookingDraft({
       clientName: "",
@@ -197,8 +267,11 @@ export function SalesTrackClient() {
   };
 
   const handleDeleteBooking = (id: string) => {
-    if (selectedPeriod !== "september_2026") return;
-    saveCurrentBookings(currentMonthBookings.filter((b) => b.id !== id));
+    if (selectedMonthKey === "2026-09") {
+      saveCurrentBookings(currentMonthBookings.filter((b) => b.id !== id));
+    } else {
+      saveCurrentBookings(dynamicMonthBookings.filter((b) => b.id !== id));
+    }
   };
 
   // Calculations for active scope
@@ -231,26 +304,25 @@ export function SalesTrackClient() {
 
   useEffect(() => {
     setLedgerPage(1);
-  }, [search, categoryFilter, scopeFilter, selectedPeriod]);
+  }, [search, categoryFilter, scopeFilter, selectedMonthKey]);
 
   const totalLedgerPages = Math.ceil(filteredBookings.length / LEDGER_PAGE_SIZE) || 1;
   const paginatedBookings = useMemo(() => {
     return filteredBookings.slice((ledgerPage - 1) * LEDGER_PAGE_SIZE, ledgerPage * LEDGER_PAGE_SIZE);
   }, [filteredBookings, ledgerPage]);
 
-  const periodLabel =
-    selectedPeriod === "september_2026"
-      ? "Septiembre-2026-Activo"
-      : selectedPeriod === "august_2026"
-      ? "Agosto-2026-Cerrado"
-      : "Julio-2026-Historico";
+  const currentMonthInfo = useMemo(() => getMonthInfo(selectedMonthKey), [selectedMonthKey]);
+  const periodLabel = `${currentMonthInfo.label.replace(/\s+/g, "-")}-Activo`;
+  const periodTitle = currentMonthInfo.label;
 
-  const periodTitle =
-    selectedPeriod === "september_2026"
-      ? "Septiembre 2026 (Mes Actual)"
-      : selectedPeriod === "august_2026"
-      ? "Agosto 2026 (Cerrado - $74.3k)"
-      : "Julio 2026 (Histórico / Demo - $34.2k)";
+  const AVAILABLE_MONTHS = [
+    { key: "2026-12", label: "Diciembre 2026 (Próximo Mes)" },
+    { key: "2026-11", label: "Noviembre 2026 (Próximo Mes)" },
+    { key: "2026-10", label: "Octubre 2026 (Mes Actual - Sincronizado BookingKoala + 30 Comerciales)" },
+    { key: "2026-09", label: "Septiembre 2026 (Consolidado: 51 BK Residenciales + 30 Contratos Comerciales)" },
+    { key: "2026-08", label: "Agosto 2026 (Cerrado: 55 BK Residenciales + 31 Contratos Comerciales)" },
+    { key: "2026-07", label: "Julio 2026 (Histórico / Plantilla Demo - $34.2k)" },
+  ];
 
   const handleExportXLSX = () => {
     const scopeTag = scopeFilter === "all" ? "Unificado" : scopeFilter === "residential" ? "Residencial" : "Comercial";
@@ -278,18 +350,34 @@ export function SalesTrackClient() {
                 Control Financiero y Operativo
               </span>
 
-              {/* Period Selector Dropdown */}
+              {/* Dynamic Period Selector Dropdown */}
               <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs">
                 <Calendar className="size-3.5 text-muted-foreground" />
                 <span className="font-semibold text-muted-foreground">Periodo:</span>
                 <select
-                  value={selectedPeriod}
-                  onChange={(e) => setSelectedPeriod(e.target.value as any)}
+                  value={selectedMonthKey}
+                  onChange={(e) => {
+                    const newMonth = e.target.value;
+                    setSelectedMonthKey(newMonth);
+                    const cached = localStorage.getItem(`pristine_sales_tracker_${newMonth}`);
+                    if (cached) {
+                      try {
+                        const parsed = JSON.parse(cached);
+                        if (Array.isArray(parsed) && parsed.length > 0) setDynamicMonthBookings(parsed);
+                      } catch {}
+                    }
+                    syncMonthFromSupabase(newMonth);
+                  }}
                   className="bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
                 >
-                  <option value="september_2026">Septiembre 2026 (Consolidado: 51 BK Residenciales + 30 Contratos Comerciales)</option>
-                  <option value="august_2026">Agosto 2026 (Cerrado: 55 BK Residenciales + 31 Contratos Comerciales)</option>
-                  <option value="july_2026">Julio 2026 (Histórico / Plantilla Demo - $34.2k)</option>
+                  {!AVAILABLE_MONTHS.some((m) => m.key === selectedMonthKey) && (
+                    <option value={selectedMonthKey}>{currentMonthInfo.label}</option>
+                  )}
+                  {AVAILABLE_MONTHS.map((m) => (
+                    <option key={m.key} value={m.key}>
+                      {m.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -297,16 +385,37 @@ export function SalesTrackClient() {
               Income, Labor & Sales Tracker
             </h1>
             <p className="text-sm text-muted-foreground">
-              {selectedPeriod === "september_2026"
-                ? "Septiembre 2026 consolidado: 51 servicios Booking Koala y 30 contratos comerciales (252 visitas) totalmente auditados y sincronizados con CleanGuru y nómina."
-                : selectedPeriod === "august_2026"
+              {selectedMonthKey === "2026-07"
+                ? "Mostrando datos históricos de Julio 2026 ($34,252.70)."
+                : selectedMonthKey === "2026-08"
                 ? "Agosto 2026 cerrado ($74,266.28): 55 servicios individuales Booking Koala ($24.3k) y 31 contratos comerciales activos ($50.0k) totalmente sincronizados con CleanGuru."
-                : "Mostrando datos históricos de Julio 2026 ($34,252.70)."}
+                : selectedMonthKey === "2026-09"
+                ? "Septiembre 2026 consolidado: 51 servicios Booking Koala y 30 contratos comerciales (252 visitas) totalmente auditados y sincronizados con CleanGuru y nómina."
+                : `${currentMonthInfo.label} conciliado: ${residentialBookings.length} reservas BookingKoala y ${commercialBookings.length} visitas comerciales activas totalmente consolidadas con tarifas y horas.`}
             </p>
+            {syncFeedback && (
+              <p className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 animate-in fade-in">
+                {syncFeedback}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {selectedPeriod === "september_2026" && currentMonthBookings.length > 0 && (
+            {selectedMonthKey >= "2026-10" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => syncMonthFromSupabase(selectedMonthKey)}
+                disabled={syncingMonth}
+                className="gap-1.5 h-9 text-xs border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+              >
+                <RefreshCw className={`size-3.5 ${syncingMonth ? "animate-spin" : ""}`} />
+                {syncingMonth ? "Sincronizando..." : `Sincronizar ${currentMonthInfo.shortLabel}`}
+              </Button>
+            )}
+
+            {((selectedMonthKey !== "2026-09" && dynamicMonthBookings.length > 0) ||
+              (selectedMonthKey === "2026-09" && currentMonthBookings.length > 0)) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1274,12 +1383,7 @@ export function SalesTrackClient() {
 
                 <Button
                   size="sm"
-                  onClick={() => {
-                    if (selectedPeriod !== "september_2026") {
-                      setSelectedPeriod("september_2026");
-                    }
-                    setShowAddModal(true);
-                  }}
+                  onClick={() => setShowAddModal(true)}
                   className="h-8 text-xs gap-1.5"
                 >
                   <Plus className="size-3.5" /> Registrar Cita
@@ -1306,7 +1410,7 @@ export function SalesTrackClient() {
                       <th className="px-3 py-2.5 text-right">PC Profit</th>
                       <th className="px-3 py-2.5 text-right">Profit %</th>
                       <th className="px-3 py-2.5 text-center">Horas</th>
-                      {selectedPeriod === "september_2026" && <th className="px-3 py-2.5 text-center">Acciones</th>}
+                      <th className="px-3 py-2.5 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -1337,17 +1441,15 @@ export function SalesTrackClient() {
                           <td className="px-3 py-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">${b.pcEarnings.toFixed(2)}</td>
                           <td className="px-3 py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">{(b.pcProfitPct * 100).toFixed(0)}%</td>
                           <td className="px-3 py-2.5 text-center font-semibold text-foreground">{b.actualHours}h</td>
-                          {selectedPeriod === "september_2026" && (
-                            <td className="px-3 py-2.5 text-center">
-                              <button
-                                onClick={() => handleDeleteBooking(b.id)}
-                                className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
-                                title="Eliminar registro"
-                              >
-                                <Trash2 className="size-3" />
-                              </button>
-                            </td>
-                          )}
+                          <td className="px-3 py-2.5 text-center">
+                            <button
+                              onClick={() => handleDeleteBooking(b.id)}
+                              className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
+                              title="Eliminar registro"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -1510,9 +1612,9 @@ export function SalesTrackClient() {
           onClose={() => setIsCopilotOpen(false)}
           onApplySalesTrack={handleApplySalesTrack}
           onApplyBookings={(extractedList) => {
-            const updated = [...extractedList, ...currentMonthBookings];
+            const baseList = selectedMonthKey === "2026-09" ? currentMonthBookings : dynamicMonthBookings;
+            const updated = [...extractedList, ...baseList];
             saveCurrentBookings(updated);
-            setSelectedPeriod("september_2026");
             setActiveTab("ledger");
           }}
         />

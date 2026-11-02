@@ -32,6 +32,7 @@ import {
   Settings2,
   Sparkles,
   Trash2,
+  TrendingUp,
   UserRoundCheck,
   Users,
   WalletCards,
@@ -47,6 +48,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { exportRows, exportWorkbook, exportCleanerGridReport } from "@/lib/export/workbook";
 import { ResidentialImportsPanel } from "./residential-imports-panel";
 import { getCleanerPhone } from "@/lib/cleaner-contacts";
+import {
+  reconcileMonthlyTracker,
+  getMonthInfo,
+  getCurrentMonthKey,
+  type MonthlyReconciliationResult,
+} from "@/lib/sales-tracker/monthly-reconciler";
 
 import { AiSopCopilotModal } from "@/components/operations/ai-sop-copilot-modal";
 import { WorkScheduleModal } from "./work-schedule-modal";
@@ -920,6 +927,8 @@ export function SimpleOperationsClient({
   const [savingTask, setSavingTask] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [reconcilingTaskTracker, setReconcilingTaskTracker] = useState(false);
+  const [trackerReconciledResult, setTrackerReconciledResult] = useState<MonthlyReconciliationResult | null>(null);
   const [accountDraft, setAccountDraft] = useState<AccountDraft | null>(null);
   const [savingAccount, setSavingAccount] = useState(false);
   const [workLogDraft, setWorkLogDraft] = useState<WorkLogDraft>(EMPTY_WORK_LOG_DRAFT);
@@ -4980,6 +4989,17 @@ function renderHeader() {
                 </button>
                 <div className="flex items-center gap-2 flex-wrap">
                   {sourceDocument ? <Badge variant="outline" className="bg-background/40">{sourceDocument}</Badge> : null}
+                  {(task.title.toLowerCase().includes("labor income tracker") ||
+                    task.title.toLowerCase().includes("sales tracker")) ? (
+                    <Link
+                      href={`/commercial/sales-track?month=${task.due_date ? task.due_date.slice(0, 7) : getCurrentMonthKey()}`}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-500/15 px-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <TrendingUp className="size-3.5" />
+                      <span>Sales Tracker</span>
+                    </Link>
+                  ) : null}
                   <Badge className={statusBadgeClass(overdue ? "overdue" : status)} variant="outline">{statusLabel(overdue ? "overdue" : status, isEs)}</Badge>
                   <div className="flex gap-1">
                     <Button className="h-10 rounded-xl px-2.5 text-xs font-semibold transition-transform hover:scale-[1.02]" disabled={status === "completed" || completingTaskId === task.id} onClick={() => completeTask(task)}><Check className="size-[18px]" /> {t("sop.mark_completed", "Mark completed")}</Button>
@@ -7077,6 +7097,95 @@ function renderHeader() {
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Description / Notes</p>
             <p className="text-sm font-medium text-foreground whitespace-pre-wrap leading-relaxed">{selectedTask.description || "No description provided."}</p>
           </section>
+
+          {/* Automated SOP Reconciliation for Labor Income Sales Tracker Tasks */}
+          {(() => {
+            const isTrackerTask =
+              selectedTask.title.toLowerCase().includes("labor income tracker") ||
+              selectedTask.title.toLowerCase().includes("income tracker") ||
+              selectedTask.title.toLowerCase().includes("sales tracker");
+            if (!isTrackerTask) return null;
+
+            const taskMonthKey = selectedTask.due_date ? selectedTask.due_date.slice(0, 7) : getCurrentMonthKey();
+            const monthInfo = getMonthInfo(taskMonthKey);
+
+            const handleRunSopReconcile = async () => {
+              setReconcilingTaskTracker(true);
+              try {
+                const res = await reconcileMonthlyTracker(supabase, taskMonthKey);
+                setTrackerReconciledResult(res);
+                const note = `Conciliación automática ejecutada para ${res.monthInfo.label}: Total Revenue: $${res.stats.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Costo Laboral: $${res.stats.totalGrossCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${res.stats.laborPct.toFixed(1)}%) | ${res.stats.residentialCount} servicios BookingKoala + ${res.stats.commercialCount} visitas comerciales activas.`;
+                await completeTask(selectedTask, note);
+                setMessage({ tone: "success", text: `Sales Tracker de ${res.monthInfo.label} conciliado y tarea completada automáticamente.` });
+              } catch (err: any) {
+                setMessage({ tone: "error", text: `Error al conciliar tracker: ${err.message}` });
+              } finally {
+                setReconcilingTaskTracker(false);
+              }
+            };
+
+            return (
+              <section className="space-y-3 rounded-2xl border-2 border-emerald-500/30 bg-emerald-500/[0.04] p-4.5 dark:border-emerald-500/20">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="grid size-8 place-items-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                      <TrendingUp className="size-4.5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground">Conciliador Automático de SOP</h4>
+                      <p className="text-xs text-muted-foreground">Sincroniza BookingKoala + 30 contratos comerciales sin código</p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 font-bold text-emerald-700 dark:text-emerald-300">
+                    {monthInfo.label}
+                  </Badge>
+                </div>
+
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Esta acción procesa las reservas importadas de BookingKoala desde Supabase y proyecta los contratos comerciales activos de {monthInfo.label} para actualizar el <strong>Income, Labor & Sales Tracker</strong> y completar este SOP automáticamente.
+                </p>
+
+                {trackerReconciledResult && (
+                  <div className="grid grid-cols-2 gap-2 rounded-xl border border-emerald-500/30 bg-card p-3 text-xs sm:grid-cols-4">
+                    <div>
+                      <span className="text-muted-foreground text-[10px] uppercase font-bold">Revenue Total</span>
+                      <p className="text-sm font-extrabold text-foreground">${trackerReconciledResult.stats.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-[10px] uppercase font-bold">Labor Cost</span>
+                      <p className="text-sm font-extrabold text-foreground">${trackerReconciledResult.stats.totalGrossCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-[10px] uppercase font-bold">Labor %</span>
+                      <p className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">{trackerReconciledResult.stats.laborPct.toFixed(1)}%</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-[10px] uppercase font-bold">Servicios</span>
+                      <p className="text-sm font-extrabold text-foreground">{trackerReconciledResult.stats.totalBookings}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <Button
+                    onClick={handleRunSopReconcile}
+                    disabled={reconcilingTaskTracker || completingTaskId === selectedTask.id}
+                    className="gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 font-bold text-white shadow-sm hover:from-emerald-700 hover:to-teal-700"
+                  >
+                    <Sparkles className="size-4" />
+                    {reconcilingTaskTracker ? "Conciliando..." : `⚡ Conciliar ${monthInfo.label} & Completar SOP`}
+                  </Button>
+                  <Link
+                    href={`/commercial/sales-track?month=${taskMonthKey}`}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-muted transition-colors"
+                  >
+                    <ExternalLink className="size-3.5 text-muted-foreground" />
+                    Ver en Sales Tracker
+                  </Link>
+                </div>
+              </section>
+            );
+          })()}
 
           {/* Completion Notes Section */}
           <section>
