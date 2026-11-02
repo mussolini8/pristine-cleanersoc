@@ -284,8 +284,8 @@ function getRealCost(account: Pick<Account, "cost" | "hours" | "cleaner_pay_type
     return Number((perServiceRate * visits).toFixed(2));
   }
   if (norm.includes("steripax")) {
-    // Regla Steripax: Las horas trabajadas se calculan MANUALMENTE y en base a eso se calcula el costo total
-    return account.cost ?? 3386.06;
+    // Regla Steripax: Horas nominales/reales calculadas manualmente: Lun, Mar, Vie 6h; Mié, Jue 8h (Total 150h en Octubre @ $18/hr = $2,700)
+    return account.cost ?? 2700;
   }
   if (norm.includes("lsg")) {
     // LSG Sky Chefs: Base 10h/day @ $18/hr ($1,260/wk) + Add-on 4h/day @ $18/hr ($504/wk) -> $1,764/wk * 4.33 = $7,639.12
@@ -368,7 +368,7 @@ function toAccount(account: ImportedCommercialAccount): Account {
     ? 95.94
     : (account.rate_per_service ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
   const cost = isSteripax
-    ? (account.cost ?? 3386.06)
+    ? (account.cost ?? 2700)
     : isLsg
     ? (account.cost ?? 7639.12)
     : isMoxi3CM
@@ -490,7 +490,7 @@ function mergeImportedAccounts(remoteAccounts: Account[]) {
       : (base.rate_per_service ?? base.cleaner_flat_rate ?? (!isExcluded && hours > 0 ? Number((hours * cleanerRate!).toFixed(2)) : null));
     const visits = getVisitsPerMonth(base.frequency);
     const cost = isSteripax
-      ? (base.cost || 3386.06)
+      ? (base.cost || 2700)
       : isLsg
       ? (base.cost || 7639.12)
       : isMoxi3CM

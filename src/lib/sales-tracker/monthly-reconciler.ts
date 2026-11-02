@@ -75,7 +75,7 @@ export function generateMonthlyCommercialBookings(monthKey: string): ServiceBook
     const serviceCategory = "Commercial Cleaning";
     const frequency = account.frequency || "Monthly";
 
-    const visits: { date: string; dow: number; cleaner: string; hours: number; visitCost?: number }[] = [];
+    const visits: { date: string; dow: number; cleaner: string; hours: number; visitRev?: number; visitCost?: number }[] = [];
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dayStr = String(day).padStart(2, "0");
@@ -93,9 +93,18 @@ export function generateMonthlyCommercialBookings(monthKey: string): ServiceBook
         visits.push({ date: dateStr, dow, cleaner, hours: 4 });
       } else if (norm.includes("steripax")) {
         // 5x per week (Monday to Friday)
+        // Facturación cliente: $35/hr x horas de la jornada
+        // Jornada nominal de Lucía Portillo: Lun, Mar, Vie 6h exactas ($108.00); Mié, Jue 8h exactas ($144.00) a $18/hr
         if (dow >= 1 && dow <= 5) {
-          const hrs = dow === 3 || dow === 4 ? 8 : 6;
-          visits.push({ date: dateStr, dow, cleaner: "Lucia Portillo", hours: hrs });
+          const hrs = (dow === 3 || dow === 4) ? 8 : 6;
+          visits.push({
+            date: dateStr,
+            dow,
+            cleaner: "Lucia Portillo",
+            hours: hrs,
+            visitRev: hrs * 35,
+            visitCost: hrs * 18,
+          });
         }
       } else if (norm.includes("corporate headquarters") || norm.includes("rancho bernardo")) {
         // ILG Corporate Headquarters (San Diego / Rancho Bernardo):
@@ -182,11 +191,11 @@ export function generateMonthlyCommercialBookings(monthKey: string): ServiceBook
         visitLaborCost = 119;
       }
 
-      let visitRev = revPerVisit;
+      let visitRev = v.visitRev !== undefined ? v.visitRev : revPerVisit;
 
       // Exact penny balancing on final visit
       if (idx === totalVisits - 1) {
-        if (monthlyRev > 0) {
+        if (v.visitRev === undefined && monthlyRev > 0) {
           visitRev = Math.round((monthlyRev - accumulatedRev) * 100) / 100;
         }
         if (v.visitCost === undefined && monthlyCost > 0) {
@@ -197,6 +206,11 @@ export function generateMonthlyCommercialBookings(monthKey: string): ServiceBook
       accumulatedRev += visitRev;
       accumulatedCost += visitLaborCost;
 
+      let noteText = `Visita ${idx + 1} de ${totalVisits} en ${MONTH_NAMES_ES[month - 1]} (${visitCleaner}). ${account.name}`;
+      if (norm.includes("steripax")) {
+        noteText = `Visita ${idx + 1} de ${totalVisits} en ${MONTH_NAMES_ES[month - 1]} (Lucia Portillo - ${v.hours}h jornada nominal). Steripax (Factura $35/hr = $${visitRev.toFixed(2)}, Pago $18/hr = $${visitLaborCost.toFixed(2)})`;
+      }
+
       const bookingRow = computeBookingFormulas({
         id: `comm-${monthKey}-${account.id || norm.replace(/\s+/g, "-")}-${String(idx + 1).padStart(2, "0")}`,
         date: v.date,
@@ -206,7 +220,7 @@ export function generateMonthlyCommercialBookings(monthKey: string): ServiceBook
         frequency,
         city,
         cleanerTeam: visitCleaner,
-        subTotal: revPerVisit,
+        subTotal: visitRev,
         salesTax: 0,
         processingFee: 0,
         tip: 0,
@@ -217,7 +231,7 @@ export function generateMonthlyCommercialBookings(monthKey: string): ServiceBook
         actualHours: v.hours,
         bookedBy: "Commercial Contract",
         status: "completed",
-        notes: `Visita ${idx + 1} de ${totalVisits} en ${MONTH_NAMES_ES[month - 1]} (${visitCleaner}). ${account.name}`,
+        notes: noteText,
       });
 
       bookings.push(bookingRow);

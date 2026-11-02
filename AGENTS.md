@@ -5,9 +5,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- END:nextjs-agent-rules -->
 
 # Reglas de Negocio: Steripax
-- **Cálculo Manual de Horas y Costo**: Para la cuenta comercial **Steripax** (cleaner: Lucia Portillo), las horas trabajadas **SE CALCULAN MANUALMENTE** (varían según el turno, ej. 6h lunes/martes/viernes y 8h miércoles/jueves, o reporte real de horas trabajadas).
-- **Cálculo del Costo Total**: El costo total se calcula estrictamente **en base a esas horas trabajadas calculadas manualmente** (horas manuales × tarifa).
-- **Prohibición de Sobreescritura Automática**: NUNCA sobreescribir las horas ni el costo total de Steripax con fórmulas genéricas automatizadas (como 8h × $18 × 21.67 visitas). En actualizaciones masivas de tarifas o sincronizaciones, Steripax debe mantenerse protegida como excepción con su cálculo manual y costo preservado ($3,386.06 o según horas manuales).
+- **Facturación al Cliente**: Para la cuenta comercial **Steripax**, la facturación se calcula a **$35 por hora × horas trabajadas** (ej. Octubre 2026: 150 horas = **$5,250.00**).
+- **Jornada Nominal de Lucia Portillo**: A partir de ahora para Lucía Portillo se calcula la jornada nominal completa:
+  - **Lunes, Martes y Viernes**: **6.00 horas exactas** (6h × $18.00/hr = **$108.00** por turno).
+  - **Miércoles y Jueves**: **8.00 horas exactas** (8h × $18.00/hr = **$144.00** por turno).
+- **Cálculo del Costo Total**: El costo total se calcula en base a esas horas trabajadas calculadas nominalmente (horas nominales × $18.00/hr, ej. Octubre 2026: 150 horas = **$2,700.00**).
+- **Prohibición de Sobreescritura Automática**: NUNCA sobreescribir las horas ni el costo total de Steripax con fórmulas genéricas automatizadas (como 8h × $18 × 21.67 visitas = $3,386.06).
 - **Nómina y Operaciones**: En nómina (Payroll) y aprobaciones, Steripax / Lucia Portillo siempre requiere revisión manual obligatoria (`requires_manual_review: true`).
 
 # Reglas Salariales de Cleaners Comerciales
