@@ -29,8 +29,12 @@ import {
   Scale,
   CheckCircle2,
   RefreshCw,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { useLanguage } from "@/components/providers/language-provider";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,16 +62,19 @@ import { initialSalesTrackerBookings } from "@/lib/sales-tracker/seed-data";
 import { augustSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-august-2026";
 import { septemberSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-september-2026";
 import {
+  ALL_TRACKER_CLEANERS,
   getMonthInfo,
   getCurrentMonthKey,
   getInitialDynamicMonthBookings,
   reconcileMonthlyTracker,
+  saveSopBookingOverride,
   TRACKER_CACHE_PREFIX,
   type MonthlyReconciliationResult,
 } from "@/lib/sales-tracker/monthly-reconciler";
 import { createClient } from "@/lib/supabase/client";
 
 export function SalesTrackClient() {
+  const { isEn } = useLanguage();
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>("2026-10");
   const [currentMonthBookings, setCurrentMonthBookings] = useState<ServiceBookingRow[]>([]);
   const [dynamicMonthBookings, setDynamicMonthBookings] = useState<ServiceBookingRow[]>(() =>
@@ -83,6 +90,13 @@ export function SalesTrackClient() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{ cleanerTeam: string; pay: string; subTotal: string }>({
+    cleanerTeam: "",
+    pay: "",
+    subTotal: "",
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
   const [ledgerPage, setLedgerPage] = useState(1);
   const LEDGER_PAGE_SIZE = 50;
 
@@ -115,14 +129,23 @@ export function SalesTrackClient() {
 
       const bkCount = res.stats.residentialCount;
       const commCount = res.stats.commercialCount;
+      const mLabel = isEn ? res.monthInfo.labelEn : res.monthInfo.labelEs;
       if (bkCount > 0) {
-        setSyncFeedback(`Sincronizados ${bkCount} reservas BookingKoala + ${commCount} visitas comerciales de ${res.monthInfo.label}.`);
+        setSyncFeedback(
+          isEn
+            ? `Synced ${bkCount} BookingKoala bookings + ${commCount} commercial visits for ${mLabel}.`
+            : `Sincronizados ${bkCount} reservas BookingKoala + ${commCount} visitas comerciales de ${mLabel}.`
+        );
       } else {
-        setSyncFeedback(`${res.monthInfo.label}: ${commCount} visitas comerciales activas consolidadas.`);
+        setSyncFeedback(
+          isEn
+            ? `${mLabel}: ${commCount} active commercial visits consolidated.`
+            : `${mLabel}: ${commCount} visitas comerciales activas consolidadas.`
+        );
       }
     } catch (e: any) {
       console.warn("Could not sync month bookings from Supabase:", e);
-      setSyncFeedback("No se pudo conectar a la base de datos.");
+      setSyncFeedback(isEn ? "Could not connect to database." : "No se pudo conectar a la base de datos.");
     } finally {
       setSyncingMonth(false);
       setTimeout(() => setSyncFeedback(null), 5000);
@@ -207,8 +230,11 @@ export function SalesTrackClient() {
   };
 
   const handleClearCurrentMonth = () => {
-    const monthInfo = getMonthInfo(selectedMonthKey);
-    if (confirm(`¿Deseas restablecer ${monthInfo.label} a los datos oficiales sincronizados (eliminando adiciones manuales)?`)) {
+    const monthInfo = getMonthInfo(selectedMonthKey, isEn ? "en" : "es");
+    const confirmMsg = isEn
+      ? `Reset ${monthInfo.labelEn} to official synced data (removing manual additions)?`
+      : `¿Deseas restablecer ${monthInfo.labelEs} a los datos oficiales sincronizados (eliminando adiciones manuales)?`;
+    if (confirm(confirmMsg)) {
       if (selectedMonthKey === "2026-09") {
         saveCurrentBookings([]);
       } else {
@@ -328,30 +354,105 @@ export function SalesTrackClient() {
     return filteredBookings.slice((ledgerPage - 1) * LEDGER_PAGE_SIZE, ledgerPage * LEDGER_PAGE_SIZE);
   }, [filteredBookings, ledgerPage]);
 
-  const currentMonthInfo = useMemo(() => getMonthInfo(selectedMonthKey), [selectedMonthKey]);
-  const periodLabel = `${currentMonthInfo.label.replace(/\s+/g, "-")}-Activo`;
+  const currentMonthInfo = useMemo(() => getMonthInfo(selectedMonthKey, isEn ? "en" : "es"), [selectedMonthKey, isEn]);
+  const periodLabel = `${currentMonthInfo.label.replace(/\s+/g, "-")}-${isEn ? "Active" : "Activo"}`;
   const periodTitle = currentMonthInfo.label;
 
-  const AVAILABLE_MONTHS = [
-    { key: "2026-12", label: "Diciembre 2026 (Próximo Mes)" },
-    { key: "2026-11", label: "Noviembre 2026 (Mes en Curso - SOP Automático)" },
-    { key: "2026-10", label: "Octubre 2026 (Consolidado: 42 BK Residenciales + 30 Contratos Comerciales)" },
-    { key: "2026-09", label: "Septiembre 2026 (Consolidado: 51 BK Residenciales + 30 Contratos Comerciales)" },
-    { key: "2026-08", label: "Agosto 2026 (Cerrado: 55 BK Residenciales + 31 Contratos Comerciales)" },
-    { key: "2026-07", label: "Julio 2026 (Histórico / Plantilla Demo - $34.2k)" },
-  ];
+  const scopeLabel =
+    scopeFilter === "all"
+      ? isEn
+        ? "All"
+        : "Todas"
+      : scopeFilter === "residential"
+      ? isEn
+        ? "Residential"
+        : "Residencial"
+      : isEn
+      ? "Commercial"
+      : "Comercial";
+
+  const translateCategoryName = (cat: string) => {
+    if (isEn) return cat;
+    const map: Record<string, string> = {
+      All: "Todas",
+      "All Recurring": "Todas las Recurrentes",
+      "All One-Time": "Todas las Eventuales",
+      "Commercial Cleaning": "Limpieza Comercial",
+      Weekly: "Semanal",
+      Biweekly: "Quincenal",
+      Triweekly: "Cada 3 Semanas",
+      Monthly: "Mensual",
+      "Standard Clean": "Limpieza Estándar",
+      "Express Clean": "Limpieza Express",
+      "Deep Clean": "Limpieza Profunda",
+      "Move In/Out Clean": "Mudanza (Move In/Out)",
+      "Airbnb Clean": "Limpieza Airbnb",
+      "One Time": "Una Vez",
+      "Every 2 weeks": "Cada 2 semanas",
+      "Every 3 Weeks": "Cada 3 semanas",
+      "Every 3 weeks": "Cada 3 semanas",
+      "Tri Weekly": "Cada 3 semanas",
+      "5 days a week": "5 días por semana",
+      "3 times per week": "3 veces por semana",
+      Unassigned: "Sin asignar",
+    };
+    return map[cat] || cat;
+  };
+
+  const AVAILABLE_MONTHS = isEn
+    ? [
+        { key: "2026-12", label: "December 2026 (Next Month)" },
+        { key: "2026-11", label: "November 2026 (Current Month - Auto SOP)" },
+        { key: "2026-10", label: "October 2026 (Consolidated: 42 BK Residential + 30 Commercial Contracts)" },
+        { key: "2026-09", label: "September 2026 (Consolidated: 51 BK Residential + 30 Commercial Contracts)" },
+        { key: "2026-08", label: "August 2026 (Closed: 55 BK Residential + 31 Commercial Contracts)" },
+        { key: "2026-07", label: "July 2026 (Historical / Demo Template - $34.2k)" },
+      ]
+    : [
+        { key: "2026-12", label: "Diciembre 2026 (Próximo Mes)" },
+        { key: "2026-11", label: "Noviembre 2026 (Mes en Curso - SOP Automático)" },
+        { key: "2026-10", label: "Octubre 2026 (Consolidado: 42 BK Residenciales + 30 Contratos Comerciales)" },
+        { key: "2026-09", label: "Septiembre 2026 (Consolidado: 51 BK Residenciales + 30 Contratos Comerciales)" },
+        { key: "2026-08", label: "Agosto 2026 (Cerrado: 55 BK Residenciales + 31 Contratos Comerciales)" },
+        { key: "2026-07", label: "Julio 2026 (Histórico / Plantilla Demo - $34.2k)" },
+      ];
 
   const handleExportXLSX = () => {
-    const scopeTag = scopeFilter === "all" ? "Unificado" : scopeFilter === "residential" ? "Residencial" : "Comercial";
+    const scopeTag =
+      scopeFilter === "all"
+        ? isEn
+          ? "Unified"
+          : "Unificado"
+        : scopeFilter === "residential"
+        ? isEn
+          ? "Residential"
+          : "Residencial"
+        : isEn
+        ? "Commercial"
+        : "Comercial";
     exportComprehensiveTrackerToXLSX(`${periodLabel}-${scopeTag}-Income-Labor-Sales-Tracker`, scopedBookings);
   };
 
   const handleExportPDF = () => {
-    const scopeTag = scopeFilter === "all" ? "Consolidado Unificado" : scopeFilter === "residential" ? "Solo Residencial (Booking Koala)" : "Solo Comercial (Cuentas)";
+    const scopeTag =
+      scopeFilter === "all"
+        ? isEn
+          ? "Unified Consolidated"
+          : "Consolidado Unificado"
+        : scopeFilter === "residential"
+        ? isEn
+          ? "Residential Only (Booking Koala)"
+          : "Solo Residencial (Booking Koala)"
+        : isEn
+        ? "Commercial Only (Accounts)"
+        : "Solo Comercial (Cuentas)";
+    const reportTitle = isEn
+      ? `Income, Labor & Sales Tracker (${periodTitle} - ${scopeTag})`
+      : `Control de Ingresos, Mano de Obra y Ventas (${periodTitle} - ${scopeTag})`;
     exportComprehensiveTrackerToPDF(
       `${periodLabel}-${scopeFilter}-Income-Labor-Sales-Tracker`,
       scopedBookings,
-      `Income, Labor & Sales Tracker (${periodTitle} - ${scopeTag})`
+      reportTitle
     );
   };
 
@@ -364,13 +465,13 @@ export function SalesTrackClient() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                 <TrendingUp className="size-3.5" />
-                Control Financiero y Operativo
+                {isEn ? "Financial & Operational Control" : "Control Financiero y Operativo"}
               </span>
 
               {/* Dynamic Period Selector Dropdown */}
               <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs">
                 <Calendar className="size-3.5 text-muted-foreground" />
-                <span className="font-semibold text-muted-foreground">Periodo:</span>
+                <span className="font-semibold text-muted-foreground">{isEn ? "Period:" : "Periodo:"}</span>
                 <select
                   value={selectedMonthKey}
                   onChange={(e) => {
@@ -401,16 +502,24 @@ export function SalesTrackClient() {
               </div>
             </div>
             <h1 className="mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
-              Income, Labor & Sales Tracker
+              {isEn ? "Income, Labor & Sales Tracker" : "Control de Ingresos, Mano de Obra y Ventas"}
             </h1>
             <p className="text-sm text-muted-foreground">
               {selectedMonthKey === "2026-07"
-                ? "Mostrando datos históricos de Julio 2026 ($34,252.70)."
+                ? isEn
+                  ? "Showing historical data for July 2026 ($34,252.70)."
+                  : "Mostrando datos históricos de Julio 2026 ($34,252.70)."
                 : selectedMonthKey === "2026-08"
-                ? "Agosto 2026 cerrado ($74,266.28): 55 servicios individuales Booking Koala ($24.3k) y 31 contratos comerciales activos ($50.0k) totalmente sincronizados con CleanGuru."
+                ? isEn
+                  ? "August 2026 closed ($74,266.28): 55 individual BookingKoala services ($24.3k) and 31 active commercial contracts ($50.0k) fully synced with CleanGuru."
+                  : "Agosto 2026 cerrado ($74,266.28): 55 servicios individuales Booking Koala ($24.3k) y 31 contratos comerciales activos ($50.0k) totalmente sincronizados con CleanGuru."
                 : selectedMonthKey === "2026-09"
-                ? "Septiembre 2026 consolidado: 51 servicios Booking Koala y 30 contratos comerciales (252 visitas) totalmente auditados y sincronizados con CleanGuru y nómina."
-                : `${currentMonthInfo.label} conciliado: ${residentialBookings.length} reservas BookingKoala y ${commercialBookings.length} visitas comerciales activas totalmente consolidadas con tarifas y horas.`}
+                ? isEn
+                  ? "September 2026 consolidated: 51 BookingKoala services and 30 commercial contracts (252 visits) fully audited and synced with CleanGuru and payroll."
+                  : "Septiembre 2026 consolidado: 51 servicios Booking Koala y 30 contratos comerciales (252 visitas) totalmente auditados y sincronizados con CleanGuru y nómina."
+                : isEn
+                ? `${currentMonthInfo.labelEn} reconciled: ${residentialBookings.length} BookingKoala bookings and ${commercialBookings.length} active commercial visits fully consolidated with rates and hours.`
+                : `${currentMonthInfo.labelEs} conciliado: ${residentialBookings.length} reservas BookingKoala y ${commercialBookings.length} visitas comerciales activas totalmente consolidadas con tarifas y horas.`}
             </p>
             {syncFeedback && (
               <p className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 animate-in fade-in">
@@ -429,7 +538,13 @@ export function SalesTrackClient() {
                 className="gap-1.5 h-9 text-xs border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
               >
                 <RefreshCw className={`size-3.5 ${syncingMonth ? "animate-spin" : ""}`} />
-                {syncingMonth ? "Sincronizando..." : `Sincronizar ${currentMonthInfo.shortLabel}`}
+                {syncingMonth
+                  ? isEn
+                    ? "Syncing..."
+                    : "Sincronizando..."
+                  : isEn
+                  ? `Sync ${currentMonthInfo.shortLabelEn}`
+                  : `Sincronizar ${currentMonthInfo.shortLabelEs}`}
               </Button>
             )}
 
@@ -441,7 +556,7 @@ export function SalesTrackClient() {
                 onClick={handleClearCurrentMonth}
                 className="h-9 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
               >
-                Limpiar Mes
+                {isEn ? "Reset Month" : "Limpiar Mes"}
               </Button>
             )}
 
@@ -450,7 +565,7 @@ export function SalesTrackClient() {
               className="gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 font-bold text-white shadow-md hover:from-emerald-700 hover:to-teal-700"
             >
               <img src="/pristiner-logo-white.png" alt="Pristiner" className="size-4 object-contain" />
-              Pristiner (Copiloto IA)
+              {isEn ? "Pristiner (AI Copilot)" : "Pristiner (Copiloto IA)"}
             </Button>
             <Button
               variant="outline"
@@ -458,7 +573,7 @@ export function SalesTrackClient() {
               className="gap-2 border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
             >
               <FileSpreadsheet className="size-4 text-emerald-600" />
-              Exportar Excel (.xlsx)
+              {isEn ? "Export Excel (.xlsx)" : "Exportar Excel (.xlsx)"}
             </Button>
             <Button
               variant="outline"
@@ -466,7 +581,7 @@ export function SalesTrackClient() {
               className="gap-2 border-rose-600/30 text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30"
             >
               <FileText className="size-4 text-rose-600" />
-              Exportar PDF
+              {isEn ? "Export PDF" : "Exportar PDF"}
             </Button>
           </div>
         </div>
@@ -475,7 +590,7 @@ export function SalesTrackClient() {
         {/* Mobile View: Compact 3-selector grid + active scope card (< sm) */}
         <div className="sm:hidden space-y-2">
           <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-border/70 bg-card p-1.5 shadow-xs">
-            {/* 1. Residencial */}
+            {/* 1. Residential */}
             <button
               type="button"
               onClick={() => setScopeFilter("residential")}
@@ -487,17 +602,17 @@ export function SalesTrackClient() {
             >
               <div className="flex items-center gap-1 text-[11px]">
                 <Home className="size-3 text-blue-500 shrink-0" />
-                <span className="font-semibold">Residencial</span>
+                <span className="font-semibold">{isEn ? "Residential" : "Residencial"}</span>
               </div>
               <span className="text-sm font-black mt-0.5 text-foreground">
                 ${(resKpis.totalRevenue / 1000).toFixed(1)}k
               </span>
               <span className="text-[10px] text-muted-foreground">
-                {residentialBookings.length} serv.
+                {residentialBookings.length} {isEn ? "serv." : "serv."}
               </span>
             </button>
 
-            {/* 2. Comercial */}
+            {/* 2. Commercial */}
             <button
               type="button"
               onClick={() => setScopeFilter("commercial")}
@@ -509,17 +624,17 @@ export function SalesTrackClient() {
             >
               <div className="flex items-center gap-1 text-[11px]">
                 <Building2 className="size-3 text-emerald-500 shrink-0" />
-                <span className="font-semibold">Comercial</span>
+                <span className="font-semibold">{isEn ? "Commercial" : "Comercial"}</span>
               </div>
               <span className="text-sm font-black mt-0.5 text-foreground">
                 ${(commKpis.totalRevenue / 1000).toFixed(1)}k
               </span>
               <span className="text-[10px] text-muted-foreground">
-                {commercialBookings.length} ctas.
+                {commercialBookings.length} {isEn ? "accts." : "ctas."}
               </span>
             </button>
 
-            {/* 3. Unificado */}
+            {/* 3. Unified */}
             <button
               type="button"
               onClick={() => setScopeFilter("all")}
@@ -531,13 +646,13 @@ export function SalesTrackClient() {
             >
               <div className="flex items-center gap-1 text-[11px]">
                 <Layers className="size-3 text-primary shrink-0" />
-                <span className="font-semibold">Unificado</span>
+                <span className="font-semibold">{isEn ? "Unified" : "Unificado"}</span>
               </div>
               <span className="text-sm font-black mt-0.5 text-primary">
                 ${(totalKpis.totalRevenue / 1000).toFixed(1)}k
               </span>
               <span className="text-[10px] text-muted-foreground">
-                {rawPeriodBookings.length} total
+                {rawPeriodBookings.length} {isEn ? "total" : "total"}
               </span>
             </button>
           </div>
@@ -545,16 +660,26 @@ export function SalesTrackClient() {
           {/* Active scope details pill in mobile */}
           <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/90 px-3 py-2 text-xs shadow-xs">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-foreground capitalize">
-                {scopeFilter === "all" ? "Total Unificado" : scopeFilter === "residential" ? "Residencial BK" : "Comercial Contratos"}
+              <span className="font-bold text-foreground">
+                {scopeFilter === "all"
+                  ? isEn
+                    ? "Unified Total"
+                    : "Total Unificado"
+                  : scopeFilter === "residential"
+                  ? isEn
+                    ? "Residential BK"
+                    : "Residencial BK"
+                  : isEn
+                  ? "Commercial Contracts"
+                  : "Comercial Contratos"}
               </span>
               <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                {kpis.totalGrossProfitPct.toFixed(1)}% margen
+                {kpis.totalGrossProfitPct.toFixed(1)}% {isEn ? "margin" : "margen"}
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span>Labor: ${kpis.totalGrossCost.toLocaleString()}</span>
-              <span>Profit: ${kpis.totalGrossProfit.toLocaleString()}</span>
+              <span>{isEn ? "Labor" : "Mano de obra"}: ${kpis.totalGrossCost.toLocaleString("en-US")}</span>
+              <span>{isEn ? "Profit" : "Ganancia"}: ${kpis.totalGrossProfit.toLocaleString("en-US")}</span>
             </div>
           </div>
         </div>
@@ -574,10 +699,12 @@ export function SalesTrackClient() {
                 <div className="flex size-7 items-center justify-center rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400">
                   <Home className="size-4" />
                 </div>
-                <span className="text-xs font-bold text-foreground">Residencial (Booking Koala)</span>
+                <span className="text-xs font-bold text-foreground">
+                  {isEn ? "Residential (BookingKoala)" : "Residencial (Booking Koala)"}
+                </span>
               </div>
               <Badge variant="outline" className="text-[10px] border-blue-500/30 text-blue-600 dark:text-blue-400">
-                {residentialBookings.length} servicios
+                {residentialBookings.length} {isEn ? "services" : "servicios"}
               </Badge>
             </div>
             <div className="mt-3 flex items-baseline justify-between">
@@ -585,12 +712,12 @@ export function SalesTrackClient() {
                 ${resKpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className="text-xs font-bold text-emerald-600">
-                {resKpis.totalGrossProfitPct.toFixed(1)}% margen
+                {resKpis.totalGrossProfitPct.toFixed(1)}% {isEn ? "margin" : "margen"}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Labor: ${resKpis.totalGrossCost.toLocaleString()}</span>
-              <span>Profit: ${resKpis.totalGrossProfit.toLocaleString()}</span>
+              <span>{isEn ? "Labor" : "Mano de obra"}: ${resKpis.totalGrossCost.toLocaleString("en-US")}</span>
+              <span>{isEn ? "Profit" : "Ganancia"}: ${resKpis.totalGrossProfit.toLocaleString("en-US")}</span>
             </div>
           </div>
 
@@ -607,10 +734,12 @@ export function SalesTrackClient() {
                 <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
                   <Building2 className="size-4" />
                 </div>
-                <span className="text-xs font-bold text-foreground">Comercial (Contratos)</span>
+                <span className="text-xs font-bold text-foreground">
+                  {isEn ? "Commercial (Contracts)" : "Comercial (Contratos)"}
+                </span>
               </div>
               <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
-                {commercialBookings.length} cuentas
+                {commercialBookings.length} {isEn ? "visits" : "visitas"}
               </Badge>
             </div>
             <div className="mt-3 flex items-baseline justify-between">
@@ -618,12 +747,12 @@ export function SalesTrackClient() {
                 ${commKpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className="text-xs font-bold text-emerald-600">
-                {commKpis.totalGrossProfitPct.toFixed(1)}% margen
+                {commKpis.totalGrossProfitPct.toFixed(1)}% {isEn ? "margin" : "margen"}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Labor: ${commKpis.totalGrossCost.toLocaleString()}</span>
-              <span>Profit: ${commKpis.totalGrossProfit.toLocaleString()}</span>
+              <span>{isEn ? "Labor" : "Mano de obra"}: ${commKpis.totalGrossCost.toLocaleString("en-US")}</span>
+              <span>{isEn ? "Profit" : "Ganancia"}: ${commKpis.totalGrossProfit.toLocaleString("en-US")}</span>
             </div>
           </div>
 
@@ -640,10 +769,12 @@ export function SalesTrackClient() {
                 <div className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
                   <Layers className="size-4" />
                 </div>
-                <span className="text-xs font-bold text-foreground">Total Unificado (Consolidado)</span>
+                <span className="text-xs font-bold text-foreground">
+                  {isEn ? "Unified Total (Consolidated)" : "Total Unificado (Consolidado)"}
+                </span>
               </div>
               <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">
-                {rawPeriodBookings.length} total
+                {rawPeriodBookings.length} {isEn ? "total" : "total"}
               </Badge>
             </div>
             <div className="mt-3 flex items-baseline justify-between">
@@ -651,12 +782,12 @@ export function SalesTrackClient() {
                 ${totalKpis.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className="text-xs font-bold text-emerald-600">
-                {totalKpis.totalGrossProfitPct.toFixed(1)}% margen
+                {totalKpis.totalGrossProfitPct.toFixed(1)}% {isEn ? "margin" : "margen"}
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Labor: ${totalKpis.totalGrossCost.toLocaleString()}</span>
-              <span>Ganancia Total: ${totalKpis.totalGrossProfit.toLocaleString()}</span>
+              <span>{isEn ? "Labor" : "Mano de obra"}: ${totalKpis.totalGrossCost.toLocaleString("en-US")}</span>
+              <span>{isEn ? "Total Profit" : "Ganancia Total"}: ${totalKpis.totalGrossProfit.toLocaleString("en-US")}</span>
             </div>
           </div>
         </div>
@@ -665,7 +796,7 @@ export function SalesTrackClient() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-border/70 bg-card p-2.5 sm:p-3 shadow-xs">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-bold text-muted-foreground flex items-center gap-1 shrink-0">
-              <Filter className="size-3.5" /> Ámbito:
+              <Filter className="size-3.5" /> {isEn ? "Scope:" : "Ámbito:"}
             </span>
             <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg overflow-x-auto no-scrollbar touch-scroll max-w-full">
               <button
@@ -678,7 +809,7 @@ export function SalesTrackClient() {
                 }`}
               >
                 <Layers className="size-3.5 text-primary shrink-0" />
-                <span>Todas ({rawPeriodBookings.length})</span>
+                <span>{isEn ? "All" : "Todas"} ({rawPeriodBookings.length})</span>
               </button>
               <button
                 type="button"
@@ -690,7 +821,7 @@ export function SalesTrackClient() {
                 }`}
               >
                 <Home className="size-3.5 text-blue-500 shrink-0" />
-                <span>Residencial ({residentialBookings.length})</span>
+                <span>{isEn ? "Residential" : "Residencial"} ({residentialBookings.length})</span>
               </button>
               <button
                 type="button"
@@ -702,14 +833,16 @@ export function SalesTrackClient() {
                 }`}
               >
                 <Building2 className="size-3.5 text-emerald-500 shrink-0" />
-                <span>Comercial ({commercialBookings.length})</span>
+                <span>{isEn ? "Commercial" : "Comercial"} ({commercialBookings.length})</span>
               </button>
             </div>
           </div>
 
           <div className="text-[11px] sm:text-xs font-medium text-muted-foreground shrink-0 self-end sm:self-auto">
-            Visualizando <span className="font-bold text-foreground">{scopedBookings.length}</span> en{" "}
-            <span className="font-bold text-foreground capitalize">{scopeFilter}</span>
+            {isEn ? "Viewing" : "Visualizando"}{" "}
+            <span className="font-bold text-foreground">{scopedBookings.length}</span>{" "}
+            {isEn ? "in" : "en"}{" "}
+            <span className="font-bold text-foreground">{scopeLabel}</span>
           </div>
         </div>
 
@@ -726,7 +859,7 @@ export function SalesTrackClient() {
           >
             <LayoutDashboard className="size-3.5 shrink-0" />
             <span className="sm:hidden">KPIs</span>
-            <span className="hidden sm:inline">Dash (Executive KPIs)</span>
+            <span className="hidden sm:inline">{isEn ? "Dash (Executive KPIs)" : "Resumen (KPIs Ejecutivos)"}</span>
           </button>
           <button
             type="button"
@@ -738,8 +871,8 @@ export function SalesTrackClient() {
             }`}
           >
             <TableIcon className="size-3.5 shrink-0" />
-            <span className="sm:hidden">Categorías</span>
-            <span className="hidden sm:inline">Table (Category Breakdown)</span>
+            <span className="sm:hidden">{isEn ? "Categories" : "Categorías"}</span>
+            <span className="hidden sm:inline">{isEn ? "Table (Category Breakdown)" : "Tabla (Desglose por Categoría)"}</span>
           </button>
           <button
             type="button"
@@ -751,8 +884,8 @@ export function SalesTrackClient() {
             }`}
           >
             <Target className="size-3.5 shrink-0" />
-            <span className="sm:hidden">Objetivos</span>
-            <span className="hidden sm:inline">Target (Rate Modeling)</span>
+            <span className="sm:hidden">{isEn ? "Targets" : "Objetivos"}</span>
+            <span className="hidden sm:inline">{isEn ? "Target (Rate Modeling)" : "Objetivos (Modelado de Tarifas)"}</span>
           </button>
           <button
             type="button"
@@ -765,7 +898,7 @@ export function SalesTrackClient() {
           >
             <Scale className="size-3.5 shrink-0" />
             <span className="sm:hidden">Res vs Com</span>
-            <span className="hidden sm:inline">⚖️ Residencial vs Comercial</span>
+            <span className="hidden sm:inline">{isEn ? "⚖️ Residential vs Commercial" : "⚖️ Residencial vs Comercial"}</span>
           </button>
           <button
             type="button"
@@ -777,8 +910,8 @@ export function SalesTrackClient() {
             }`}
           >
             <ListOrdered className="size-3.5 shrink-0" />
-            <span className="sm:hidden">Ledger</span>
-            <span className="hidden sm:inline">Master Ledger (Detalle)</span>
+            <span className="sm:hidden">{isEn ? "Ledger" : "Registros"}</span>
+            <span className="hidden sm:inline">{isEn ? "Master Ledger (Details)" : "Master Ledger (Detalle)"}</span>
             <span className="ml-1 rounded-md bg-muted px-1.5 py-0.2 text-[10px] font-semibold text-muted-foreground">
               {filteredBookings.length}
             </span>
@@ -794,7 +927,7 @@ export function SalesTrackClient() {
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Total Revenue ({scopeFilter})
+                      {isEn ? `Total Revenue (${scopeLabel})` : `Ingresos Totales (${scopeLabel})`}
                     </span>
                     <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                       <DollarSign className="size-4" />
@@ -806,7 +939,9 @@ export function SalesTrackClient() {
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground font-medium">
-                    {kpis.totalBookings} servicios / contratos en este ámbito
+                    {isEn
+                      ? `${kpis.totalBookings} services / contracts in this scope`
+                      : `${kpis.totalBookings} servicios / contratos en este ámbito`}
                   </p>
                 </CardContent>
               </Card>
@@ -815,7 +950,7 @@ export function SalesTrackClient() {
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Total Gross Profit
+                      {isEn ? "Total Gross Profit" : "Ganancia Bruta Total"}
                     </span>
                     <div className="flex size-8 items-center justify-center rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400">
                       <TrendingUp className="size-4" />
@@ -830,7 +965,7 @@ export function SalesTrackClient() {
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground font-medium">
-                    Margen de beneficio neto operativo
+                    {isEn ? "Operating net profit margin" : "Margen de beneficio neto operativo"}
                   </p>
                 </CardContent>
               </Card>
@@ -839,7 +974,7 @@ export function SalesTrackClient() {
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Monthly Recurring (MRR)
+                      {isEn ? "Monthly Recurring (MRR)" : "Ingresos Recurrentes (MRR)"}
                     </span>
                     <div className="flex size-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
                       <Building2 className="size-4" />
@@ -854,7 +989,9 @@ export function SalesTrackClient() {
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground font-medium">
-                    {kpis.totalRecurringBookings} servicios recurrentes
+                    {isEn
+                      ? `${kpis.totalRecurringBookings} recurring services`
+                      : `${kpis.totalRecurringBookings} servicios recurrentes`}
                   </p>
                 </CardContent>
               </Card>
@@ -863,7 +1000,7 @@ export function SalesTrackClient() {
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Labor Cost & Hours
+                      {isEn ? "Labor Cost & Hours" : "Costo Laboral y Horas"}
                     </span>
                     <div className="flex size-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
                       <Clock className="size-4" />
@@ -875,7 +1012,9 @@ export function SalesTrackClient() {
                     </span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground font-medium">
-                    {kpis.totalCleanHours.toFixed(1)} hrs totales de limpieza
+                    {isEn
+                      ? `${kpis.totalCleanHours.toFixed(1)} total cleaning hrs`
+                      : `${kpis.totalCleanHours.toFixed(1)} hrs totales de limpieza`}
                   </p>
                 </CardContent>
               </Card>
@@ -884,19 +1023,27 @@ export function SalesTrackClient() {
             {/* Secondary Operational Metrics */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
-                <span className="text-[11px] font-bold uppercase text-muted-foreground">Avg. Revenue Per Clean/Acc</span>
+                <span className="text-[11px] font-bold uppercase text-muted-foreground">
+                  {isEn ? "Avg. Revenue Per Clean/Acc" : "Ingreso Prom. por Servicio/Cta"}
+                </span>
                 <p className="mt-2 text-xl font-bold text-foreground">${kpis.avgRevenuePerClean.toFixed(2)}</p>
               </div>
               <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
-                <span className="text-[11px] font-bold uppercase text-muted-foreground">Avg. Profit Per Clean/Acc</span>
+                <span className="text-[11px] font-bold uppercase text-muted-foreground">
+                  {isEn ? "Avg. Profit Per Clean/Acc" : "Ganancia Prom. por Servicio/Cta"}
+                </span>
                 <p className="mt-2 text-xl font-bold text-emerald-600 dark:text-emerald-400">${kpis.avgGrossProfitPerBooking.toFixed(2)}</p>
               </div>
               <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
-                <span className="text-[11px] font-bold uppercase text-muted-foreground">Avg. Revenue / Clean Hour</span>
+                <span className="text-[11px] font-bold uppercase text-muted-foreground">
+                  {isEn ? "Avg. Revenue / Clean Hour" : "Ingreso Prom. / Hora Limpieza"}
+                </span>
                 <p className="mt-2 text-xl font-bold text-foreground">${kpis.avgRevenuePerCleanHour.toFixed(2)}/hr</p>
               </div>
               <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
-                <span className="text-[11px] font-bold uppercase text-muted-foreground">Avg. Labor Cost / Clean Hour</span>
+                <span className="text-[11px] font-bold uppercase text-muted-foreground">
+                  {isEn ? "Avg. Labor Cost / Clean Hour" : "Costo Laboral Prom. / Hora"}
+                </span>
                 <p className="mt-2 text-xl font-bold text-muted-foreground">${kpis.avgGrossCostPerCleanHour.toFixed(2)}/hr</p>
               </div>
             </div>
@@ -905,34 +1052,54 @@ export function SalesTrackClient() {
             <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-sm">
               <div className="flex items-center gap-2 text-base font-bold text-foreground mb-4">
                 <ShieldCheck className="size-5 text-primary" />
-                Resumen Ejecutivo ({periodTitle} — Ámbito: {scopeFilter.toUpperCase()})
+                {isEn
+                  ? `Executive Summary (${periodTitle} — Scope: ${scopeLabel.toUpperCase()})`
+                  : `Resumen Ejecutivo (${periodTitle} — Ámbito: ${scopeLabel.toUpperCase()})`}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                 <div className="rounded-xl bg-muted/40 p-4 space-y-1">
-                  <span className="text-muted-foreground font-semibold">Tasa de Rentabilidad</span>
+                  <span className="text-muted-foreground font-semibold">
+                    {isEn ? "Profitability Rate" : "Tasa de Rentabilidad"}
+                  </span>
                   <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">
-                    {kpis.totalGrossProfitPct.toFixed(1)}% margen bruto
+                    {kpis.totalGrossProfitPct.toFixed(1)}% {isEn ? "gross margin" : "margen bruto"}
                   </div>
                   <p className="text-muted-foreground">
-                    Por cada $100 cobrados, $<strong>{kpis.totalGrossProfitPct.toFixed(1)}</strong> quedan como beneficio tras pagar mano de obra.
+                    {isEn ? (
+                      <>
+                        For every $100 billed, $<strong>{kpis.totalGrossProfitPct.toFixed(1)}</strong> remains as gross profit after labor.
+                      </>
+                    ) : (
+                      <>
+                        Por cada $100 cobrados, $<strong>{kpis.totalGrossProfitPct.toFixed(1)}</strong> quedan como beneficio tras pagar mano de obra.
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="rounded-xl bg-muted/40 p-4 space-y-1">
-                  <span className="text-muted-foreground font-semibold">Estabilidad de Recurrencia</span>
+                  <span className="text-muted-foreground font-semibold">
+                    {isEn ? "Recurring Stability" : "Estabilidad de Recurrencia"}
+                  </span>
                   <div className="text-lg font-black text-blue-600 dark:text-blue-400">
                     {kpis.recurringRevenuePct.toFixed(1)}% MRR
                   </div>
                   <p className="text-muted-foreground">
-                    ${kpis.mrr.toLocaleString()} provienen de clientes con frecuencia regular semanal, quincenal o mensual.
+                    {isEn
+                      ? `$${kpis.mrr.toLocaleString("en-US")} comes from regular weekly, biweekly, or monthly recurring clients.`
+                      : `$${kpis.mrr.toLocaleString("en-US")} provienen de clientes con frecuencia regular semanal, quincenal o mensual.`}
                   </p>
                 </div>
                 <div className="rounded-xl bg-muted/40 p-4 space-y-1">
-                  <span className="text-muted-foreground font-semibold">Eficiencia Horaria</span>
+                  <span className="text-muted-foreground font-semibold">
+                    {isEn ? "Hourly Efficiency" : "Eficiencia Horaria"}
+                  </span>
                   <div className="text-lg font-black text-foreground">
-                    ${(kpis.avgRevenuePerCleanHour - kpis.avgGrossCostPerCleanHour).toFixed(2)}/hr beneficio neto
+                    ${(kpis.avgRevenuePerCleanHour - kpis.avgGrossCostPerCleanHour).toFixed(2)}/hr {isEn ? "net profit" : "beneficio neto"}
                   </div>
                   <p className="text-muted-foreground">
-                    Margen neto generado por cada hora de limpieza ejecutada en el campo.
+                    {isEn
+                      ? "Net margin generated per cleaning hour performed in the field."
+                      : "Margen neto generado por cada hora de limpieza ejecutada en el campo."}
                   </p>
                 </div>
               </div>
@@ -946,11 +1113,17 @@ export function SalesTrackClient() {
             <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden">
               <div className="p-4 border-b border-border/80 bg-muted/40 flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-sm text-foreground">Matriz de Rendimiento por Categoría (Table Sheet)</h3>
-                  <p className="text-xs text-muted-foreground">Desglose de horas, ingresos, costos laborales y margen por tipo de servicio.</p>
+                  <h3 className="font-bold text-sm text-foreground">
+                    {isEn ? "Category Performance Matrix (Table Sheet)" : "Matriz de Rendimiento por Categoría"}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {isEn
+                      ? "Breakdown of hours, revenue, labor costs, and margin by service type."
+                      : "Desglose de horas, ingresos, costos laborales y margen por tipo de servicio."}
+                  </p>
                 </div>
                 <Badge variant="outline" className="border-primary/30 text-primary font-bold">
-                  {breakdowns.length} Categorías Analizadas
+                  {breakdowns.length} {isEn ? "Categories Analyzed" : "Categorías Analizadas"}
                 </Badge>
               </div>
 
@@ -958,18 +1131,18 @@ export function SalesTrackClient() {
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-border/80 bg-muted/70 text-muted-foreground font-semibold">
                     <tr>
-                      <th className="px-4 py-3">Tipo de Servicio</th>
-                      <th className="px-3 py-3 text-center">Jobs/Cuentas</th>
-                      <th className="px-3 py-3 text-right">Total Horas</th>
-                      <th className="px-3 py-3 text-right">Prom. Horas</th>
-                      <th className="px-4 py-3 text-right">Ingreso Total</th>
-                      <th className="px-3 py-3 text-right">Ingreso / Job</th>
-                      <th className="px-3 py-3 text-right">Ingreso / Hr</th>
-                      <th className="px-4 py-3 text-right">Costo Laboral</th>
-                      <th className="px-3 py-3 text-right">Costo / Hr</th>
-                      <th className="px-4 py-3 text-right">Ganancia Bruta</th>
-                      <th className="px-3 py-3 text-right">Margen %</th>
-                      <th className="px-3 py-3 text-right">Labor %</th>
+                      <th className="px-4 py-3">{isEn ? "Service Type" : "Tipo de Servicio"}</th>
+                      <th className="px-3 py-3 text-center">{isEn ? "Jobs / Accts" : "Trabajos / Ctas"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Total Hours" : "Total Horas"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Avg. Hours" : "Prom. Horas"}</th>
+                      <th className="px-4 py-3 text-right">{isEn ? "Total Revenue" : "Ingreso Total"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Rev / Job" : "Ingreso / Trab."}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Rev / Hr" : "Ingreso / Hr"}</th>
+                      <th className="px-4 py-3 text-right">{isEn ? "Labor Cost" : "Costo Laboral"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Cost / Hr" : "Costo / Hr"}</th>
+                      <th className="px-4 py-3 text-right">{isEn ? "Gross Profit" : "Ganancia Bruta"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Margin %" : "Margen %"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Labor %" : "Mano de Obra %"}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -994,7 +1167,7 @@ export function SalesTrackClient() {
                         >
                           <td className="px-4 py-3 font-semibold text-foreground flex items-center gap-1.5">
                             {isComm && <Building2 className="size-3.5 text-emerald-600" />}
-                            {row.category}
+                            {translateCategoryName(row.category)}
                           </td>
                           <td className="px-3 py-3 text-center text-muted-foreground">{row.totalBookings}</td>
                           <td className="px-3 py-3 text-right text-foreground">{row.totalCleanHours.toFixed(1)}</td>
@@ -1035,142 +1208,17 @@ export function SalesTrackClient() {
 
         {/* TAB 3: TARGET (RATE MODELING & BENCHMARKS) */}
         {activeTab === "target" && (
-          <div className="space-y-4 animate-in fade-in-50 duration-200">
-            <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-border/80 bg-muted/40 flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-sm text-foreground">Modelado de Tarifas, Descuentos y Metas (Target Sheet)</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Tarifa base ($60/hr o $50/hr), descuentos por suscripción, pago a cleaner y margen objetivo vs real.
-                  </p>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="border-b border-border/80 bg-muted/70 text-muted-foreground font-semibold">
-                    <tr>
-                      <th className="px-4 py-3">Servicio / Frecuencia</th>
-                      <th className="px-3 py-3 text-right">Tarifa Base</th>
-                      <th className="px-3 py-3 text-right">Descuento</th>
-                      <th className="px-3 py-3 text-right">Tarifa Efectiva</th>
-                      <th className="px-3 py-3 text-right">Pago Cleaner</th>
-                      <th className="px-3 py-3 text-right">Cleaner Efectivo</th>
-                      <th className="px-3 py-3 text-right">Ganancia / Hr</th>
-                      <th className="px-3 py-3 text-right font-bold">Meta Margen %</th>
-                      <th className="px-3 py-3 text-right font-bold">Margen Real %</th>
-                      <th className="px-3 py-3 text-right">Ingreso Real</th>
-                      <th className="px-3 py-3 text-right">% de Ventas</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {targets.map((t, idx) => (
-                      <tr key={idx} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-3 font-bold text-foreground">{t.service}</td>
-                        <td className="px-3 py-3 text-right text-muted-foreground">${t.baseHourlyRate}/hr</td>
-                        <td className="px-3 py-3 text-right text-muted-foreground">{t.discountPct}%</td>
-                        <td className="px-3 py-3 text-right font-semibold text-foreground">${t.effectiveHourlyRate.toFixed(2)}/hr</td>
-                        <td className="px-3 py-3 text-right text-muted-foreground">${t.cleanerBaseRate}/hr</td>
-                        <td className="px-3 py-3 text-right text-muted-foreground">${t.cleanerEffectiveRate.toFixed(2)}/hr</td>
-                        <td className="px-3 py-3 text-right font-bold text-foreground">${t.grossProfitPerHour.toFixed(2)}/hr</td>
-                        <td className="px-3 py-3 text-right font-bold text-blue-600 dark:text-blue-400">{t.grossProfitTargetPct.toFixed(1)}%</td>
-                        <td className="px-3 py-3 text-right font-black text-emerald-600 dark:text-emerald-400">{t.actualGrossProfitPct.toFixed(1)}%</td>
-                        <td className="px-3 py-3 text-right font-bold text-foreground">${t.actualGrossRevenue.toFixed(2)}</td>
-                        <td className="px-3 py-3 text-right text-muted-foreground">{t.revenuePctOfTotal.toFixed(1)}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Dynamic Revenue Share Breakdown Cards */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden flex flex-col">
-                <div className="p-3.5 border-b border-border/80 bg-muted/40">
-                  <h4 className="font-bold text-xs text-foreground uppercase tracking-wider">
-                    Revenue & Earnings por Grupos ({periodTitle})
-                  </h4>
-                </div>
-                <div className="p-4 space-y-4 text-xs">
-                  {/* Commercial Share */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-foreground flex items-center gap-1.5">
-                        <Building2 className="size-3.5 text-emerald-600" />
-                        Comercial (Contratos)
-                      </span>
-                      <span className="font-black text-emerald-600">
-                        ${commKpis.totalRevenue.toLocaleString()} ({totalKpis.totalRevenue > 0 ? ((commKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
-                      </span>
-                    </div>
-                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-600 rounded-full"
-                        style={{ width: `${totalKpis.totalRevenue > 0 ? (commKpis.totalRevenue / totalKpis.totalRevenue) * 100 : 0}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[11px] text-muted-foreground">
-                      <span>Margen: {commKpis.totalGrossProfitPct.toFixed(1)}%</span>
-                      <span>Beneficio: ${commKpis.totalGrossProfit.toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  {/* Residential Share */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-foreground flex items-center gap-1.5">
-                        <Home className="size-3.5 text-blue-600" />
-                        Residencial (Booking Koala)
-                      </span>
-                      <span className="font-black text-blue-600">
-                        ${resKpis.totalRevenue.toLocaleString()} ({totalKpis.totalRevenue > 0 ? ((resKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
-                      </span>
-                    </div>
-                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-blue-600 rounded-full"
-                        style={{ width: `${totalKpis.totalRevenue > 0 ? (resKpis.totalRevenue / totalKpis.totalRevenue) * 100 : 0}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[11px] text-muted-foreground">
-                      <span>Margen: {resKpis.totalGrossProfitPct.toFixed(1)}%</span>
-                      <span>Beneficio: ${resKpis.totalGrossProfit.toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm flex flex-col justify-between text-xs">
-                <h4 className="font-bold text-xs text-foreground uppercase tracking-wider mb-2">
-                  Diagnóstico Financiero y Metas
-                </h4>
-                <div className="space-y-3">
-                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300">
-                    <strong>🏢 Comercial:</strong> Genera la mayor base recurrente mensual ($60.5k / mes) con ingresos constantes garantizados por contratos a largo plazo.
-                  </div>
-                  <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-800 dark:text-blue-300">
-                    <strong>🏠 Residencial:</strong> Ofrece el mayor margen bruto unitario (~53.2%), destacándose servicios como Move In/Out Clean y Deep Clean.
-                  </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-border flex justify-between items-center text-[11px] text-muted-foreground">
-                  <span>Margen Global Empresa:</span>
-                  <span className="font-black text-foreground text-sm">{totalKpis.totalGrossProfitPct.toFixed(1)}%</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: TARGET (RATE MODELING & BENCHMARKS) */}
-        {activeTab === "target" && (
           <div className="space-y-4 view-transition">
             <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden">
               <div className="p-4 border-b border-border/80 bg-muted/40 flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-sm text-foreground">Modelado de Tarifas, Descuentos y Metas (Target Sheet)</h3>
+                  <h3 className="font-bold text-sm text-foreground">
+                    {isEn ? "Rate, Discount & Target Modeling (Target Sheet)" : "Modelado de Tarifas, Descuentos y Metas"}
+                  </h3>
                   <p className="text-xs text-muted-foreground">
-                    Tarifa base ($60/hr o $50/hr), descuentos por suscripción, pago a cleaner y margen objetivo vs real.
+                    {isEn
+                      ? "Base rate ($60/hr or $50/hr), subscription discounts, cleaner pay, and target vs. actual margin."
+                      : "Tarifa base ($60/hr o $50/hr), descuentos por suscripción, pago a cleaner y margen objetivo vs real."}
                   </p>
                 </div>
               </div>
@@ -1179,23 +1227,23 @@ export function SalesTrackClient() {
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-border/80 bg-muted/70 text-muted-foreground font-semibold">
                     <tr>
-                      <th className="px-4 py-3">Servicio / Frecuencia</th>
-                      <th className="px-3 py-3 text-right">Tarifa Base</th>
-                      <th className="px-3 py-3 text-right">Descuento</th>
-                      <th className="px-3 py-3 text-right">Tarifa Efectiva</th>
-                      <th className="px-3 py-3 text-right">Pago Cleaner</th>
-                      <th className="px-3 py-3 text-right">Cleaner Efectivo</th>
-                      <th className="px-3 py-3 text-right">Ganancia / Hr</th>
-                      <th className="px-3 py-3 text-right font-bold">Meta Margen %</th>
-                      <th className="px-3 py-3 text-right font-bold">Margen Real %</th>
-                      <th className="px-3 py-3 text-right">Ingreso Real</th>
-                      <th className="px-3 py-3 text-right">% de Ventas</th>
+                      <th className="px-4 py-3">{isEn ? "Service / Frequency" : "Servicio / Frecuencia"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Base Rate" : "Tarifa Base"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Discount" : "Descuento"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Effective Rate" : "Tarifa Efectiva"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Cleaner Pay" : "Pago Cleaner"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Effective Cleaner" : "Cleaner Efectivo"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Profit / Hr" : "Ganancia / Hr"}</th>
+                      <th className="px-3 py-3 text-right font-bold">{isEn ? "Target Margin %" : "Meta Margen %"}</th>
+                      <th className="px-3 py-3 text-right font-bold">{isEn ? "Actual Margin %" : "Margen Real %"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "Actual Revenue" : "Ingreso Real"}</th>
+                      <th className="px-3 py-3 text-right">{isEn ? "% of Sales" : "% de Ventas"}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {targets.map((t, idx) => (
                       <tr key={idx} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-3 font-bold text-foreground">{t.service}</td>
+                        <td className="px-4 py-3 font-bold text-foreground">{translateCategoryName(t.service)}</td>
                         <td className="px-3 py-3 text-right text-muted-foreground">${t.baseHourlyRate}/hr</td>
                         <td className="px-3 py-3 text-right text-muted-foreground">{t.discountPct}%</td>
                         <td className="px-3 py-3 text-right font-semibold text-foreground">${t.effectiveHourlyRate.toFixed(2)}/hr</td>
@@ -1218,7 +1266,7 @@ export function SalesTrackClient() {
               <div className="rounded-2xl border border-border/80 bg-card shadow-sm overflow-hidden flex flex-col">
                 <div className="p-3.5 border-b border-border/80 bg-muted/40">
                   <h4 className="font-bold text-xs text-foreground uppercase tracking-wider">
-                    Revenue & Earnings por Grupos ({periodTitle})
+                    {isEn ? `Revenue & Earnings by Segment (${periodTitle})` : `Ingresos y Ganancias por Segmento (${periodTitle})`}
                   </h4>
                 </div>
                 <div className="p-4 space-y-4 text-xs">
@@ -1227,10 +1275,10 @@ export function SalesTrackClient() {
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-foreground flex items-center gap-1.5">
                         <Building2 className="size-3.5 text-emerald-600" />
-                        Comercial (Contratos)
+                        {isEn ? "Commercial (Contracts)" : "Comercial (Contratos)"}
                       </span>
                       <span className="font-black text-emerald-600">
-                        ${commKpis.totalRevenue.toLocaleString()} ({totalKpis.totalRevenue > 0 ? ((commKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
+                        ${commKpis.totalRevenue.toLocaleString("en-US")} ({totalKpis.totalRevenue > 0 ? ((commKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
                       </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
@@ -1240,8 +1288,8 @@ export function SalesTrackClient() {
                       />
                     </div>
                     <div className="flex justify-between text-[11px] text-muted-foreground">
-                      <span>Margen: {commKpis.totalGrossProfitPct.toFixed(1)}%</span>
-                      <span>Beneficio: ${commKpis.totalGrossProfit.toLocaleString()}</span>
+                      <span>{isEn ? "Margin" : "Margen"}: {commKpis.totalGrossProfitPct.toFixed(1)}%</span>
+                      <span>{isEn ? "Profit" : "Beneficio"}: ${commKpis.totalGrossProfit.toLocaleString("en-US")}</span>
                     </div>
                   </div>
 
@@ -1250,10 +1298,10 @@ export function SalesTrackClient() {
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-foreground flex items-center gap-1.5">
                         <Home className="size-3.5 text-blue-600" />
-                        Residencial (Booking Koala)
+                        {isEn ? "Residential (BookingKoala)" : "Residencial (Booking Koala)"}
                       </span>
                       <span className="font-black text-blue-600">
-                        ${resKpis.totalRevenue.toLocaleString()} ({totalKpis.totalRevenue > 0 ? ((resKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
+                        ${resKpis.totalRevenue.toLocaleString("en-US")} ({totalKpis.totalRevenue > 0 ? ((resKpis.totalRevenue / totalKpis.totalRevenue) * 100).toFixed(1) : "0"}%)
                       </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
@@ -1263,8 +1311,8 @@ export function SalesTrackClient() {
                       />
                     </div>
                     <div className="flex justify-between text-[11px] text-muted-foreground">
-                      <span>Margen: {resKpis.totalGrossProfitPct.toFixed(1)}%</span>
-                      <span>Beneficio: ${resKpis.totalGrossProfit.toLocaleString()}</span>
+                      <span>{isEn ? "Margin" : "Margen"}: {resKpis.totalGrossProfitPct.toFixed(1)}%</span>
+                      <span>{isEn ? "Profit" : "Beneficio"}: ${resKpis.totalGrossProfit.toLocaleString("en-US")}</span>
                     </div>
                   </div>
                 </div>
@@ -1272,18 +1320,34 @@ export function SalesTrackClient() {
 
               <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm flex flex-col justify-between text-xs">
                 <h4 className="font-bold text-xs text-foreground uppercase tracking-wider mb-2">
-                  Diagnóstico Financiero y Metas
+                  {isEn ? "Financial Diagnostics & Goals" : "Diagnóstico Financiero y Metas"}
                 </h4>
                 <div className="space-y-3">
                   <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300">
-                    <strong>🏢 Comercial:</strong> Genera la mayor base recurrente mensual ($60.5k / mes) con ingresos constantes garantizados por contratos a largo plazo.
+                    {isEn ? (
+                      <>
+                        <strong>🏢 Commercial:</strong> Generates the largest monthly recurring base ($60.5k / mo) with steady revenue backed by long-term contracts.
+                      </>
+                    ) : (
+                      <>
+                        <strong>🏢 Comercial:</strong> Genera la mayor base recurrente mensual ($60.5k / mes) con ingresos constantes garantizados por contratos a largo plazo.
+                      </>
+                    )}
                   </div>
                   <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-800 dark:text-blue-300">
-                    <strong>🏠 Residencial:</strong> Ofrece el mayor margen bruto unitario (~53.2%), destacándose servicios como Move In/Out Clean y Deep Clean.
+                    {isEn ? (
+                      <>
+                        <strong>🏠 Residential:</strong> Delivers strong unit gross margin (~53.2%), led by Move In/Out Clean and Deep Clean services.
+                      </>
+                    ) : (
+                      <>
+                        <strong>🏠 Residencial:</strong> Ofrece el mayor margen bruto unitario (~53.2%), destacándose servicios como Move In/Out Clean y Deep Clean.
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="mt-4 pt-3 border-t border-border flex justify-between items-center text-[11px] text-muted-foreground">
-                  <span>Margen Global Empresa:</span>
+                  <span>{isEn ? "Company Overall Margin:" : "Margen Global Empresa:"}</span>
                   <span className="font-black text-foreground text-sm">{totalKpis.totalGrossProfitPct.toFixed(1)}%</span>
                 </div>
               </div>
@@ -1297,7 +1361,9 @@ export function SalesTrackClient() {
             <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-sm">
               <div className="flex items-center gap-2 text-base font-bold text-foreground mb-4">
                 <Scale className="size-5 text-primary" />
-                Panel Comparativo: Residencial (Booking Koala) vs Comercial (Contratos)
+                {isEn
+                  ? "Comparison Panel: Residential (BookingKoala) vs Commercial (Contracts)"
+                  : "Panel Comparativo: Residencial (Booking Koala) vs Comercial (Contratos)"}
               </div>
 
               {/* Side-by-Side Cards */}
@@ -1307,27 +1373,29 @@ export function SalesTrackClient() {
                   <div className="flex items-center justify-between border-b border-blue-500/20 pb-3">
                     <div className="flex items-center gap-2">
                       <Home className="size-5 text-blue-500" />
-                      <h4 className="font-black text-foreground">Residencial (Booking Koala)</h4>
+                      <h4 className="font-black text-foreground">
+                        {isEn ? "Residential (BookingKoala)" : "Residencial (Booking Koala)"}
+                      </h4>
                     </div>
                     <Badge variant="outline" className="border-blue-500/40 text-blue-600 font-bold">
-                      {residentialBookings.length} Citas
+                      {residentialBookings.length} {isEn ? "Bookings" : "Citas"}
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="p-3 bg-card rounded-xl border border-border">
-                      <div className="text-muted-foreground">Ingresos Totales</div>
-                      <div className="text-lg font-black text-foreground mt-1">${resKpis.totalRevenue.toLocaleString()}</div>
+                      <div className="text-muted-foreground">{isEn ? "Total Revenue" : "Ingresos Totales"}</div>
+                      <div className="text-lg font-black text-foreground mt-1">${resKpis.totalRevenue.toLocaleString("en-US")}</div>
                     </div>
                     <div className="p-3 bg-card rounded-xl border border-border">
-                      <div className="text-muted-foreground">Margen Bruto %</div>
+                      <div className="text-muted-foreground">{isEn ? "Gross Margin %" : "Margen Bruto %"}</div>
                       <div className="text-lg font-black text-emerald-600 mt-1">{resKpis.totalGrossProfitPct.toFixed(1)}%</div>
                     </div>
                     <div className="p-3 bg-card rounded-xl border border-border">
-                      <div className="text-muted-foreground">Costo Laboral</div>
-                      <div className="text-lg font-black text-amber-600 mt-1">${resKpis.totalGrossCost.toLocaleString()}</div>
+                      <div className="text-muted-foreground">{isEn ? "Labor Cost" : "Costo Laboral"}</div>
+                      <div className="text-lg font-black text-amber-600 mt-1">${resKpis.totalGrossCost.toLocaleString("en-US")}</div>
                     </div>
                     <div className="p-3 bg-card rounded-xl border border-border">
-                      <div className="text-muted-foreground">Tarifa Promedio / Hr</div>
+                      <div className="text-muted-foreground">{isEn ? "Avg. Rate / Hr" : "Tarifa Promedio / Hr"}</div>
                       <div className="text-lg font-black text-foreground mt-1">${resKpis.avgRevenuePerCleanHour.toFixed(2)}/h</div>
                     </div>
                   </div>
@@ -1338,27 +1406,29 @@ export function SalesTrackClient() {
                   <div className="flex items-center justify-between border-b border-emerald-500/20 pb-3">
                     <div className="flex items-center gap-2">
                       <Building2 className="size-5 text-emerald-500" />
-                      <h4 className="font-black text-foreground">Comercial (Contratos)</h4>
+                      <h4 className="font-black text-foreground">
+                        {isEn ? "Commercial (Contracts)" : "Comercial (Contratos)"}
+                      </h4>
                     </div>
                     <Badge variant="outline" className="border-emerald-500/40 text-emerald-600 font-bold">
-                      {commercialBookings.length} Cuentas
+                      {commercialBookings.length} {isEn ? "Visits" : "Visitas"}
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="p-3 bg-card rounded-xl border border-border">
-                      <div className="text-muted-foreground">Ingresos Totales</div>
-                      <div className="text-lg font-black text-foreground mt-1">${commKpis.totalRevenue.toLocaleString()}</div>
+                      <div className="text-muted-foreground">{isEn ? "Total Revenue" : "Ingresos Totales"}</div>
+                      <div className="text-lg font-black text-foreground mt-1">${commKpis.totalRevenue.toLocaleString("en-US")}</div>
                     </div>
                     <div className="p-3 bg-card rounded-xl border border-border">
-                      <div className="text-muted-foreground">Margen Bruto %</div>
+                      <div className="text-muted-foreground">{isEn ? "Gross Margin %" : "Margen Bruto %"}</div>
                       <div className="text-lg font-black text-emerald-600 mt-1">{commKpis.totalGrossProfitPct.toFixed(1)}%</div>
                     </div>
                     <div className="p-3 bg-card rounded-xl border border-border">
-                      <div className="text-muted-foreground">Costo Laboral</div>
-                      <div className="text-lg font-black text-amber-600 mt-1">${commKpis.totalGrossCost.toLocaleString()}</div>
+                      <div className="text-muted-foreground">{isEn ? "Labor Cost" : "Costo Laboral"}</div>
+                      <div className="text-lg font-black text-amber-600 mt-1">${commKpis.totalGrossCost.toLocaleString("en-US")}</div>
                     </div>
                     <div className="p-3 bg-card rounded-xl border border-border">
-                      <div className="text-muted-foreground">Tarifa Promedio / Hr</div>
+                      <div className="text-muted-foreground">{isEn ? "Avg. Rate / Hr" : "Tarifa Promedio / Hr"}</div>
                       <div className="text-lg font-black text-foreground mt-1">${commKpis.avgRevenuePerCleanHour.toFixed(2)}/h</div>
                     </div>
                   </div>
@@ -1435,6 +1505,13 @@ export function SalesTrackClient() {
                   <tbody className="divide-y divide-border/60">
                     {paginatedBookings.map((b) => {
                       const isComm = isCommercialBooking(b);
+                      const isEditing = editingRowId === b.id;
+                      const cleanerOpts = ALL_TRACKER_CLEANERS.includes(editDraft.cleanerTeam)
+                        ? ALL_TRACKER_CLEANERS
+                        : editDraft.cleanerTeam
+                        ? [editDraft.cleanerTeam, ...ALL_TRACKER_CLEANERS]
+                        : ALL_TRACKER_CLEANERS;
+
                       return (
                         <tr key={b.id} className="hover:bg-muted/30 transition-colors">
                           <td className="px-3 py-2.5">
@@ -1452,22 +1529,123 @@ export function SalesTrackClient() {
                           <td className="px-4 py-2.5 font-bold text-foreground">{b.clientName}</td>
                           <td className="px-3 py-2.5 text-foreground">{b.service}</td>
                           <td className="px-3 py-2.5 text-muted-foreground">{b.frequency}</td>
-                          <td className="px-3 py-2.5 font-medium text-foreground">{b.cleanerTeam}</td>
+                          <td className="px-3 py-2.5 font-medium text-foreground">
+                            {isEditing ? (
+                              <select
+                                value={editDraft.cleanerTeam}
+                                onChange={(e) => setEditDraft({ ...editDraft, cleanerTeam: e.target.value })}
+                                className="h-7 rounded border border-primary/50 bg-background px-1.5 text-xs font-medium"
+                              >
+                                {cleanerOpts.map((c) => (
+                                  <option key={c} value={c}>
+                                    {c}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              b.cleanerTeam
+                            )}
+                          </td>
                           <td className="px-3 py-2.5 text-muted-foreground">{b.city}</td>
-                          <td className="px-3 py-2.5 text-right font-bold text-foreground">${b.subTotal.toFixed(2)}</td>
-                          <td className="px-3 py-2.5 text-right text-amber-600 dark:text-amber-400 font-semibold">${b.teamEarningsWithoutTips.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-foreground">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editDraft.subTotal}
+                                onChange={(e) => setEditDraft({ ...editDraft, subTotal: e.target.value })}
+                                className="h-7 w-20 rounded border border-primary/50 bg-background px-1.5 text-right font-mono text-xs"
+                              />
+                            ) : (
+                              `$${b.subTotal.toFixed(2)}`
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-amber-600 dark:text-amber-400 font-semibold">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editDraft.pay}
+                                onChange={(e) => setEditDraft({ ...editDraft, pay: e.target.value })}
+                                className="h-7 w-20 rounded border border-primary/50 bg-background px-1.5 text-right font-mono text-xs"
+                              />
+                            ) : (
+                              `$${b.teamEarningsWithoutTips.toFixed(2)}`
+                            )}
+                          </td>
                           <td className="px-3 py-2.5 text-right text-muted-foreground">{(b.laborPct * 100).toFixed(0)}%</td>
                           <td className="px-3 py-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">${b.pcEarnings.toFixed(2)}</td>
                           <td className="px-3 py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">{(b.pcProfitPct * 100).toFixed(0)}%</td>
                           <td className="px-3 py-2.5 text-center font-semibold text-foreground">{b.actualHours}h</td>
                           <td className="px-3 py-2.5 text-center">
-                            <button
-                              onClick={() => handleDeleteBooking(b.id)}
-                              className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
-                              title="Eliminar registro"
-                            >
-                              <Trash2 className="size-3" />
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    disabled={savingEdit}
+                                    onClick={async () => {
+                                      setSavingEdit(true);
+                                      try {
+                                        if (selectedMonthKey >= "2026-10") {
+                                          const res = await saveSopBookingOverride(supabase, selectedMonthKey, b, {
+                                            cleanerTeam: editDraft.cleanerTeam,
+                                            teamEarningsWithoutTips: parseFloat(editDraft.pay) || 0,
+                                            subTotal: parseFloat(editDraft.subTotal) || b.subTotal,
+                                          });
+                                          setDynamicMonthBookings(res.bookings);
+                                          setSyncFeedback(
+                                            `Actualizado ${b.clientName}: ${editDraft.cleanerTeam} ($${(
+                                              parseFloat(editDraft.pay) || 0
+                                            ).toFixed(2)})`
+                                          );
+                                          setTimeout(() => setSyncFeedback(null), 4000);
+                                        }
+                                        setEditingRowId(null);
+                                      } finally {
+                                        setSavingEdit(false);
+                                      }
+                                    }}
+                                    className="size-6 rounded bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25 transition-colors inline-flex items-center justify-center"
+                                    title="Guardar cambios"
+                                  >
+                                    <Check className="size-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingRowId(null)}
+                                    className="size-6 rounded text-muted-foreground hover:bg-muted transition-colors inline-flex items-center justify-center"
+                                    title="Cancelar"
+                                  >
+                                    <X className="size-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  {selectedMonthKey >= "2026-10" && (
+                                    <button
+                                      onClick={() => {
+                                        setEditingRowId(b.id);
+                                        setEditDraft({
+                                          cleanerTeam: b.cleanerTeam,
+                                          pay: String(b.teamEarningsWithoutTips),
+                                          subTotal: String(b.subTotal),
+                                        });
+                                      }}
+                                      className="size-6 rounded text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors inline-flex items-center justify-center"
+                                      title="Editar cleaner / pago"
+                                    >
+                                      <Pencil className="size-3" />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleDeleteBooking(b.id)}
+                                    className="size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors inline-flex items-center justify-center"
+                                    title="Eliminar registro"
+                                  >
+                                    <Trash2 className="size-3" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );

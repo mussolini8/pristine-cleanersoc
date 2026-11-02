@@ -8,12 +8,21 @@ export type MonthInfo = {
   key: string; // "2026-10"
   year: number; // 2026
   month: number; // 10
-  label: string; // "Octubre 2026"
+  label: string; // "October 2026" or "Octubre 2026"
   shortLabel: string; // "Oct 2026"
+  labelEn: string; // "October 2026"
+  shortLabelEn: string; // "Oct 2026"
+  labelEs: string; // "Octubre 2026"
+  shortLabelEs: string; // "Oct 2026"
   startDate: string; // "2026-10-01"
   endDate: string; // "2026-10-31"
   daysInMonth: number; // 31
 };
+
+export const MONTH_NAMES_EN = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
 
 export const MONTH_NAMES_ES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -21,8 +30,83 @@ export const MONTH_NAMES_ES = [
 ];
 
 export const TRACKER_CACHE_PREFIX = "pristine_sales_tracker_v2_";
+export const TRACKER_OVERRIDES_PREFIX = "pristine_sales_tracker_overrides_";
 
-export function getMonthInfo(monthKey: string): MonthInfo {
+export const ALL_TRACKER_CLEANERS = [
+  "Mayra Lopez",
+  "Maria Lopez",
+  "Miriam Lopez",
+  "Sofia Diaz",
+  "Lorena Benitez",
+  "Rosa Calderon",
+  "Juan Romero",
+  "Maria Tolentino",
+  "Jasmine Cardenas",
+  "Gabriel Cardenas",
+  "Blanca Garcia",
+  "Ana Morales",
+  "Luz Uribe",
+  "Maria Mejia",
+  "José Vazquez",
+  "Lucia Portillo",
+  "Sandra Hernandez",
+  "Kassandra Valentin",
+  "Emmi Guerra",
+  "Martha Garcia",
+  "Ivanda Mejia",
+  "Veronica Ladinos",
+  "Carlos Lopez",
+  "Unassigned",
+];
+
+export type BookingOverride = {
+  key: string;
+  cleanerTeam: string;
+  teamEarningsWithoutTips: number;
+  subTotal?: number;
+  updatedAt: string;
+};
+
+export function extractBookingKoalaId(row: ServiceBookingRow): string {
+  const m = row.notes?.match(/BookingKoala ID:\s*([^;]+)/i);
+  if (m && m[1]) return m[1].trim();
+  return row.id.replace(/^(oct-|sep-|aug-|20\d{2}-\d{2}-res-)/, "");
+}
+
+export function getStoredBookingOverrides(monthKey: string): Record<string, BookingOverride> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(`${TRACKER_OVERRIDES_PREFIX}${monthKey}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function applyBookingOverrides(
+  rows: ServiceBookingRow[],
+  monthKey: string
+): ServiceBookingRow[] {
+  const overrides = getStoredBookingOverrides(monthKey);
+  if (Object.keys(overrides).length === 0) return rows;
+
+  return rows.map((row) => {
+    const bkId = extractBookingKoalaId(row);
+    const ov = overrides[bkId] || overrides[row.id];
+    if (!ov) return row;
+
+    return computeBookingFormulas({
+      ...row,
+      cleanerTeam: ov.cleanerTeam,
+      teamEarningsWithoutTips: ov.teamEarningsWithoutTips,
+      subTotal: ov.subTotal !== undefined ? ov.subTotal : row.subTotal,
+    });
+  });
+}
+
+export function getMonthInfo(monthKey: string, lang: "en" | "es" = "en"): MonthInfo {
   const [yearStr, monthStr] = monthKey.split("-");
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10);
@@ -30,10 +114,27 @@ export function getMonthInfo(monthKey: string): MonthInfo {
   const daysInMonth = new Date(year, month, 0).getDate();
   const startDate = `${yearStr}-${String(month).padStart(2, "0")}-01`;
   const endDate = `${yearStr}-${String(month).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
-  const label = `${MONTH_NAMES_ES[month - 1]} ${year}`;
-  const shortLabel = `${MONTH_NAMES_ES[month - 1].slice(0, 3)} ${year}`;
+  const labelEn = `${MONTH_NAMES_EN[month - 1]} ${year}`;
+  const shortLabelEn = `${MONTH_NAMES_EN[month - 1].slice(0, 3)} ${year}`;
+  const labelEs = `${MONTH_NAMES_ES[month - 1]} ${year}`;
+  const shortLabelEs = `${MONTH_NAMES_ES[month - 1].slice(0, 3)} ${year}`;
+  const label = lang === "es" ? labelEs : labelEn;
+  const shortLabel = lang === "es" ? shortLabelEs : shortLabelEn;
 
-  return { key: monthKey, year, month, label, shortLabel, startDate, endDate, daysInMonth };
+  return {
+    key: monthKey,
+    year,
+    month,
+    label,
+    shortLabel,
+    labelEn,
+    shortLabelEn,
+    labelEs,
+    shortLabelEs,
+    startDate,
+    endDate,
+    daysInMonth,
+  };
 }
 
 export function getCurrentMonthKey(): string {
@@ -358,7 +459,24 @@ export function parseBookingKoalaRowsForMonth(
     if (!bookingIdMatch || !bookingIdMatch[1]) continue;
     const bookingId = bookingIdMatch[1].trim();
 
-    if (monthKey === "2026-10" && OCTOBER_2026_KNOWN_BK_IDS.has(bookingId)) continue;
+    if (monthKey === "2026-10" && OCTOBER_2026_KNOWN_BK_IDS.has(bookingId)) {
+      // Si el usuario guardó un [OVERRIDE] explícito desde el SOP para Octubre, aplicarlo sobre el seed auditado
+      if (log.notes.includes("[OVERRIDE]") && map.has(bookingId)) {
+        const existing = map.get(bookingId)!;
+        const chargedOv = log.notes.match(/charged\s*\$([0-9.]+)/i);
+        const payOv = log.notes.match(/cleaner pay\s*\$([0-9.]+)/i);
+        map.set(
+          bookingId,
+          computeBookingFormulas({
+            ...existing,
+            cleanerTeam: log.team_name || existing.cleanerTeam,
+            subTotal: chargedOv ? parseFloat(chargedOv[1]) : existing.subTotal,
+            teamEarningsWithoutTips: payOv ? parseFloat(payOv[1]) : existing.teamEarningsWithoutTips,
+          })
+        );
+      }
+      continue;
+    }
     if (map.has(bookingId)) continue;
 
     const chargedMatch = log.notes.match(/charged\s*\$([0-9.]+)/i);
@@ -495,7 +613,8 @@ export function parseBookingKoalaRowsForMonth(
     }
   }
 
-  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  return applyBookingOverrides(sorted, monthKey);
 }
 
 /**
@@ -504,7 +623,8 @@ export function parseBookingKoalaRowsForMonth(
 export function getInitialDynamicMonthBookings(monthKey: string): ServiceBookingRow[] {
   const commercial = generateMonthlyCommercialBookings(monthKey);
   if (monthKey === "2026-10") {
-    return [...octoberResidentialBookings, ...commercial].sort((a, b) => a.date.localeCompare(b.date));
+    const res = applyBookingOverrides(octoberResidentialBookings, monthKey);
+    return [...res, ...commercial].sort((a, b) => a.date.localeCompare(b.date));
   }
   return commercial;
 }
@@ -625,4 +745,234 @@ export async function reconcileMonthlyTracker(
     kpis,
     stats,
   };
+}
+
+function weekRangeForDate(date: string) {
+  const d = new Date(`${date}T12:00:00`);
+  const day = d.getDay();
+  const start = new Date(d);
+  start.setDate(d.getDate() - day);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return {
+    weekStart: start.toISOString().slice(0, 10),
+    weekEnd: end.toISOString().slice(0, 10),
+  };
+}
+
+/**
+ * Permite asignar o corregir desde el SOP (o desde el Sales Tracker) la cleaner y el pago de cualquier booking,
+ * guardándolo tanto en localStorage (instantáneo) como en Supabase (persistencia multi-dispositivo).
+ */
+export async function saveSopBookingOverride(
+  supabase: SupabaseClient,
+  monthKey: string,
+  booking: ServiceBookingRow,
+  updates: { cleanerTeam: string; teamEarningsWithoutTips: number; subTotal?: number }
+): Promise<MonthlyReconciliationResult> {
+  const bkId = extractBookingKoalaId(booking);
+  const now = new Date().toISOString();
+  const newSubTotal = updates.subTotal !== undefined ? Number(updates.subTotal) : booking.subTotal;
+  const newPay = Number(updates.teamEarningsWithoutTips) || 0;
+  const newCleaner = (updates.cleanerTeam || "Unassigned").trim();
+
+  // 1. Save override locally for 0ms sync with /commercial/sales-track
+  if (typeof window !== "undefined") {
+    try {
+      const existing = getStoredBookingOverrides(monthKey);
+      const entry: BookingOverride = {
+        key: bkId,
+        cleanerTeam: newCleaner,
+        teamEarningsWithoutTips: newPay,
+        subTotal: newSubTotal,
+        updatedAt: now,
+      };
+      existing[bkId] = entry;
+      existing[booking.id] = entry;
+      localStorage.setItem(`${TRACKER_OVERRIDES_PREFIX}${monthKey}`, JSON.stringify(existing));
+
+      // If this was a manual-* row, also update it inside the v2 cache directly
+      if (booking.id.startsWith("manual-")) {
+        const cachedRaw = localStorage.getItem(`${TRACKER_CACHE_PREFIX}${monthKey}`);
+        if (cachedRaw) {
+          const parsed = JSON.parse(cachedRaw);
+          if (Array.isArray(parsed)) {
+            const updatedCache = parsed.map((r: ServiceBookingRow) =>
+              r.id === booking.id
+                ? computeBookingFormulas({
+                    ...r,
+                    cleanerTeam: newCleaner,
+                    teamEarningsWithoutTips: newPay,
+                    subTotal: newSubTotal,
+                  })
+                : r
+            );
+            localStorage.setItem(`${TRACKER_CACHE_PREFIX}${monthKey}`, JSON.stringify(updatedCache));
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Persist in Supabase (residential_work_logs + residential_weekly_payment_rows)
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData?.user?.id;
+    const updatedNote = `BookingKoala ID: ${bkId}; ${booking.service}; freq: ${booking.frequency}; charged $${newSubTotal}; fee $${booking.processingFee || 0}; tip $${booking.tip || 0}; cleaner pay $${newPay}; city: ${booking.city}; [OVERRIDE]`;
+
+    const { data: existingLogs } = await supabase
+      .from("residential_work_logs")
+      .select("id")
+      .is("deleted_at", null)
+      .ilike("notes", `%BookingKoala ID: ${bkId}%`);
+
+    if (existingLogs && existingLogs.length > 0) {
+      await supabase
+        .from("residential_work_logs")
+        .update({
+          team_name: newCleaner,
+          notes: updatedNote,
+          updated_at: now,
+        })
+        .in("id", existingLogs.map((r: { id: string }) => r.id));
+    } else if (userId && !isCommercialBooking(booking)) {
+      await supabase.from("residential_work_logs").insert({
+        user_id: userId,
+        account_name: booking.clientName,
+        team_name: newCleaner,
+        work_date: booking.date,
+        hours_worked: booking.actualHours || booking.durationHours || 2.5,
+        notes: updatedNote,
+        status: "completed",
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
+    const { data: existingPays } = await supabase
+      .from("residential_weekly_payment_rows")
+      .select("id")
+      .is("deleted_at", null)
+      .ilike("notes", `%BookingKoala ID: ${bkId}%`);
+
+    if (existingPays && existingPays.length > 0) {
+      await supabase
+        .from("residential_weekly_payment_rows")
+        .update({
+          cleaner_name: newCleaner,
+          payment_amount: newPay,
+          notes: `BookingKoala ID: ${bkId}; ${booking.clientName}; ${booking.service}; freq: ${booking.frequency}; charged $${newSubTotal}; fee $${booking.processingFee || 0}; tip $${booking.tip || 0}; [OVERRIDE]`,
+          updated_at: now,
+        })
+        .in("id", existingPays.map((r: { id: string }) => r.id));
+    } else if (userId && newPay > 0 && newCleaner.toLowerCase() !== "unassigned" && !isCommercialBooking(booking)) {
+      const { weekStart, weekEnd } = weekRangeForDate(booking.date);
+      await supabase.from("residential_weekly_payment_rows").insert({
+        user_id: userId,
+        cleaner_name: newCleaner,
+        work_date: booking.date,
+        city: booking.city || "Orange County",
+        payment_amount: newPay,
+        residential_amount: 0,
+        commercial_amount: 0,
+        payment_type: "residential",
+        payment_mode: "residential_only",
+        week_start: weekStart,
+        week_end: weekEnd,
+        status: "pending",
+        notes: `BookingKoala ID: ${bkId}; ${booking.clientName}; ${booking.service}; freq: ${booking.frequency}; charged $${newSubTotal}; fee $${booking.processingFee || 0}; tip $${booking.tip || 0}; [OVERRIDE]`,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+  } catch (e) {
+    console.warn("Could not persist SOP booking override to Supabase (saved locally):", e);
+  }
+
+  return reconcileMonthlyTracker(supabase, monthKey);
+}
+
+/**
+ * Añade un booking adicional desde el SOP para el mes seleccionado y lo persiste en Supabase + caché local.
+ */
+export async function addSopManualBooking(
+  supabase: SupabaseClient,
+  monthKey: string,
+  draft: {
+    date: string;
+    clientName: string;
+    service: string;
+    frequency?: string;
+    city?: string;
+    cleanerTeam: string;
+    subTotal: number;
+    teamEarningsWithoutTips: number;
+    hours?: number;
+  }
+): Promise<MonthlyReconciliationResult> {
+  const manualBkId = `SOP-${Date.now().toString().slice(-6)}`;
+  const now = new Date().toISOString();
+  const hrs = Number(draft.hours) || 2.5;
+  const subTotal = Number(draft.subTotal) || 0;
+  const cleanerPay = Number(draft.teamEarningsWithoutTips) || 0;
+  const city = draft.city || "Orange County";
+  const freq = draft.frequency || "One Time";
+  const isComm = draft.service.toLowerCase().includes("commercial");
+  const { frequency, serviceCategory } = isComm
+    ? { frequency: freq, serviceCategory: "Commercial Cleaning" as ServiceCategory }
+    : normalizeFrequencyAndCategory(freq, draft.service);
+
+  const newRow = computeBookingFormulas({
+    id: `manual-${monthKey}-${manualBkId}`,
+    date: draft.date,
+    clientName: draft.clientName,
+    service: draft.service,
+    serviceCategory,
+    frequency,
+    city,
+    cleanerTeam: draft.cleanerTeam || "Unassigned",
+    subTotal,
+    salesTax: 0,
+    processingFee: isComm ? 0 : Math.round(subTotal * 0.03 * 100) / 100,
+    tip: 0,
+    teamEarningsWithoutTips: cleanerPay,
+    merchantFee: 0,
+    stripeFee: 0,
+    durationHours: hrs,
+    actualHours: hrs,
+    bookedBy: "SOP Manual",
+    status: "completed",
+    notes: `BookingKoala ID: ${manualBkId}; ${draft.service}; freq: ${frequency}; charged $${subTotal}; cleaner pay $${cleanerPay}; city: ${city}`,
+  });
+
+  if (typeof window !== "undefined") {
+    try {
+      const cachedRaw = localStorage.getItem(`${TRACKER_CACHE_PREFIX}${monthKey}`);
+      const existing = cachedRaw ? JSON.parse(cachedRaw) : [];
+      const list = Array.isArray(existing) ? existing : [];
+      localStorage.setItem(`${TRACKER_CACHE_PREFIX}${monthKey}`, JSON.stringify([newRow, ...list]));
+    } catch {}
+  }
+
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData?.user?.id;
+    if (userId && !isComm) {
+      await supabase.from("residential_work_logs").insert({
+        user_id: userId,
+        account_name: draft.clientName,
+        team_name: draft.cleanerTeam || "Unassigned",
+        work_date: draft.date,
+        hours_worked: hrs,
+        notes: newRow.notes,
+        status: "completed",
+        created_at: now,
+        updated_at: now,
+      });
+    }
+  } catch (e) {
+    console.warn("Could not save SOP manual booking to Supabase (saved locally):", e);
+  }
+
+  return reconcileMonthlyTracker(supabase, monthKey);
 }
