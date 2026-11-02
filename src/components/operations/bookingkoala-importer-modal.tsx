@@ -34,6 +34,8 @@ export type BookingKoalaRow = {
   serviceType: string;
   frequency?: string;
   chargedAmount: number;
+  processingFee?: number;
+  tip?: number;
   cleanerPay: number;
   hours: number;
   city?: string;
@@ -100,12 +102,13 @@ function detectIsCommercial(customerName: string, serviceType: string): boolean 
 function normalizeDate(raw?: any): string {
   if (!raw) return new Date().toISOString().split("T")[0];
   if (typeof raw === "number") {
-    const parsed = XLSX.SSF.parse_date_code(raw);
+    // Round to nearest integer serial day to prevent timezone float offsets (.999537 -> previous day 23:59)
+    const parsed = XLSX.SSF.parse_date_code(Math.round(raw));
     if (parsed) {
       return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
     }
   }
-  const trimmed = raw.trim();
+  const trimmed = String(raw).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
   // Handle MM/DD/YYYY or MM/DD/YY
   const match = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -162,7 +165,11 @@ function parseBookingRows(gridRows: any[][]): BookingKoalaRow[] {
     let serviceDate = new Date().toISOString().split("T")[0];
     let cleanerName = "Unassigned";
     let serviceType = "Standard Cleaning";
-    let chargedAmount = 0;
+    let frequency = "One-Time";
+    let serviceTotal = 0;
+    let finalAmount = 0;
+    let processingFee = 0;
+    let tip = 0;
     let cleanerPay = 0;
     let hours = 0;
     let city = "Orange County";
@@ -180,23 +187,32 @@ function parseBookingRows(gridRows: any[][]): BookingKoalaRow[] {
       else if (h.includes("provider/team payment") || h.includes("cleaner pay") || h.includes("wage") || h.includes("payout")) cleanerPay = parseCurrency(val);
       else if (h === "provider/team" || h === "provider" || h === "cleaner" || h === "team" || h.includes("assigned")) cleanerName = matchCleanerName(val);
       else if (h === "service" || h.includes("service type") || h.includes("category")) serviceType = val;
-      else if (h.includes("service total") || h.includes("final amount") || h.includes("price") || h.includes("charged") || h.includes("revenue")) chargedAmount = parseCurrency(val);
+      else if (h === "frequency") frequency = val;
+      else if (h.includes("service total") || h === "price" || h.includes("charged") || h.includes("revenue")) serviceTotal = parseCurrency(val);
+      else if (h.includes("final amount")) finalAmount = parseCurrency(val);
+      else if (h.includes("processing fee")) processingFee = parseCurrency(val);
+      else if (h === "tip (usd)" || h === "tip") tip = parseCurrency(val);
       else if (h.includes("estimated job length") || h.includes("hour") || h.includes("duration") || h.includes("length")) hours = parseHours(val);
       else if (h === "city") city = val || city;
       else if (h === "address") address = val;
       else if (h === "booking id" || h === "booking #" || h === "job id" || h === "id") bookingId = val;
     });
 
-    if (!customerName && cols[2]) customerName = String(cols[2]);
+    if (!customerName && cols[2]) customerName = String(cols[2]).trim();
     if (!customerName) return [];
 
-    if (hours > 0 && cleanerPay === 0) {
+    const chargedAmount = serviceTotal > 0
+      ? serviceTotal
+      : Math.max(0, Number((finalAmount - processingFee - tip).toFixed(2)));
+
+    const isCommercial = detectIsCommercial(customerName, serviceType);
+
+    // Solo estimar pago por hora ($18/hr) en trabajos comerciales con cleaner asignado; nunca fabricar pago en Unassigned residenciales
+    if (isCommercial && cleanerName !== "Unassigned" && hours > 0 && cleanerPay === 0) {
       cleanerPay = Number((hours * 18).toFixed(2));
     } else if (cleanerPay > 0 && hours === 0) {
       hours = Number((cleanerPay / 18).toFixed(2));
     }
-
-    const isCommercial = detectIsCommercial(customerName, serviceType);
 
     return [{
       bookingId,
@@ -204,7 +220,10 @@ function parseBookingRows(gridRows: any[][]): BookingKoalaRow[] {
       serviceDate,
       cleanerName,
       serviceType,
+      frequency,
       chargedAmount,
+      processingFee,
+      tip,
       cleanerPay,
       hours,
       city,
@@ -252,7 +271,7 @@ export function BookingKoalaImporterModal({
       const workbook = XLSX.read(pasteText.trim(), { type: "string" });
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
-      const gridRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+      const gridRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false }) as any[][];
 
       if (!gridRows || gridRows.length === 0) {
         setError("No data lines found.");
@@ -289,7 +308,7 @@ export function BookingKoalaImporterModal({
         const workbook = XLSX.read(data, { type: "array" });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-        const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false }) as any[][];
 
         if (!jsonRows || jsonRows.length < 2) {
           setError("The file does not contain data rows.");
@@ -404,7 +423,7 @@ export function BookingKoalaImporterModal({
           team_name: item.cleanerName,
           work_date: item.serviceDate,
           hours_worked: item.hours,
-          notes: `BookingKoala ID: ${item.bookingId}; ${item.serviceType}; charged $${item.chargedAmount}; cleaner pay $${item.cleanerPay}; ${item.city}`,
+          notes: `BookingKoala ID: ${item.bookingId}; ${item.serviceType}; freq: ${item.frequency || "One-Time"}; charged $${item.chargedAmount}; fee $${item.processingFee || 0}; tip $${item.tip || 0}; cleaner pay $${item.cleanerPay}; city: ${item.city}`,
           status: "completed",
           created_at: now,
           updated_at: now,
@@ -424,7 +443,7 @@ export function BookingKoalaImporterModal({
             week_start: weekStart,
             week_end: weekEnd,
             status: "pending",
-            notes: `BookingKoala ID: ${item.bookingId}; ${item.customerName}; ${item.serviceType}; charged $${item.chargedAmount}`,
+            notes: `BookingKoala ID: ${item.bookingId}; ${item.customerName}; ${item.serviceType}; freq: ${item.frequency || "One-Time"}; charged $${item.chargedAmount}; fee $${item.processingFee || 0}; tip $${item.tip || 0}`,
             created_at: now,
             updated_at: now,
           };

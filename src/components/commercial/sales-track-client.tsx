@@ -60,7 +60,9 @@ import { septemberSalesTrackerBookings } from "@/lib/sales-tracker/seed-data-sep
 import {
   getMonthInfo,
   getCurrentMonthKey,
+  getInitialDynamicMonthBookings,
   reconcileMonthlyTracker,
+  TRACKER_CACHE_PREFIX,
   type MonthlyReconciliationResult,
 } from "@/lib/sales-tracker/monthly-reconciler";
 import { createClient } from "@/lib/supabase/client";
@@ -68,7 +70,9 @@ import { createClient } from "@/lib/supabase/client";
 export function SalesTrackClient() {
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>("2026-10");
   const [currentMonthBookings, setCurrentMonthBookings] = useState<ServiceBookingRow[]>([]);
-  const [dynamicMonthBookings, setDynamicMonthBookings] = useState<ServiceBookingRow[]>([]);
+  const [dynamicMonthBookings, setDynamicMonthBookings] = useState<ServiceBookingRow[]>(() =>
+    getInitialDynamicMonthBookings("2026-10")
+  );
   const [syncingMonth, setSyncingMonth] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
@@ -146,8 +150,12 @@ export function SalesTrackClient() {
       } catch (e) {}
     }
 
-    // Try loading initial dynamic month from localStorage cache first for instant render
-    const cached = localStorage.getItem(`pristine_sales_tracker_${initialMonth}`);
+    // Remove legacy polluted v1 cache and load clean v2 cache / baseline
+    localStorage.removeItem(`pristine_sales_tracker_${initialMonth}`);
+    const baseline = getInitialDynamicMonthBookings(initialMonth);
+    setDynamicMonthBookings(baseline);
+
+    const cached = localStorage.getItem(`${TRACKER_CACHE_PREFIX}${initialMonth}`);
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
@@ -194,19 +202,26 @@ export function SalesTrackClient() {
       localStorage.setItem("pristine_sales_tracker_sep_2026", JSON.stringify(newBookings));
     } else {
       setDynamicMonthBookings(newBookings);
-      localStorage.setItem(`pristine_sales_tracker_${selectedMonthKey}`, JSON.stringify(newBookings));
+      localStorage.setItem(`${TRACKER_CACHE_PREFIX}${selectedMonthKey}`, JSON.stringify(newBookings));
     }
   };
 
   const handleClearCurrentMonth = () => {
     const monthInfo = getMonthInfo(selectedMonthKey);
-    if (confirm(`¿Deseas limpiar las adiciones manuales de ${monthInfo.label} para empezar desde cero?`)) {
-      saveCurrentBookings([]);
+    if (confirm(`¿Deseas restablecer ${monthInfo.label} a los datos oficiales sincronizados (eliminando adiciones manuales)?`)) {
+      if (selectedMonthKey === "2026-09") {
+        saveCurrentBookings([]);
+      } else {
+        localStorage.removeItem(`pristine_sales_tracker_${selectedMonthKey}`);
+        localStorage.removeItem(`${TRACKER_CACHE_PREFIX}${selectedMonthKey}`);
+        setDynamicMonthBookings(getInitialDynamicMonthBookings(selectedMonthKey));
+        syncMonthFromSupabase(selectedMonthKey);
+      }
     }
   };
 
   const handleApplySalesTrack = (newEntries: SalesTrackItem[]) => {
-    const convertedRows: ServiceBookingRow[] = newEntries.map((item) => {
+    const convertedRows: ServiceBookingRow[] = newEntries.map((item, idx) => {
       const subTotal = Number(item.monthlyRevenue) || 0;
       const teamEarnings = Number(item.cleanerCost) || 0;
       const hrs = Number(item.hoursPerVisit) || 3.0;
@@ -214,6 +229,7 @@ export function SalesTrackClient() {
       const merchantFee = Math.round(subTotal * 0.03 * 100) / 100; // ~3% CC processing fee
 
       return computeBookingFormulas({
+        id: `manual-${Date.now()}-${idx}`,
         clientName: item.clientName,
         city: item.city || "Orange County",
         service: "Commercial Cleaning",
@@ -243,6 +259,7 @@ export function SalesTrackClient() {
     if (!newBookingDraft.clientName) return;
 
     const row = computeBookingFormulas({
+      id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       ...newBookingDraft,
       subTotal: Number(newBookingDraft.subTotal) || 0,
       teamEarningsWithoutTips: Number(newBookingDraft.teamEarningsWithoutTips) || 0,
@@ -317,8 +334,8 @@ export function SalesTrackClient() {
 
   const AVAILABLE_MONTHS = [
     { key: "2026-12", label: "Diciembre 2026 (Próximo Mes)" },
-    { key: "2026-11", label: "Noviembre 2026 (Próximo Mes)" },
-    { key: "2026-10", label: "Octubre 2026 (Mes Actual - Sincronizado BookingKoala + 30 Comerciales)" },
+    { key: "2026-11", label: "Noviembre 2026 (Mes en Curso - SOP Automático)" },
+    { key: "2026-10", label: "Octubre 2026 (Consolidado: 42 BK Residenciales + 30 Contratos Comerciales)" },
     { key: "2026-09", label: "Septiembre 2026 (Consolidado: 51 BK Residenciales + 30 Contratos Comerciales)" },
     { key: "2026-08", label: "Agosto 2026 (Cerrado: 55 BK Residenciales + 31 Contratos Comerciales)" },
     { key: "2026-07", label: "Julio 2026 (Histórico / Plantilla Demo - $34.2k)" },
@@ -359,7 +376,9 @@ export function SalesTrackClient() {
                   onChange={(e) => {
                     const newMonth = e.target.value;
                     setSelectedMonthKey(newMonth);
-                    const cached = localStorage.getItem(`pristine_sales_tracker_${newMonth}`);
+                    localStorage.removeItem(`pristine_sales_tracker_${newMonth}`);
+                    setDynamicMonthBookings(getInitialDynamicMonthBookings(newMonth));
+                    const cached = localStorage.getItem(`${TRACKER_CACHE_PREFIX}${newMonth}`);
                     if (cached) {
                       try {
                         const parsed = JSON.parse(cached);
